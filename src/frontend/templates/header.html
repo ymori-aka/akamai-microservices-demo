@@ -82,6 +82,19 @@
                     </div>
                     {{ end }}
 
+                    <!-- Language Toggle -->
+                    <div class="h-controls" style="margin-right: 8px;">
+                      <div class="h-control">
+                        <form method="POST" action="{{ $.baseUrl }}/setLang" style="display:flex; align-items:center; gap:4px;">
+                          <button type="submit" name="lang" value="en"
+                            style="border:none; background:none; padding:2px 6px; border-radius:4px; cursor:pointer; font-size:13px; font-weight:{{ if eq $.user_lang "en" }}700{{ else }}400{{ end }}; color:{{ if eq $.user_lang "en" }}#F47920{{ else }}#888{{ end }};">EN</button>
+                          <span style="color:#ccc;">|</span>
+                          <button type="submit" name="lang" value="ja"
+                            style="border:none; background:none; padding:2px 6px; border-radius:4px; cursor:pointer; font-size:13px; font-weight:{{ if eq $.user_lang "ja" }}700{{ else }}400{{ end }}; color:{{ if eq $.user_lang "ja" }}#F47920{{ else }}#888{{ end }};">JP</button>
+                        </form>
+                      </div>
+                    </div>
+
                     {{ if $.assistant_enabled }}
                     <a href="{{ $.baseUrl }}/assistant" class="cart-link">
                       <img src="{{ $.baseUrl }}/static/icons/Hipster_WandIcon.svg" style="width: 22px; height: 22px;" alt="Assistant icon" class="logo" title="Assistant" />

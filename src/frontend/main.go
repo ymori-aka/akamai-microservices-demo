@@ -42,6 +42,7 @@ const (
 	cookiePrefix    = "shop_"
 	cookieSessionID = cookiePrefix + "session-id"
 	cookieCurrency  = cookiePrefix + "currency"
+	cookieLang      = cookiePrefix + "lang"
 )
 
 var (
@@ -152,9 +153,12 @@ func main() {
 	r.HandleFunc(baseUrl + "/cart", svc.addToCartHandler).Methods(http.MethodPost)
 	r.HandleFunc(baseUrl + "/cart/empty", svc.emptyCartHandler).Methods(http.MethodPost)
 	r.HandleFunc(baseUrl + "/setCurrency", svc.setCurrencyHandler).Methods(http.MethodPost)
+	r.HandleFunc(baseUrl + "/setLang", svc.setLangHandler).Methods(http.MethodPost)
 	r.HandleFunc(baseUrl + "/logout", svc.logoutHandler).Methods(http.MethodGet)
 	r.HandleFunc(baseUrl + "/cart/checkout", svc.placeOrderHandler).Methods(http.MethodPost)
 	r.HandleFunc(baseUrl + "/assistant", svc.assistantHandler).Methods(http.MethodGet)
+	r.HandleFunc(baseUrl + "/admin/inventory", svc.inventoryHandler).Methods(http.MethodGet)
+	r.HandleFunc(baseUrl + "/admin/inventory", svc.updateInventoryHandler).Methods(http.MethodPost)
 	r.PathPrefix(baseUrl + "/static/").Handler(http.StripPrefix(baseUrl + "/static/", http.FileServer(http.Dir("./static/"))))
 	r.HandleFunc(baseUrl + "/robots.txt", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "User-agent: *\nDisallow: /") })
 	r.HandleFunc(baseUrl + "/_healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "ok") })

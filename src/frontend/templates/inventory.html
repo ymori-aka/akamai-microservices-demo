@@ -1,0 +1,192 @@
+<!--
+ Inventory Management Screen for Akamai Store Demo
+-->
+
+{{ define "inventory" }}
+{{ template "header" . }}
+
+<main role="main">
+  <div class="container" style="padding-top: 32px; padding-bottom: 48px;">
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+      <div>
+        <h2 style="margin: 0; color: #333;">
+          📦 {{ if eq $.user_lang "ja" }}在庫管理{{ else }}Inventory Management{{ end }}
+        </h2>
+        <p style="margin: 4px 0 0 0; color: #888; font-size: 14px;">
+          {{ if eq $.user_lang "ja" }}各商品の在庫数を管理します{{ else }}Manage stock levels for all products{{ end }}
+        </p>
+      </div>
+      <a href="{{ $.baseUrl }}/" style="color: #009BDE; font-size: 14px; text-decoration: none;">
+        ← {{ if eq $.user_lang "ja" }}ストアに戻る{{ else }}Back to Store{{ end }}
+      </a>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="row" style="margin-bottom: 24px;">
+      <div class="col-md-3">
+        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: #333;">{{ len $.items }}</div>
+          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}総商品数{{ else }}Total Products{{ end }}</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: #28a745;" id="in-stock-count">-</div>
+          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: #dc3545;" id="low-stock-count">-</div>
+          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}在庫少{{ else }}Low Stock (≤10){{ end }}</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: #6c757d;" id="out-stock-count">-</div>
+          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out of Stock{{ end }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search box -->
+    <div style="margin-bottom: 16px;">
+      <input type="text" id="search-box" placeholder="{{ if eq $.user_lang "ja" }}商品名で検索...{{ else }}Search products...{{ end }}"
+        style="width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;"
+        oninput="filterTable(this.value)">
+    </div>
+
+    <form method="POST" action="{{ $.baseUrl }}/admin/inventory">
+      <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+        <table class="table" style="margin: 0;" id="inventory-table">
+          <thead style="background: #f8f9fa;">
+            <tr>
+              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0; width: 60px;"></th>
+              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0;">
+                {{ if eq $.user_lang "ja" }}商品名{{ else }}Product{{ end }}
+              </th>
+              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0;">ID</th>
+              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0; text-align: center;">
+                {{ if eq $.user_lang "ja" }}在庫数{{ else }}Stock{{ end }}
+              </th>
+              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0; text-align: center;">
+                {{ if eq $.user_lang "ja" }}ステータス{{ else }}Status{{ end }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range $.items }}
+            <tr class="inventory-row" data-name="{{ .Product.Name }}" style="border-bottom: 1px solid #f0f0f0;">
+              <td style="padding: 10px 16px; vertical-align: middle;">
+                <img src="{{ $.baseUrl }}{{ .Product.Picture }}" alt=""
+                  style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px;">
+              </td>
+              <td style="padding: 10px 16px; vertical-align: middle; font-size: 14px; font-weight: 500;">
+                <a href="{{ $.baseUrl }}/product/{{ .Product.Id }}" style="color: #333; text-decoration: none;">
+                  {{ .Product.Name }}
+                </a>
+              </td>
+              <td style="padding: 10px 16px; vertical-align: middle; font-size: 12px; color: #888; font-family: monospace;">
+                {{ .Product.Id }}
+              </td>
+              <td style="padding: 10px 16px; vertical-align: middle; text-align: center;">
+                <input type="number" name="stock_{{ .Product.Id }}" value="{{ .Stock }}" min="0" max="9999"
+                  class="stock-input"
+                  style="width: 80px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; text-align: center; font-size: 14px;"
+                  oninput="updateStatus(this)">
+              </td>
+              <td style="padding: 10px 16px; vertical-align: middle; text-align: center;">
+                {{ if gt .Stock 10 }}
+                <span class="stock-badge" style="background: #d4edda; color: #155724; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                  {{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}
+                </span>
+                {{ else if gt .Stock 0 }}
+                <span class="stock-badge" style="background: #fff3cd; color: #856404; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                  {{ if eq $.user_lang "ja" }}在庫少{{ else }}Low Stock{{ end }}
+                </span>
+                {{ else }}
+                <span class="stock-badge" style="background: #f8d7da; color: #721c24; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                  {{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out of Stock{{ end }}
+                </span>
+                {{ end }}
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 12px;">
+        <button type="button" onclick="setAllStock(100)"
+          style="padding: 10px 20px; border: 1px solid #009BDE; background: #fff; color: #009BDE; border-radius: 8px; font-size: 14px; cursor: pointer;">
+          {{ if eq $.user_lang "ja" }}全商品を100に設定{{ else }}Set All to 100{{ end }}
+        </button>
+        <button type="submit"
+          style="padding: 10px 28px; background: #F47920; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">
+          {{ if eq $.user_lang "ja" }}保存する{{ else }}Save Changes{{ end }}
+        </button>
+      </div>
+    </form>
+
+  </div>
+</main>
+
+<script>
+// Count stock status on load
+window.addEventListener('DOMContentLoaded', function() {
+  updateCounts();
+});
+
+function updateCounts() {
+  var inputs = document.querySelectorAll('.stock-input');
+  var inStock = 0, lowStock = 0, outStock = 0;
+  inputs.forEach(function(inp) {
+    var v = parseInt(inp.value, 10) || 0;
+    if (v > 10) inStock++;
+    else if (v > 0) lowStock++;
+    else outStock++;
+  });
+  document.getElementById('in-stock-count').textContent = inStock;
+  document.getElementById('low-stock-count').textContent = lowStock;
+  document.getElementById('out-stock-count').textContent = outStock;
+}
+
+function updateStatus(input) {
+  var v = parseInt(input.value, 10) || 0;
+  var row = input.closest('tr');
+  var badge = row.querySelector('.stock-badge');
+  var lang = "{{ $.user_lang }}";
+  var isJa = lang === 'ja';
+  if (v > 10) {
+    badge.style.background = '#d4edda'; badge.style.color = '#155724';
+    badge.textContent = isJa ? '在庫あり' : 'In Stock';
+  } else if (v > 0) {
+    badge.style.background = '#fff3cd'; badge.style.color = '#856404';
+    badge.textContent = isJa ? '在庫少' : 'Low Stock';
+  } else {
+    badge.style.background = '#f8d7da'; badge.style.color = '#721c24';
+    badge.textContent = isJa ? '在庫切れ' : 'Out of Stock';
+  }
+  updateCounts();
+}
+
+function filterTable(query) {
+  var rows = document.querySelectorAll('.inventory-row');
+  var q = query.toLowerCase();
+  rows.forEach(function(row) {
+    var name = row.getAttribute('data-name').toLowerCase();
+    row.style.display = name.includes(q) ? '' : 'none';
+  });
+}
+
+function setAllStock(qty) {
+  document.querySelectorAll('.stock-input').forEach(function(inp) {
+    inp.value = qty;
+    updateStatus(inp);
+  });
+}
+</script>
+
+{{ template "footer" . }}
+{{ end }}

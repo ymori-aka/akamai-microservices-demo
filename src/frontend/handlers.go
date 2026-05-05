@@ -26,6 +26,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -553,6 +554,7 @@ func injectCommonTemplateData(r *http.Request, payload map[string]interface{}) m
 		"session_id":        sessionID(r),
 		"request_id":        r.Context().Value(ctxKeyRequestID{}),
 		"user_currency":     currentCurrency(r),
+		"user_lang":         currentLang(r),
 		"platform_css":      plat.css,
 		"platform_name":     plat.provider,
 		"is_cymbal_brand":   isCymbalBrand,
@@ -576,6 +578,31 @@ func currentCurrency(r *http.Request) string {
 		return c.Value
 	}
 	return defaultCurrency
+}
+
+func currentLang(r *http.Request) string {
+	c, _ := r.Cookie(cookieLang)
+	if c != nil && (c.Value == "ja" || c.Value == "en") {
+		return c.Value
+	}
+	return "en"
+}
+
+func (fe *frontendServer) setLangHandler(w http.ResponseWriter, r *http.Request) {
+	lang := r.FormValue("lang")
+	if lang == "ja" || lang == "en" {
+		http.SetCookie(w, &http.Cookie{
+			Name:   cookieLang,
+			Value:  lang,
+			MaxAge: cookieMaxAge,
+		})
+	}
+	referer := r.Header.Get("referer")
+	if referer == "" {
+		referer = baseUrl + "/"
+	}
+	w.Header().Set("Location", referer)
+	w.WriteHeader(http.StatusFound)
 }
 
 func sessionID(r *http.Request) string {
@@ -632,4 +659,94 @@ func stringinSlice(slice []string, val string) bool {
 		}
 	}
 	return false
+}
+
+// ---- Inventory Management ----
+
+var (
+	inventoryMu    sync.RWMutex
+	inventoryStock = map[string]int{} // productID -> stock count
+)
+
+const inventoryFile = "/inventory/inventory.json"
+
+func loadInventory() {
+	inventoryMu.Lock()
+	defer inventoryMu.Unlock()
+	data, err := os.ReadFile(inventoryFile)
+	if err != nil {
+		// initialize defaults if file not found
+		return
+	}
+	_ = json.Unmarshal(data, &inventoryStock)
+}
+
+func saveInventory() error {
+	inventoryMu.RLock()
+	data, err := json.MarshalIndent(inventoryStock, "", "  ")
+	inventoryMu.RUnlock()
+	if err != nil {
+		return err
+	}
+	_ = os.MkdirAll("/inventory", 0755)
+	return os.WriteFile(inventoryFile, data, 0644)
+}
+
+func (fe *frontendServer) inventoryHandler(w http.ResponseWriter, r *http.Request) {
+	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
+
+	loadInventory()
+
+	products, err := fe.getProducts(r.Context())
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve products"), http.StatusInternalServerError)
+		return
+	}
+
+	type inventoryItem struct {
+		Product *pb.Product
+		Stock   int
+	}
+
+	inventoryMu.RLock()
+	items := make([]inventoryItem, len(products))
+	for i, p := range products {
+		stock, ok := inventoryStock[p.GetId()]
+		if !ok {
+			stock = 100 // default stock
+		}
+		items[i] = inventoryItem{Product: p, Stock: stock}
+	}
+	inventoryMu.RUnlock()
+
+	if err := templates.ExecuteTemplate(w, "inventory", injectCommonTemplateData(r, map[string]interface{}{
+		"items": items,
+	})); err != nil {
+		log.Println(err)
+	}
+}
+
+func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	inventoryMu.Lock()
+	for key, vals := range r.Form {
+		if strings.HasPrefix(key, "stock_") {
+			productID := strings.TrimPrefix(key, "stock_")
+			if len(vals) > 0 {
+				if qty, err := strconv.Atoi(vals[0]); err == nil && qty >= 0 {
+					inventoryStock[productID] = qty
+				}
+			}
+		}
+	}
+	inventoryMu.Unlock()
+
+	_ = saveInventory()
+
+	w.Header().Set("Location", baseUrl+"/admin/inventory")
+	w.WriteHeader(http.StatusFound)
 }

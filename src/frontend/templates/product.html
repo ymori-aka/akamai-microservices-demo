@@ -35,6 +35,17 @@
           <p class="product-price">{{ renderMoney $.product.Price }}</p>
           <p>{{ $.product.Item.Description }}</p>
 
+          <!-- AI-generated introduction -->
+          <div id="ai-intro-box" style="display:none; margin: 12px 0; padding: 14px 16px; background: linear-gradient(135deg, #f0f8ff, #e8f4fd); border-left: 4px solid #009BDE; border-radius: 6px;">
+            <p style="margin:0 0 4px 0; font-size:11px; color:#009BDE; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
+              ✨ {{ if eq $.user_lang "ja" }}AIによる紹介{{ else }}AI Introduction{{ end }}
+            </p>
+            <p id="ai-intro-text" style="margin:0; font-size:14px; line-height:1.6; color:#333;"></p>
+          </div>
+          <div id="ai-intro-loading" style="margin: 12px 0; color: #999; font-size: 13px;">
+            <span>{{ if eq $.user_lang "ja" }}✨ AI紹介を生成中...{{ else }}✨ Generating AI introduction...{{ end }}</span>
+          </div>
+
           {{ if $.packagingInfo }}
           <div class="product-packaging">
             <h3>Packaging</h3>
@@ -77,10 +88,112 @@
       {{ template "recommendations" $ }}
     {{ end }}
   </div>
+  <!-- AI-powered recommendations -->
+  <div id="ai-recommendations" style="display:none;">
+    <section class="recommendations">
+      <div class="container">
+        <div class="row">
+          <div class="col-xl-10 offset-xl-1">
+            <h2>{{ if eq $.user_lang "ja" }}🤖 AIおすすめ商品{{ else }}🤖 AI Recommendations{{ end }}</h2>
+            <div class="row" id="ai-rec-cards"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div>
+    {{ if $.recommendations}}
+      {{ template "recommendations" $ }}
+    {{ end }}
+  </div>
   <div class="ad">
    {{ if $.ad }}{{ template "text_ad" $ }}{{ end }}
   </div>
 
 </main>
+
+<script>
+(function() {
+  var productId = "{{ $.product.Item.Id }}";
+  var lang = "{{ $.user_lang }}";
+  var baseUrl = "{{ $.baseUrl }}";
+
+  // Spin API endpoints
+  var introUrl = "https://b0ff4a59-2449-4385-9f5c-03f471fd9392.fwf.app/intro?product_id=" + productId + "&lang=" + lang;
+  var recUrl   = "https://bc53a68a-dfd1-4144-a8b9-ed72f049bd8a.fwf.app/recommendations?product_id=" + productId;
+
+  // Product catalog for rendering recommendation cards
+  var catalog = {
+    "AKMT001": { name: "Akamai Unisex Tee - Blue",              pic: "/static/img/products/akamai/imgi_2_akauaajc0100015-1.jpg" },
+    "AKMT002": { name: "Akamai Unisex Tee - Gray",              pic: "/static/img/products/akamai/imgi_3_akauaajj0100115-1_1.jpg" },
+    "AKMT003": { name: "Akamai Women's V-Neck Tee",              pic: "/static/img/products/akamai/imgi_4_akauaadc0100214-1.jpg" },
+    "AKMT004": { name: "Akamai Unisex Tee - Navy",              pic: "/static/img/products/akamai/imgi_5_akauaajc0102515.jpg" },
+    "AKMT005": { name: "Akamai Men's Adidas Polo",              pic: "/static/img/products/akamai/imgi_6_akauaacc0101915.jpg" },
+    "AKMT006": { name: "Akamai Women's Adidas Polo",            pic: "/static/img/products/akamai/imgi_7_akauaafc0102015.jpg" },
+    "AKMT007": { name: "Akamai Men's Vest",                     pic: "/static/img/products/akamai/imgi_8_akauaaba0100615-1.jpg" },
+    "AKMT008": { name: "Akamai Women's Fleece Jacket",          pic: "/static/img/products/akamai/imgi_9_akauaaec0100814-1_1.jpg" },
+    "AKMT009": { name: "Akamai Men's Fleece Jacket",            pic: "/static/img/products/akamai/imgi_10_akauaabl0100715-1.jpg" },
+    "AKMT010": { name: "Akamai Pullover Hoodie",                pic: "/static/img/products/akamai/imgi_11_akauaabl0100915-1.jpg" },
+    "AKMT011": { name: "Akamai Full Zip Hoodie",                pic: "/static/img/products/akamai/imgi_12_akauaabj0101016-1.jpg" },
+    "AKMT012": { name: "Akamai Tech Socks",                     pic: "/static/img/products/akamai/imgi_13_akauackc0102399.jpg" },
+    "AKMT013": { name: "Akamai x North Face Cap",               pic: "/static/img/products/akamai/imgi_14_akauahka0101110-2.jpg" },
+    "AKMT014": { name: "Akamai Beach Towel - Blue",             pic: "/static/img/products/akamai/imgi_15_akauackc0102199-3_1.jpg" },
+    "AKMT015": { name: "Akamai Beach Towel - Orange",           pic: "/static/img/products/akamai/imgi_16_akauackm0102299-3_1.jpg" },
+    "AKMT016": { name: "Akamai Canvas Tote Bag",                pic: "/static/img/products/akamai/imgi_17_akauablc0100099.jpg" },
+    "AKMT017": { name: "Akamai 40oz Tumbler",                   pic: "/static/img/products/akamai/imgi_18_akauadnc0101999-1_1_1.jpg" },
+    "AKMT018": { name: "Akamai Notebook",                       pic: "/static/img/products/akamai/imgi_19_akauaorc0100099.jpg" },
+    "AKMT019": { name: "Akamai Stylus Pen",                     pic: "/static/img/products/akamai/imgi_20_akauaoxj0100299-1.jpg" },
+    "AKMT020": { name: "Akamai PopSocket",                      pic: "/static/img/products/akamai/imgi_21_27103_akamai-_pop_mockup-2.jpg" },
+    "AKMT021": { name: "Akamai Golf Balls",                     pic: "/static/img/products/akamai/imgi_22_akauackq0102399-2.jpg" },
+    "AKMT022": { name: "Akamai Phone Stand & Ring Light",       pic: "/static/img/products/akamai/imgi_23_akauaekq0101699-2.jpg" },
+    "AKMT023": { name: "Akamai 25th Anniv. Cooler Bag",         pic: "/static/img/products/akamai/imgi_24_akanadkb0100299-3.jpg" },
+    "AKMT024": { name: "Akamai 25th Anniv. Tumbler",            pic: "/static/img/products/akamai/imgi_25_akanatkb0100399-1.jpg" },
+    "AKMT025": { name: "Akamai 25th Anniv. Cap",                pic: "/static/img/products/akamai/imgi_26_akanaakb0100199-2.jpg" },
+    "AKMT026": { name: "Akamai Laptop Backpack",                pic: "/static/img/products/akamai/imgi_27_akauabmj0101499-1.jpg" },
+    "AKMT027": { name: "Akamai Gift Card - $50",                pic: "/static/img/products/akamai/imgi_28_default-product-image.png" },
+  };
+
+  // Fetch AI intro
+  fetch(introUrl)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('ai-intro-loading').style.display = 'none';
+      if (d.intro) {
+        document.getElementById('ai-intro-text').textContent = d.intro;
+        document.getElementById('ai-intro-box').style.display = 'block';
+      }
+    })
+    .catch(function() {
+      document.getElementById('ai-intro-loading').style.display = 'none';
+    });
+
+  // Fetch AI recommendations
+  fetch(recUrl)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var ids = d.recommendations || [];
+      if (ids.length === 0) return;
+      var container = document.getElementById('ai-rec-cards');
+      ids.forEach(function(id) {
+        var p = catalog[id];
+        if (!p) return;
+        var col = document.createElement('div');
+        col.className = 'col-md-3';
+        col.innerHTML =
+          '<div>' +
+          '<a href="' + baseUrl + '/product/' + id + '">' +
+          '<img alt="" src="' + baseUrl + p.pic + '" style="width:100%; border-radius:8px;">' +
+          '</a>' +
+          '<div><h5 style="font-size:13px; margin-top:8px;">' + p.name + '</h5></div>' +
+          '</div>';
+        container.appendChild(col);
+      });
+      document.getElementById('ai-recommendations').style.display = 'block';
+    })
+    .catch(function() {});
+})();
+</script>
+
 {{ template "footer" . }}
 {{ end }}
