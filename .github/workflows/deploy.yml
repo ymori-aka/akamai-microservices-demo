@@ -62,7 +62,7 @@ jobs:
   # -------------------------------------------------------
   deploy:
     name: Deploy to LKE
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: build-frontend
     permissions:
       contents: read
@@ -71,17 +71,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.28.0'
-
-      - name: Configure kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
 
       - name: Update frontend deployment
         run: |
