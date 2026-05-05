@@ -50,7 +50,9 @@
               <div class="hot-product-card-img-overlay"></div>
             </a>
             <div>
-              <div class="hot-product-card-name">{{ .Item.Name }}</div>
+              <div class="hot-product-card-name">
+                {{ if eq $.user_lang "ja" }}{{ jaName .Item.Id }}{{ else }}{{ .Item.Name }}{{ end }}
+              </div>
               <div class="hot-product-card-price">{{ renderMoney .Price }}</div>
             </div>
           </div>

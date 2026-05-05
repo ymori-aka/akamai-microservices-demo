@@ -51,6 +51,18 @@ var (
 				Funcs(template.FuncMap{
 			"renderMoney":        renderMoney,
 			"renderCurrencyLogo": renderCurrencyLogo,
+			"jaName": func(id string) string {
+				if t, ok := jaTranslations[id]; ok {
+					return t.Name
+				}
+				return ""
+			},
+			"jaDesc": func(id string) string {
+				if t, ok := jaTranslations[id]; ok {
+					return t.Description
+				}
+				return ""
+			},
 		}).ParseGlob("templates/*.html"))
 	plat platformDetails
 )
@@ -555,6 +567,7 @@ func injectCommonTemplateData(r *http.Request, payload map[string]interface{}) m
 		"request_id":        r.Context().Value(ctxKeyRequestID{}),
 		"user_currency":     currentCurrency(r),
 		"user_lang":         currentLang(r),
+		"ja_translations":   jaTranslations,
 		"platform_css":      plat.css,
 		"platform_name":     plat.provider,
 		"is_cymbal_brand":   isCymbalBrand,
@@ -661,41 +674,75 @@ func stringinSlice(slice []string, val string) bool {
 	return false
 }
 
-// ---- Inventory Management ----
+// ---- Inventory / Product Management ----
 
-var (
-	inventoryMu    sync.RWMutex
-	inventoryStock = map[string]int{} // productID -> stock count
-)
-
-const inventoryFile = "/inventory/inventory.json"
-
-func loadInventory() {
-	inventoryMu.Lock()
-	defer inventoryMu.Unlock()
-	data, err := os.ReadFile(inventoryFile)
-	if err != nil {
-		// initialize defaults if file not found
-		return
-	}
-	_ = json.Unmarshal(data, &inventoryStock)
+// AdminProduct holds admin-editable product data (overlays the gRPC catalog)
+type AdminProduct struct {
+	ID          string  `json:"id"`
+	NameEN      string  `json:"name_en"`
+	NameJA      string  `json:"name_ja"`
+	Description string  `json:"description"`
+	DescJA      string  `json:"desc_ja"`
+	Price       float64 `json:"price"` // USD
+	Picture     string  `json:"picture"`
+	Categories  string  `json:"categories"` // comma-separated
+	Stock       int     `json:"stock"`
+	Hidden      bool    `json:"hidden"`
 }
 
-func saveInventory() error {
-	inventoryMu.RLock()
-	data, err := json.MarshalIndent(inventoryStock, "", "  ")
-	inventoryMu.RUnlock()
+var (
+	adminMu       sync.RWMutex
+	adminProducts = map[string]*AdminProduct{} // productID -> overrides
+)
+
+const adminDataFile = "/inventory/admin_products.json"
+
+func loadAdminData() {
+	adminMu.Lock()
+	defer adminMu.Unlock()
+	data, err := os.ReadFile(adminDataFile)
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(data, &adminProducts)
+}
+
+func saveAdminData() error {
+	adminMu.RLock()
+	data, err := json.MarshalIndent(adminProducts, "", "  ")
+	adminMu.RUnlock()
 	if err != nil {
 		return err
 	}
 	_ = os.MkdirAll("/inventory", 0755)
-	return os.WriteFile(inventoryFile, data, 0644)
+	return os.WriteFile(adminDataFile, data, 0644)
+}
+
+func getAdminProduct(p *pb.Product) *AdminProduct {
+	if ap, ok := adminProducts[p.GetId()]; ok {
+		return ap
+	}
+	// Create from gRPC product defaults
+	jaT := jaTranslations[p.GetId()]
+	price := float64(p.GetPriceUsd().GetUnits()) + float64(p.GetPriceUsd().GetNanos())/1e9
+	return &AdminProduct{
+		ID:          p.GetId(),
+		NameEN:      p.GetName(),
+		NameJA:      jaT.Name,
+		Description: p.GetDescription(),
+		DescJA:      jaT.Description,
+		Price:       price,
+		Picture:     p.GetPicture(),
+		Categories:  strings.Join(p.GetCategories(), ","),
+		Stock:       100,
+		Hidden:      false,
+	}
 }
 
 func (fe *frontendServer) inventoryHandler(w http.ResponseWriter, r *http.Request) {
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 
-	loadInventory()
+	loadAdminData()
 
 	products, err := fe.getProducts(r.Context())
 	if err != nil {
@@ -703,24 +750,28 @@ func (fe *frontendServer) inventoryHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	type inventoryItem struct {
-		Product *pb.Product
-		Stock   int
-	}
-
-	inventoryMu.RLock()
-	items := make([]inventoryItem, len(products))
+	adminMu.RLock()
+	items := make([]*AdminProduct, len(products))
 	for i, p := range products {
-		stock, ok := inventoryStock[p.GetId()]
-		if !ok {
-			stock = 100 // default stock
-		}
-		items[i] = inventoryItem{Product: p, Stock: stock}
+		items[i] = getAdminProduct(p)
 	}
-	inventoryMu.RUnlock()
+	// Append any admin-only added products (not in gRPC catalog)
+	existingIDs := make(map[string]bool)
+	for _, p := range products {
+		existingIDs[p.GetId()] = true
+	}
+	for id, ap := range adminProducts {
+		if !existingIDs[id] {
+			items = append(items, ap)
+		}
+	}
+	adminMu.RUnlock()
+
+	flash := r.URL.Query().Get("flash")
 
 	if err := templates.ExecuteTemplate(w, "inventory", injectCommonTemplateData(r, map[string]interface{}{
 		"items": items,
+		"flash": flash,
 	})); err != nil {
 		log.Println(err)
 	}
@@ -732,21 +783,58 @@ func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	inventoryMu.Lock()
-	for key, vals := range r.Form {
-		if strings.HasPrefix(key, "stock_") {
-			productID := strings.TrimPrefix(key, "stock_")
-			if len(vals) > 0 {
-				if qty, err := strconv.Atoi(vals[0]); err == nil && qty >= 0 {
-					inventoryStock[productID] = qty
-				}
+	action := r.FormValue("action")
+
+	adminMu.Lock()
+	switch action {
+	case "delete":
+		id := r.FormValue("product_id")
+		delete(adminProducts, id)
+
+	case "add":
+		id := strings.TrimSpace(r.FormValue("new_id"))
+		if id != "" {
+			price, _ := strconv.ParseFloat(r.FormValue("new_price"), 64)
+			adminProducts[id] = &AdminProduct{
+				ID:          id,
+				NameEN:      r.FormValue("new_name_en"),
+				NameJA:      r.FormValue("new_name_ja"),
+				Description: r.FormValue("new_desc_en"),
+				DescJA:      r.FormValue("new_desc_ja"),
+				Price:       price,
+				Picture:     r.FormValue("new_picture"),
+				Categories:  r.FormValue("new_categories"),
+				Stock:       100,
+				Hidden:      false,
 			}
 		}
+
+	default: // bulk save
+		// Collect all product IDs from form
+		ids := r.Form["product_ids"]
+		for _, id := range ids {
+			ap, exists := adminProducts[id]
+			if !exists {
+				ap = &AdminProduct{ID: id}
+				adminProducts[id] = ap
+			}
+			ap.NameEN = r.FormValue("name_en_" + id)
+			ap.NameJA = r.FormValue("name_ja_" + id)
+			ap.Description = r.FormValue("desc_en_" + id)
+			ap.DescJA = r.FormValue("desc_ja_" + id)
+			if price, err := strconv.ParseFloat(r.FormValue("price_"+id), 64); err == nil {
+				ap.Price = price
+			}
+			if qty, err := strconv.Atoi(r.FormValue("stock_" + id)); err == nil && qty >= 0 {
+				ap.Stock = qty
+			}
+			ap.Hidden = r.FormValue("hidden_"+id) == "1"
+		}
 	}
-	inventoryMu.Unlock()
+	adminMu.Unlock()
 
-	_ = saveInventory()
+	_ = saveAdminData()
 
-	w.Header().Set("Location", baseUrl+"/admin/inventory")
+	w.Header().Set("Location", baseUrl+"/admin/inventory?flash=saved")
 	w.WriteHeader(http.StatusFound)
 }

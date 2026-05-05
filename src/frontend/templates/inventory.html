@@ -1,189 +1,258 @@
-<!--
- Inventory Management Screen for Akamai Store Demo
--->
-
 {{ define "inventory" }}
 {{ template "header" . }}
 
+<style>
+.inv-table th { font-size: 12px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; padding: 10px 12px; background: #f8f9fa; border-bottom: 2px solid #e0e0e0; white-space: nowrap; }
+.inv-table td { padding: 8px 12px; vertical-align: middle; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+.inv-table tr:hover td { background: #fafafa; }
+.inv-input { width: 100%; padding: 5px 8px; border: 1px solid #ddd; border-radius: 5px; font-size: 12px; }
+.inv-input:focus { border-color: #009BDE; outline: none; box-shadow: 0 0 0 2px rgba(0,155,222,0.15); }
+.badge-in    { background:#d4edda; color:#155724; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; white-space:nowrap; }
+.badge-low   { background:#fff3cd; color:#856404; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; white-space:nowrap; }
+.badge-out   { background:#f8d7da; color:#721c24; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; white-space:nowrap; }
+.btn-save    { background:#F47920; color:#fff; border:none; padding:9px 22px; border-radius:7px; font-size:14px; font-weight:600; cursor:pointer; }
+.btn-save:hover { background:#d9691a; }
+.btn-del     { background:none; border:none; color:#dc3545; cursor:pointer; font-size:16px; padding:2px 6px; }
+.btn-del:hover { color:#a71d2a; }
+.btn-outline { background:#fff; border:1px solid #009BDE; color:#009BDE; padding:7px 16px; border-radius:7px; font-size:13px; cursor:pointer; }
+.btn-outline:hover { background:#e8f7ff; }
+.flash-msg  { background:#d4edda; color:#155724; padding:10px 16px; border-radius:7px; margin-bottom:16px; font-size:14px; }
+.section-card { background:#fff; border:1px solid #e0e0e0; border-radius:10px; overflow:hidden; margin-bottom:24px; }
+.section-title { padding:14px 18px; font-size:15px; font-weight:600; color:#333; border-bottom:1px solid #f0f0f0; background:#fafafa; }
+</style>
+
 <main role="main">
-  <div class="container" style="padding-top: 32px; padding-bottom: 48px;">
+<div class="container" style="padding-top:28px; padding-bottom:48px; max-width:1400px;">
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-      <div>
-        <h2 style="margin: 0; color: #333;">
-          📦 {{ if eq $.user_lang "ja" }}在庫管理{{ else }}Inventory Management{{ end }}
-        </h2>
-        <p style="margin: 4px 0 0 0; color: #888; font-size: 14px;">
-          {{ if eq $.user_lang "ja" }}各商品の在庫数を管理します{{ else }}Manage stock levels for all products{{ end }}
-        </p>
-      </div>
-      <a href="{{ $.baseUrl }}/" style="color: #009BDE; font-size: 14px; text-decoration: none;">
-        ← {{ if eq $.user_lang "ja" }}ストアに戻る{{ else }}Back to Store{{ end }}
-      </a>
+  <!-- Header row -->
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <div>
+      <h2 style="margin:0; color:#333;">
+        📦 {{ if eq $.user_lang "ja" }}商品管理{{ else }}Product Management{{ end }}
+      </h2>
+      <p style="margin:4px 0 0; color:#888; font-size:13px;">
+        {{ if eq $.user_lang "ja" }}商品名・説明文・価格・在庫の編集、商品の追加・削除{{ else }}Edit names, descriptions, prices, stock · Add &amp; delete products{{ end }}
+      </p>
     </div>
+    <a href="{{ $.baseUrl }}/" style="color:#009BDE; font-size:14px; text-decoration:none;">
+      ← {{ if eq $.user_lang "ja" }}ストアに戻る{{ else }}Back to Store{{ end }}
+    </a>
+  </div>
 
-    <!-- Summary cards -->
-    <div class="row" style="margin-bottom: 24px;">
-      <div class="col-md-3">
-        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
-          <div style="font-size: 28px; font-weight: 700; color: #333;">{{ len $.items }}</div>
-          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}総商品数{{ else }}Total Products{{ end }}</div>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
-          <div style="font-size: 28px; font-weight: 700; color: #28a745;" id="in-stock-count">-</div>
-          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}</div>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
-          <div style="font-size: 28px; font-weight: 700; color: #dc3545;" id="low-stock-count">-</div>
-          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}在庫少{{ else }}Low Stock (≤10){{ end }}</div>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 18px; text-align: center;">
-          <div style="font-size: 28px; font-weight: 700; color: #6c757d;" id="out-stock-count">-</div>
-          <div style="font-size: 13px; color: #888;">{{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out of Stock{{ end }}</div>
-        </div>
-      </div>
-    </div>
+  {{ if eq $.flash "saved" }}
+  <div class="flash-msg">✅ {{ if eq $.user_lang "ja" }}保存しました{{ else }}Changes saved successfully{{ end }}</div>
+  {{ end }}
 
-    <!-- Search box -->
-    <div style="margin-bottom: 16px;">
-      <input type="text" id="search-box" placeholder="{{ if eq $.user_lang "ja" }}商品名で検索...{{ else }}Search products...{{ end }}"
-        style="width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;"
-        oninput="filterTable(this.value)">
-    </div>
+  <!-- Summary cards -->
+  <div class="row" style="margin-bottom:20px;">
+    <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
+      <div style="font-size:26px;font-weight:700;color:#333;" id="total-count">{{ len $.items }}</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}総商品数{{ else }}Total Products{{ end }}</div>
+    </div></div>
+    <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
+      <div style="font-size:26px;font-weight:700;color:#28a745;" id="in-stock-count">-</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}</div>
+    </div></div>
+    <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
+      <div style="font-size:26px;font-weight:700;color:#ffc107;" id="low-stock-count">-</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫少 (≤10){{ else }}Low Stock (≤10){{ end }}</div>
+    </div></div>
+    <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
+      <div style="font-size:26px;font-weight:700;color:#dc3545;" id="out-count">-</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out of Stock{{ end }}</div>
+    </div></div>
+  </div>
 
-    <form method="POST" action="{{ $.baseUrl }}/admin/inventory">
-      <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
-        <table class="table" style="margin: 0;" id="inventory-table">
-          <thead style="background: #f8f9fa;">
+  <!-- Search + bulk actions -->
+  <div style="display:flex; gap:10px; margin-bottom:14px; align-items:center;">
+    <input id="search-box" type="text"
+      placeholder="{{ if eq $.user_lang "ja" }}商品名で検索...{{ else }}Search products...{{ end }}"
+      style="flex:1; padding:9px 14px; border:1px solid #ddd; border-radius:7px; font-size:13px;"
+      oninput="filterRows(this.value)">
+    <button type="button" class="btn-outline" onclick="setAllStock(100)">
+      {{ if eq $.user_lang "ja" }}全在庫を100に{{ else }}Set All Stock → 100{{ end }}
+    </button>
+  </div>
+
+  <!-- Main product table -->
+  <form method="POST" action="{{ $.baseUrl }}/admin/inventory" id="main-form">
+    <input type="hidden" name="action" value="save">
+    {{ range $.items }}
+    <input type="hidden" name="product_ids" value="{{ .ID }}">
+    {{ end }}
+
+    <div class="section-card">
+      <div class="section-title">
+        {{ if eq $.user_lang "ja" }}商品一覧 ({{ len $.items }}件){{ else }}Products ({{ len $.items }}){{ end }}
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="inv-table" style="width:100%; border-collapse:collapse;">
+          <thead>
             <tr>
-              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0; width: 60px;"></th>
-              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0;">
-                {{ if eq $.user_lang "ja" }}商品名{{ else }}Product{{ end }}
-              </th>
-              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0;">ID</th>
-              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0; text-align: center;">
-                {{ if eq $.user_lang "ja" }}在庫数{{ else }}Stock{{ end }}
-              </th>
-              <th style="padding: 14px 16px; font-size: 13px; color: #555; border-bottom: 2px solid #e0e0e0; text-align: center;">
-                {{ if eq $.user_lang "ja" }}ステータス{{ else }}Status{{ end }}
-              </th>
+              <th style="width:52px;"></th>
+              <th>{{ if eq $.user_lang "ja" }}商品名（英語）{{ else }}Name (EN){{ end }}</th>
+              <th>{{ if eq $.user_lang "ja" }}商品名（日本語）{{ else }}Name (JA){{ end }}</th>
+              <th>{{ if eq $.user_lang "ja" }}説明（英語）{{ else }}Description (EN){{ end }}</th>
+              <th>{{ if eq $.user_lang "ja" }}説明（日本語）{{ else }}Description (JA){{ end }}</th>
+              <th style="width:90px;">{{ if eq $.user_lang "ja" }}単価 ($){{ else }}Price ($){{ end }}</th>
+              <th style="width:90px;">{{ if eq $.user_lang "ja" }}在庫数{{ else }}Stock{{ end }}</th>
+              <th style="width:90px;">{{ if eq $.user_lang "ja" }}ステータス{{ else }}Status{{ end }}</th>
+              <th style="width:70px;">{{ if eq $.user_lang "ja" }}非表示{{ else }}Hide{{ end }}</th>
+              <th style="width:50px;"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="product-tbody">
             {{ range $.items }}
-            <tr class="inventory-row" data-name="{{ .Product.Name }}" style="border-bottom: 1px solid #f0f0f0;">
-              <td style="padding: 10px 16px; vertical-align: middle;">
-                <img src="{{ $.baseUrl }}{{ .Product.Picture }}" alt=""
-                  style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px;">
-              </td>
-              <td style="padding: 10px 16px; vertical-align: middle; font-size: 14px; font-weight: 500;">
-                <a href="{{ $.baseUrl }}/product/{{ .Product.Id }}" style="color: #333; text-decoration: none;">
-                  {{ .Product.Name }}
-                </a>
-              </td>
-              <td style="padding: 10px 16px; vertical-align: middle; font-size: 12px; color: #888; font-family: monospace;">
-                {{ .Product.Id }}
-              </td>
-              <td style="padding: 10px 16px; vertical-align: middle; text-align: center;">
-                <input type="number" name="stock_{{ .Product.Id }}" value="{{ .Stock }}" min="0" max="9999"
-                  class="stock-input"
-                  style="width: 80px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; text-align: center; font-size: 14px;"
-                  oninput="updateStatus(this)">
-              </td>
-              <td style="padding: 10px 16px; vertical-align: middle; text-align: center;">
-                {{ if gt .Stock 10 }}
-                <span class="stock-badge" style="background: #d4edda; color: #155724; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                  {{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}
-                </span>
-                {{ else if gt .Stock 0 }}
-                <span class="stock-badge" style="background: #fff3cd; color: #856404; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                  {{ if eq $.user_lang "ja" }}在庫少{{ else }}Low Stock{{ end }}
-                </span>
+            <tr class="product-row" data-name="{{ .NameEN }} {{ .NameJA }}">
+              <td>
+                {{ if .Picture }}
+                <img src="{{ $.baseUrl }}{{ .Picture }}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;">
                 {{ else }}
-                <span class="stock-badge" style="background: #f8d7da; color: #721c24; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                  {{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out of Stock{{ end }}
-                </span>
+                <div style="width:44px;height:44px;background:#eee;border-radius:5px;"></div>
                 {{ end }}
+              </td>
+              <td><input class="inv-input" name="name_en_{{ .ID }}" value="{{ .NameEN }}" placeholder="English name"></td>
+              <td><input class="inv-input" name="name_ja_{{ .ID }}" value="{{ .NameJA }}" placeholder="日本語名"></td>
+              <td><textarea class="inv-input" name="desc_en_{{ .ID }}" rows="2" style="resize:vertical; min-width:160px;">{{ .Description }}</textarea></td>
+              <td><textarea class="inv-input" name="desc_ja_{{ .ID }}" rows="2" style="resize:vertical; min-width:160px;">{{ .DescJA }}</textarea></td>
+              <td>
+                <input class="inv-input" type="number" name="price_{{ .ID }}" value="{{ printf "%.2f" .Price }}" min="0" step="0.01" style="text-align:right;">
+              </td>
+              <td>
+                <input class="inv-input stock-input" type="number" name="stock_{{ .ID }}" value="{{ .Stock }}" min="0" max="9999" style="text-align:center;" oninput="updateBadge(this)">
+              </td>
+              <td style="text-align:center;">
+                {{ if gt .Stock 10 }}
+                <span class="stock-badge badge-in">{{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}</span>
+                {{ else if gt .Stock 0 }}
+                <span class="stock-badge badge-low">{{ if eq $.user_lang "ja" }}在庫少{{ else }}Low{{ end }}</span>
+                {{ else }}
+                <span class="stock-badge badge-out">{{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out{{ end }}</span>
+                {{ end }}
+              </td>
+              <td style="text-align:center;">
+                <input type="checkbox" name="hidden_{{ .ID }}" value="1" {{ if .Hidden }}checked{{ end }}
+                  title="{{ if eq $.user_lang "ja" }}ストアから非表示{{ else }}Hide from store{{ end }}"
+                  style="width:16px;height:16px;cursor:pointer;">
+              </td>
+              <td style="text-align:center;">
+                <button type="submit" form="delete-form-{{ .ID }}" class="btn-del" title="{{ if eq $.user_lang "ja" }}削除{{ else }}Delete{{ end }}">🗑</button>
               </td>
             </tr>
             {{ end }}
           </tbody>
         </table>
       </div>
+    </div>
 
-      <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 12px;">
-        <button type="button" onclick="setAllStock(100)"
-          style="padding: 10px 20px; border: 1px solid #009BDE; background: #fff; color: #009BDE; border-radius: 8px; font-size: 14px; cursor: pointer;">
-          {{ if eq $.user_lang "ja" }}全商品を100に設定{{ else }}Set All to 100{{ end }}
-        </button>
-        <button type="submit"
-          style="padding: 10px 28px; background: #F47920; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">
-          {{ if eq $.user_lang "ja" }}保存する{{ else }}Save Changes{{ end }}
-        </button>
+    <div style="display:flex; justify-content:flex-end; margin-bottom:32px;">
+      <button type="submit" class="btn-save">
+        💾 {{ if eq $.user_lang "ja" }}変更を保存{{ else }}Save All Changes{{ end }}
+      </button>
+    </div>
+  </form>
+
+  <!-- Delete forms (one per product, outside main form) -->
+  {{ range $.items }}
+  <form id="delete-form-{{ .ID }}" method="POST" action="{{ $.baseUrl }}/admin/inventory"
+    onsubmit="return confirm('{{ if eq $.user_lang "ja" }}この商品を削除しますか？{{ else }}Delete this product?{{ end }}')">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="product_id" value="{{ .ID }}">
+  </form>
+  {{ end }}
+
+  <!-- Add new product -->
+  <div class="section-card">
+    <div class="section-title">
+      ➕ {{ if eq $.user_lang "ja" }}新しい商品を追加{{ else }}Add New Product{{ end }}
+    </div>
+    <form method="POST" action="{{ $.baseUrl }}/admin/inventory" style="padding:16px;">
+      <input type="hidden" name="action" value="add">
+      <div class="row">
+        <div class="col-md-2">
+          <label style="font-size:12px;color:#666;font-weight:600;">ID *</label>
+          <input class="inv-input" name="new_id" placeholder="AKMT028" required>
+        </div>
+        <div class="col-md-2">
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品名（英語）*{{ else }}Name (EN) *{{ end }}</label>
+          <input class="inv-input" name="new_name_en" placeholder="Product name" required>
+        </div>
+        <div class="col-md-2">
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品名（日本語）{{ else }}Name (JA){{ end }}</label>
+          <input class="inv-input" name="new_name_ja" placeholder="商品名">
+        </div>
+        <div class="col-md-2">
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}単価 ($){{ else }}Price ($){{ end }}</label>
+          <input class="inv-input" name="new_price" type="number" placeholder="29.99" min="0" step="0.01">
+        </div>
+        <div class="col-md-2">
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}カテゴリ{{ else }}Categories{{ end }}</label>
+          <input class="inv-input" name="new_categories" placeholder="apparel,t-shirts">
+        </div>
+        <div class="col-md-2">
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}画像パス{{ else }}Picture path{{ end }}</label>
+          <input class="inv-input" name="new_picture" placeholder="/static/img/...">
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="col-md-5">
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}説明（英語）{{ else }}Description (EN){{ end }}</label>
+          <textarea class="inv-input" name="new_desc_en" rows="2" placeholder="Product description..."></textarea>
+        </div>
+        <div class="col-md-5">
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}説明（日本語）{{ else }}Description (JA){{ end }}</label>
+          <textarea class="inv-input" name="new_desc_ja" rows="2" placeholder="商品説明..."></textarea>
+        </div>
+        <div class="col-md-2" style="display:flex; align-items:flex-end;">
+          <button type="submit" class="btn-save" style="width:100%;">
+            ➕ {{ if eq $.user_lang "ja" }}追加{{ else }}Add{{ end }}
+          </button>
+        </div>
       </div>
     </form>
-
   </div>
+
+</div>
 </main>
 
 <script>
-// Count stock status on load
-window.addEventListener('DOMContentLoaded', function() {
-  updateCounts();
-});
+window.addEventListener('DOMContentLoaded', updateCounts);
 
 function updateCounts() {
   var inputs = document.querySelectorAll('.stock-input');
-  var inStock = 0, lowStock = 0, outStock = 0;
-  inputs.forEach(function(inp) {
-    var v = parseInt(inp.value, 10) || 0;
-    if (v > 10) inStock++;
-    else if (v > 0) lowStock++;
-    else outStock++;
+  var inStock=0, low=0, out=0;
+  inputs.forEach(function(i) {
+    var v = parseInt(i.value,10)||0;
+    if (v>10) inStock++; else if (v>0) low++; else out++;
   });
   document.getElementById('in-stock-count').textContent = inStock;
-  document.getElementById('low-stock-count').textContent = lowStock;
-  document.getElementById('out-stock-count').textContent = outStock;
+  document.getElementById('low-stock-count').textContent = low;
+  document.getElementById('out-count').textContent = out;
 }
 
-function updateStatus(input) {
-  var v = parseInt(input.value, 10) || 0;
-  var row = input.closest('tr');
-  var badge = row.querySelector('.stock-badge');
+function updateBadge(input) {
+  var v = parseInt(input.value,10)||0;
+  var badge = input.closest('tr').querySelector('.stock-badge');
   var lang = "{{ $.user_lang }}";
-  var isJa = lang === 'ja';
-  if (v > 10) {
-    badge.style.background = '#d4edda'; badge.style.color = '#155724';
-    badge.textContent = isJa ? '在庫あり' : 'In Stock';
-  } else if (v > 0) {
-    badge.style.background = '#fff3cd'; badge.style.color = '#856404';
-    badge.textContent = isJa ? '在庫少' : 'Low Stock';
-  } else {
-    badge.style.background = '#f8d7da'; badge.style.color = '#721c24';
-    badge.textContent = isJa ? '在庫切れ' : 'Out of Stock';
-  }
+  var isJa = lang==='ja';
+  if (v>10) { badge.className='stock-badge badge-in'; badge.textContent=isJa?'在庫あり':'In Stock'; }
+  else if (v>0) { badge.className='stock-badge badge-low'; badge.textContent=isJa?'在庫少':'Low'; }
+  else { badge.className='stock-badge badge-out'; badge.textContent=isJa?'在庫切れ':'Out'; }
   updateCounts();
 }
 
-function filterTable(query) {
-  var rows = document.querySelectorAll('.inventory-row');
-  var q = query.toLowerCase();
+function filterRows(q) {
+  var rows = document.querySelectorAll('.product-row');
+  q = q.toLowerCase();
   rows.forEach(function(row) {
-    var name = row.getAttribute('data-name').toLowerCase();
-    row.style.display = name.includes(q) ? '' : 'none';
+    row.style.display = row.getAttribute('data-name').toLowerCase().includes(q) ? '' : 'none';
   });
 }
 
 function setAllStock(qty) {
   document.querySelectorAll('.stock-input').forEach(function(inp) {
     inp.value = qty;
-    updateStatus(inp);
+    updateBadge(inp);
   });
 }
 </script>
