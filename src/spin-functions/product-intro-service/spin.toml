@@ -1,0 +1,23 @@
+spin_manifest_version = 2
+
+[application]
+authors = ["ymori-aka"]
+description = "AI-powered product introduction service using Gemma"
+name = "product-intro-service"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "product-intro-service"
+
+[component.product-intro-service]
+source = "dist/product-intro-service.wasm"
+exclude_files = ["**/node_modules"]
+allowed_outbound_hosts = ["http://172.238.48.187:8000"]
+
+[component.product-intro-service.build]
+command = ["npm install", "npm run build"]
+watch = ["src/**/*.ts"]
+
+[component.product-intro-service.variables]
+llm_endpoint = { default = "http://172.238.48.187:8000" }

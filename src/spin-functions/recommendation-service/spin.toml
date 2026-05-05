@@ -1,0 +1,23 @@
+spin_manifest_version = 2
+
+[application]
+authors = ["ymori-aka"]
+description = "AI-powered product recommendation service using Gemma"
+name = "recommendation-service"
+version = "0.1.0"
+
+[[trigger.http]]
+route = "/..."
+component = "recommendation-service"
+
+[component.recommendation-service]
+source = "dist/recommendation-service.wasm"
+exclude_files = ["**/node_modules"]
+allowed_outbound_hosts = ["http://172.238.48.187:8000"]
+
+[component.recommendation-service.build]
+command = ["npm install", "npm run build"]
+watch = ["src/**/*.ts"]
+
+[component.recommendation-service.variables]
+llm_endpoint = { default = "http://172.238.48.187:8000" }

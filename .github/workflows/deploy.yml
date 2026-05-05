@@ -85,3 +85,29 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl rollout restart deployment/productcatalogservice
           kubectl rollout status deployment/productcatalogservice --timeout=180s
+
+  # -------------------------------------------------------
+  # Job 3: Build and deploy Spin apps to Akamai Functions
+  # -------------------------------------------------------
+  deploy-spin:
+    name: Deploy Spin Apps to Akamai Functions
+    runs-on: self-hosted
+    needs: build-frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy recommendation-service
+        working-directory: src/spin-functions/recommendation-service
+        run: |
+          npm install
+          npm run build
+          spin aka deploy --app recommendation-service
+
+      - name: Deploy product-intro-service
+        working-directory: src/spin-functions/product-intro-service
+        run: |
+          npm install
+          npm run build
+          spin aka deploy --app product-intro-service
