@@ -1,0 +1,98 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/ymori-aka/frontend
+
+jobs:
+  # -------------------------------------------------------
+  # Job 1: Build and push frontend Docker image
+  # -------------------------------------------------------
+  build-frontend:
+    name: Build Frontend Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./src/frontend
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------
+  # Job 2: Deploy to LKE
+  # -------------------------------------------------------
+  deploy:
+    name: Deploy to LKE
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Update frontend deployment
+        run: |
+          IMAGE_TAG="ghcr.io/ymori-aka/frontend:sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          kubectl set image deployment/frontend server=${IMAGE_TAG}
+          kubectl rollout status deployment/frontend --timeout=300s
+
+      - name: Update product catalog ConfigMap
+        run: |
+          kubectl create configmap products-catalog \
+            --from-file=products.json=./src/productcatalogservice/products.json \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl rollout restart deployment/productcatalogservice
+          kubectl rollout status deployment/productcatalogservice --timeout=180s
