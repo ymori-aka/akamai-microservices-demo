@@ -1,13 +1,20 @@
-<svg version="1.1" viewBox="0 0 280 60" xmlns="http://www.w3.org/2000/svg">
-  <!-- Akamai swoosh/wave mark -->
-  <g transform="translate(2, 4)">
-    <!-- Outer arc (orange) -->
-    <path d="M26,26 C26,12.7 36.7,2 50,2 C63.3,2 74,12.7 74,26 C74,31.2 72.3,36 69.4,39.9 L63.8,35.4 C65.9,32.5 67.2,28.9 67.2,26 C67.2,16.4 59.6,8.8 50,8.8 C40.4,8.8 32.8,16.4 32.8,26 C32.8,28.9 33.5,31.6 34.8,34 L28.9,38.1 C26.9,34.5 26,30.4 26,26 Z" fill="#F96208"/>
-    <!-- Inner arc (blue) -->
-    <path d="M36,26 C36,17.7 42.7,11 51,11 C55.8,11 60.1,13.2 62.9,16.7 L57.5,21.1 C55.9,19.1 53.6,17.8 51,17.8 C46.5,17.8 42.8,21.5 42.8,26 C42.8,28.1 43.6,30 44.9,31.5 L39.3,35.8 C37.2,33.1 36,29.7 36,26 Z" fill="#009BDE"/>
-    <!-- Center dot (orange) -->
-    <circle cx="51" cy="26" r="6" fill="#F96208"/>
+<svg version="1.1" viewBox="0 0 320 80" xmlns="http://www.w3.org/2000/svg">
+  <!-- Akamai official logo recreation -->
+  <!-- Blue swoosh arcs -->
+  <g transform="translate(8, 4)">
+    <!-- Outer arc -->
+    <path d="M 8,36 A 40,40 0 0,1 48,4" stroke="#009BDE" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <!-- Middle arc -->
+    <path d="M 8,54 A 58,58 0 0,1 62,4" stroke="#009BDE" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <!-- Inner arc (longest) -->
+    <path d="M 8,70 A 74,74 0 0,1 76,4" stroke="#009BDE" stroke-width="8" fill="none" stroke-linecap="round"/>
   </g>
-  <!-- Akamai wordmark -->
-  <text x="90" y="42" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="700" fill="#003A5C" letter-spacing="-0.5">Akamai</text>
+  <!-- Orange "Akamai" text -->
+  <text x="88" y="58"
+    font-family="Arial Black, Arial, sans-serif"
+    font-size="46"
+    font-weight="900"
+    font-style="italic"
+    fill="#F7941D"
+    letter-spacing="-1">Akamai</text>
 </svg>

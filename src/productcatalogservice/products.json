@@ -3,325 +3,217 @@
         {
             "id": "AKMT001",
             "name": "Akamai Unisex Short Sleeve Tee - Blue",
-            "description": "Rep the edge in style with this classic Akamai crew-neck tee. Made from 100% pre-shrunk cotton, it features the iconic Akamai logo on the chest. Soft, comfortable, and perfect for everyday wear at the office or on the go.",
+            "description": "Rep the edge in style with this Akamai \"We Move Mountains\" crew-neck tee in blue. Made from soft, breathable cotton blend. A bold statement tee for those who push limits every day.",
             "picture": "/static/img/products/akamai/imgi_2_akauaajc0100015-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 28,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 28, "nanos": 0},
             "categories": ["apparel", "t-shirts"]
         },
         {
             "id": "AKMT002",
             "name": "Akamai Unisex Short Sleeve Tee - Gray",
-            "description": "The Akamai classic tee in a versatile heather gray. Made from soft cotton blend, it features the Akamai logo printed on the front. Great for tech events, casual Fridays, or weekend adventures.",
+            "description": "The Akamai \"We Move Mountains\" tee in heather gray. Made from soft cotton blend with the iconic mountain graphic. Perfect for casual days, tech events, or weekend adventures.",
             "picture": "/static/img/products/akamai/imgi_3_akauaajj0100115-1_1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 28,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 28, "nanos": 0},
             "categories": ["apparel", "t-shirts"]
         },
         {
             "id": "AKMT003",
-            "name": "Akamai Unisex Short Sleeve Tee - Black",
-            "description": "A sleek black tee with the Akamai logo. This wardrobe essential is made from soft, breathable cotton and delivers all-day comfort. Dress it up or down — it works for any occasion.",
+            "name": "Akamai Women's V-Neck Tee",
+            "description": "The Akamai \"We Move Mountains\" tee in a flattering women's v-neck cut in blue. Lightweight, soft cotton with a relaxed fit. Show your Akamai spirit in style.",
             "picture": "/static/img/products/akamai/imgi_4_akauaadc0100214-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 28,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 28, "nanos": 0},
             "categories": ["apparel", "t-shirts"]
         },
         {
             "id": "AKMT004",
-            "name": "Akamai Women's V-Neck Tee",
-            "description": "A flattering v-neck cut with the Akamai logo. This soft, lightweight tee is perfect for casual days or tech events. The relaxed fit and quality fabric make it a go-to choice for any Akamai fan.",
+            "name": "Akamai Unisex Short Sleeve Tee - Navy",
+            "description": "A sleek navy tee featuring an artistic Akamai surf/wave graphic. The dynamic design captures the power of the edge. Made from soft, breathable cotton — perfect for any occasion.",
             "picture": "/static/img/products/akamai/imgi_5_akauaajc0102515.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 28,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 28, "nanos": 0},
             "categories": ["apparel", "t-shirts"]
         },
         {
             "id": "AKMT005",
-            "name": "Akamai Men's Full Zip Hoodie - Gray",
-            "description": "A versatile full-zip hoodie with the Akamai logo. Features two side pockets, ribbed cuffs, and a comfortable athletic fit. Perfect for those long hackathons or chilly morning standups.",
+            "name": "Akamai Men's Adidas Polo - Navy",
+            "description": "A premium Akamai x Adidas polo shirt in navy heather. Features moisture-wicking climalite fabric and the Akamai logo embroidered on the sleeve. Professional, comfortable, and performance-ready.",
             "picture": "/static/img/products/akamai/imgi_6_akauaacc0101915.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 65,
-                "nanos": 0
-            },
-            "categories": ["apparel", "hoodies"]
+            "priceUsd": {"currencyCode": "USD", "units": 55, "nanos": 0},
+            "categories": ["apparel", "polo"]
         },
         {
             "id": "AKMT006",
-            "name": "Akamai Men's Full Zip Hoodie - Navy",
-            "description": "A classic navy full-zip hoodie with the Akamai logo. Made from a cozy cotton-polyester blend with fleece lining. The go-to layer for any season — from the data center to the coffee shop.",
+            "name": "Akamai Women's Adidas Polo - Navy",
+            "description": "The Akamai x Adidas polo in a tailored women's fit, navy heather. Features Adidas' moisture-wicking technology and the Akamai logo on the sleeve. Elevate your look at any tech event.",
             "picture": "/static/img/products/akamai/imgi_7_akauaafc0102015.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 65,
-                "nanos": 0
-            },
-            "categories": ["apparel", "hoodies"]
+            "priceUsd": {"currencyCode": "USD", "units": 55, "nanos": 0},
+            "categories": ["apparel", "polo"]
         },
         {
             "id": "AKMT007",
             "name": "Akamai Men's Vest - Black/Gray",
-            "description": "A lightweight and stylish vest with the Akamai logo. Features a full-zip front, two zippered pockets, and a sleek silhouette. Perfect as a layer over a tee or under a jacket.",
+            "description": "A premium insulated vest with the Akamai logo. Black upper with gray quilted lower, orange accent zippers. Lightweight warmth without bulk — perfect for layering at the office or outdoors.",
             "picture": "/static/img/products/akamai/imgi_8_akauaaba0100615-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 55,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 65, "nanos": 0},
             "categories": ["apparel", "vests"]
         },
         {
             "id": "AKMT008",
-            "name": "Akamai Men's Fleece Jacket - Navy",
-            "description": "Stay warm on the edge with this premium fleece jacket. Features the Akamai logo, a full-zip front, stand-up collar, and two side pockets. The ideal companion for travel and outdoor events.",
+            "name": "Akamai Women's Fleece Jacket - Navy",
+            "description": "A cozy full-zip fleece jacket in navy with the Akamai logo. Features a stand-up collar, zippered pockets, and orange accent zippers. Stay warm from the data center to the great outdoors.",
             "picture": "/static/img/products/akamai/imgi_9_akauaaec0100814-1_1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 75,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 75, "nanos": 0},
             "categories": ["apparel", "jackets"]
         },
         {
             "id": "AKMT009",
-            "name": "Akamai Men's Adidas Polo - White",
-            "description": "A performance polo shirt from Akamai x Adidas. Features moisture-wicking technology, UPF 50+ sun protection, and the Akamai logo. Professional enough for client meetings, comfortable enough for the field.",
+            "name": "Akamai Men's Fleece Jacket - Navy",
+            "description": "A premium full-zip fleece jacket in navy with the Akamai logo. Features orange accent zippers, a zippered chest pocket, and a comfortable athletic fit. Your go-to layer for any adventure.",
             "picture": "/static/img/products/akamai/imgi_10_akauaabl0100715-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 55,
-                "nanos": 0
-            },
-            "categories": ["apparel", "polo"]
+            "priceUsd": {"currencyCode": "USD", "units": 75, "nanos": 0},
+            "categories": ["apparel", "jackets"]
         },
         {
             "id": "AKMT010",
-            "name": "Akamai Men's Adidas Polo - Navy",
-            "description": "The Akamai x Adidas polo in a sharp navy colorway. Made with Adidas' moisture-wicking climalite fabric and featuring the Akamai logo. Elevate your professional look while staying comfortable.",
+            "name": "Akamai Pullover Hoodie - Navy",
+            "description": "A classic navy pullover hoodie with the Akamai logo embroidered on the chest. Features a kangaroo pocket and adjustable drawstring hood. Soft, cozy, and perfect for everyday wear.",
             "picture": "/static/img/products/akamai/imgi_11_akauaabl0100915-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 55,
-                "nanos": 0
-            },
-            "categories": ["apparel", "polo"]
+            "priceUsd": {"currencyCode": "USD", "units": 60, "nanos": 0},
+            "categories": ["apparel", "hoodies"]
         },
         {
             "id": "AKMT011",
-            "name": "Akamai Quarter-Zip Pullover",
-            "description": "A stylish quarter-zip pullover with the Akamai logo. Made from a soft, lightweight fabric perfect for transitional weather. A must-have layering piece for any Akamai team member.",
+            "name": "Akamai Full Zip Hoodie - Charcoal",
+            "description": "A stylish full-zip hoodie in charcoal with the Akamai logo. Features a kangaroo pocket and white drawstring accents. Lightweight yet warm — the ideal casual layer for any tech professional.",
             "picture": "/static/img/products/akamai/imgi_12_akauaabj0101016-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 60,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 65, "nanos": 0},
             "categories": ["apparel", "hoodies"]
         },
         {
             "id": "AKMT012",
-            "name": "Akamai Trucker Cap - Black/White",
-            "description": "A classic structured trucker cap with the Akamai logo embroidered on the front. Features a mesh back panel for breathability and an adjustable snapback closure. Perfect for outdoor events and everyday wear.",
+            "name": "Akamai Tech Socks",
+            "description": "Show off your Akamai pride from head to toe! These fun navy socks feature colorful Akamai tech-themed icons — clouds, servers, and robots in blue and orange. A must-have for any tech enthusiast.",
             "picture": "/static/img/products/akamai/imgi_13_akauackc0102399.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 25,
-                "nanos": 0
-            },
-            "categories": ["accessories", "hats"]
+            "priceUsd": {"currencyCode": "USD", "units": 12, "nanos": 0},
+            "categories": ["accessories", "apparel"]
         },
         {
             "id": "AKMT013",
-            "name": "Akamai Trucker Cap - Navy/White",
-            "description": "The Akamai trucker cap in a crisp navy and white colorway. Features mesh back panels, a structured front, and an adjustable snapback closure. Show your Akamai pride wherever you go.",
+            "name": "Akamai x The North Face Trucker Cap",
+            "description": "A premium collaboration between Akamai and The North Face. Features the Akamai logo embroidered on a structured black front with white mesh back. Adjustable snapback. Built for the edge explorer.",
             "picture": "/static/img/products/akamai/imgi_14_akauahka0101110-2.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 25,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 35, "nanos": 0},
             "categories": ["accessories", "hats"]
         },
         {
             "id": "AKMT014",
-            "name": "Akamai Beanie - Black",
-            "description": "A warm and cozy knit beanie with the Akamai logo. Made from a soft acrylic blend, it provides all-day warmth without the itch. One size fits most. Perfect for those cold conference sessions.",
+            "name": "Akamai Beach Towel - Blue (Dock & Bay)",
+            "description": "A premium Akamai x Dock & Bay quick-dry beach towel in blue and white stripes. Made from 100% recycled materials, it dries 3x faster than a regular towel. Perfect for the beach, gym, or travel.",
             "picture": "/static/img/products/akamai/imgi_15_akauackc0102199-3_1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 20,
-                "nanos": 0
-            },
-            "categories": ["accessories", "hats"]
+            "priceUsd": {"currencyCode": "USD", "units": 32, "nanos": 0},
+            "categories": ["accessories", "sports"]
         },
         {
             "id": "AKMT015",
-            "name": "Akamai Tote Bag",
-            "description": "A durable canvas tote bag with the Akamai logo. Features reinforced handles and a spacious main compartment large enough for your laptop, notebooks, and conference swag. Eco-friendly and stylish.",
+            "name": "Akamai Beach Towel - Orange (Dock & Bay)",
+            "description": "A premium Akamai x Dock & Bay quick-dry beach towel in orange and white stripes. Made from 100% recycled materials. Compact, lightweight, and incredibly absorbent — ideal for any adventure.",
             "picture": "/static/img/products/akamai/imgi_16_akauackm0102299-3_1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 18,
-                "nanos": 0
-            },
-            "categories": ["accessories", "bags"]
+            "priceUsd": {"currencyCode": "USD", "units": 32, "nanos": 0},
+            "categories": ["accessories", "sports"]
         },
         {
             "id": "AKMT016",
-            "name": "Akamai Backpack",
-            "description": "A high-quality backpack with the Akamai logo. Features a padded 15\" laptop compartment, multiple organizational pockets, a USB charging port, and a water bottle holder. Your ultimate tech bag for on-the-go professionals.",
+            "name": "Akamai Canvas Tote Bag",
+            "description": "A classic cream canvas tote bag with navy accents and the Akamai logo. Sturdy reinforced handles and a spacious main compartment. Eco-friendly and stylish for everyday use.",
             "picture": "/static/img/products/akamai/imgi_17_akauablc0100099.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 48,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 22, "nanos": 0},
             "categories": ["accessories", "bags"]
         },
         {
             "id": "AKMT017",
-            "name": "Akamai 25th Anniversary Tumbler",
-            "description": "Celebrate 25 years of Akamai with this special edition insulated tumbler. Double-wall vacuum insulation keeps drinks cold for 24 hours or hot for 12 hours. Features the commemorative 25th Anniversary Akamai logo. Holds 20oz.",
+            "name": "Akamai 40oz Tumbler with Handle",
+            "description": "A massive 40oz insulated tumbler with handle and straw in slate blue, featuring the Akamai logo. Keeps drinks cold for 24+ hours. The ultimate hydration companion for long coding sessions.",
             "picture": "/static/img/products/akamai/imgi_18_akauadnc0101999-1_1_1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 35,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 40, "nanos": 0},
             "categories": ["accessories", "drinkware"]
         },
         {
             "id": "AKMT018",
-            "name": "Akamai 25th Anniversary Cooler",
-            "description": "Mark Akamai's 25th anniversary with this premium soft-sided cooler. Holds up to 24 cans and features leak-proof lining and a comfortable shoulder strap. Decorated with the commemorative 25th Anniversary logo.",
+            "name": "Akamai Notebook",
+            "description": "A premium navy hardcover notebook with the Akamai logo debossed on the cover. Features an elastic closure band, ribbon bookmark, and 160 lined pages. Perfect for capturing ideas at any conference.",
             "picture": "/static/img/products/akamai/imgi_19_akauaorc0100099.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 45,
-                "nanos": 0
-            },
-            "categories": ["accessories"]
-        },
-        {
-            "id": "AKMT019",
-            "name": "Akamai Water Bottle - 32oz",
-            "description": "A sleek stainless steel water bottle with the Akamai logo. Double-wall vacuum insulation keeps drinks cold for 24 hours and hot for 12 hours. BPA-free, eco-friendly, and fits in most car cup holders. Holds 32oz.",
-            "picture": "/static/img/products/akamai/imgi_20_akauaoxj0100299-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 30,
-                "nanos": 0
-            },
-            "categories": ["accessories", "drinkware"]
-        },
-        {
-            "id": "AKMT020",
-            "name": "Akamai Coffee Mug - 11oz",
-            "description": "Start your morning right with this ceramic coffee mug featuring the Akamai logo. The classic 11oz size is perfect for your daily cup of inspiration. Microwave and dishwasher safe for easy cleanup.",
-            "picture": "/static/img/products/akamai/imgi_21_27103_akamai-_pop_mockup-2.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 15,
-                "nanos": 0
-            },
-            "categories": ["accessories", "drinkware"]
-        },
-        {
-            "id": "AKMT021",
-            "name": "Akamai Phone Stand/Ring Light - White",
-            "description": "Upgrade your video calls with this Akamai-branded phone stand and ring light combo. Adjustable brightness and color temperature for perfect lighting in any environment. Foldable and portable design.",
-            "picture": "/static/img/products/akamai/imgi_22_akauackq0102399-2.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 22,
-                "nanos": 0
-            },
-            "categories": ["accessories", "tech"]
-        },
-        {
-            "id": "AKMT022",
-            "name": "Akamai Notebook - Large",
-            "description": "A premium hardcover notebook with the Akamai logo. Features 160 lined pages, a ribbon bookmark, elastic closure band, and back pocket. The perfect companion for jotting down your next big idea or capturing meeting notes.",
-            "picture": "/static/img/products/akamai/imgi_23_akauaekq0101699-2.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 18,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 18, "nanos": 0},
             "categories": ["accessories", "stationery"]
         },
         {
-            "id": "AKMT023",
-            "name": "Akamai Sticker Pack",
-            "description": "A fun collection of Akamai-branded stickers. Includes 10 unique die-cut designs featuring the Akamai logo and creative edge computing-themed artwork. Perfect for laptops, water bottles, notebooks, and more.",
-            "picture": "/static/img/products/akamai/imgi_24_akanadkb0100299-3.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 10,
-                "nanos": 0
-            },
-            "categories": ["accessories"]
+            "id": "AKMT019",
+            "name": "Akamai Stylus Pen",
+            "description": "A sleek silver stylus pen with the Akamai logo. Features a precision tip for touchscreens and a ballpoint pen on the other end. The perfect tool for the modern tech professional.",
+            "picture": "/static/img/products/akamai/imgi_20_akauaoxj0100299-1.jpg",
+            "priceUsd": {"currencyCode": "USD", "units": 12, "nanos": 0},
+            "categories": ["accessories", "stationery"]
         },
         {
-            "id": "AKMT024",
-            "name": "Akamai Laptop Sleeve - 15\"",
-            "description": "A stylish and protective laptop sleeve with the Akamai logo. Features a soft inner lining to prevent scratches, a water-resistant outer shell, and a front accessory pocket. Compatible with 13-15 inch laptops.",
-            "picture": "/static/img/products/akamai/imgi_25_akanatkb0100399-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 35,
-                "nanos": 0
-            },
+            "id": "AKMT020",
+            "name": "Akamai PopSocket",
+            "description": "A sleek black PopSocket with the Akamai logo. Attaches to the back of your phone or case to provide a secure grip, a stand for hands-free viewing, and a cable management system. A daily essential.",
+            "picture": "/static/img/products/akamai/imgi_21_27103_akamai-_pop_mockup-2.jpg",
+            "priceUsd": {"currencyCode": "USD", "units": 15, "nanos": 0},
             "categories": ["accessories", "tech"]
         },
         {
+            "id": "AKMT021",
+            "name": "Akamai Golf Balls",
+            "description": "Premium Akamai-branded golf balls in a stylish navy gift box. Features the Akamai logo and golfer silhouettes. A perfect gift for the golf-loving tech professional. Set of 3 balls.",
+            "picture": "/static/img/products/akamai/imgi_22_akauackq0102399-2.jpg",
+            "priceUsd": {"currencyCode": "USD", "units": 25, "nanos": 0},
+            "categories": ["accessories", "sports"]
+        },
+        {
+            "id": "AKMT022",
+            "name": "Akamai Phone Stand & Ring Light",
+            "description": "Elevate your video calls with this Akamai-branded phone stand and clip-on ring light combo. Adjustable brightness for perfect lighting in any environment. Compact and portable design.",
+            "picture": "/static/img/products/akamai/imgi_23_akauaekq0101699-2.jpg",
+            "priceUsd": {"currencyCode": "USD", "units": 22, "nanos": 0},
+            "categories": ["accessories", "tech"]
+        },
+        {
+            "id": "AKMT023",
+            "name": "Akamai 25th Anniversary Cooler Bag",
+            "description": "Celebrate 25 Years of One Akamai with this premium insulated cooler bag in black. Features the commemorative 25th anniversary logo in blue and orange. Holds 6+ cans with a shoulder strap.",
+            "picture": "/static/img/products/akamai/imgi_24_akanadkb0100299-3.jpg",
+            "priceUsd": {"currencyCode": "USD", "units": 38, "nanos": 0},
+            "categories": ["accessories", "bags"]
+        },
+        {
+            "id": "AKMT024",
+            "name": "Akamai 25th Anniversary Tumbler",
+            "description": "Mark 25 Years of One Akamai with this sleek matte black insulated tumbler. Laser-engraved with the commemorative anniversary logo. Double-wall vacuum insulation keeps drinks at the perfect temperature.",
+            "picture": "/static/img/products/akamai/imgi_25_akanatkb0100399-1.jpg",
+            "priceUsd": {"currencyCode": "USD", "units": 35, "nanos": 0},
+            "categories": ["accessories", "drinkware"]
+        },
+        {
             "id": "AKMT025",
-            "name": "Akamai Lanyard",
-            "description": "A comfortable and durable polyester lanyard with the Akamai logo printed throughout. Features a metal swivel hook and a safety breakaway clasp. Great for conference badges, office access cards, or keys.",
+            "name": "Akamai 25th Anniversary Cap",
+            "description": "A premium baseball cap celebrating 25 Years of One Akamai. Black structured cap with the colorful anniversary logo embroidered on the front and an orange-lined brim. Adjustable for the perfect fit.",
             "picture": "/static/img/products/akamai/imgi_26_akanaakb0100199-2.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 10,
-                "nanos": 0
-            },
-            "categories": ["accessories"]
+            "priceUsd": {"currencyCode": "USD", "units": 28, "nanos": 0},
+            "categories": ["accessories", "hats"]
         },
         {
             "id": "AKMT026",
-            "name": "Akamai Sport Duffel Bag",
-            "description": "A spacious sport duffel bag with the Akamai logo. Features a large main compartment, a ventilated shoe pocket, front zippered pocket, and a padded adjustable shoulder strap. Ideal for the gym, travel, or weekend trips.",
+            "name": "Akamai Laptop Backpack",
+            "description": "A sleek gray and black Akamai laptop backpack with orange accent zippers. Features a padded laptop compartment, front zippered pocket, and top handle. Built for the modern tech professional on the move.",
             "picture": "/static/img/products/akamai/imgi_27_akauabmj0101499-1.jpg",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 48,
-                "nanos": 0
-            },
-            "categories": ["sports", "bags"]
+            "priceUsd": {"currencyCode": "USD", "units": 55, "nanos": 0},
+            "categories": ["accessories", "bags"]
         },
         {
             "id": "AKMT027",
             "name": "Akamai Gift Card - $50",
             "description": "Give the gift of Akamai swag! This gift card can be used to purchase any item in the Akamai store. The perfect gift for teammates, customers, or any tech enthusiast who loves to rep the edge.",
             "picture": "/static/img/products/akamai/imgi_28_default-product-image.png",
-            "priceUsd": {
-                "currencyCode": "USD",
-                "units": 50,
-                "nanos": 0
-            },
+            "priceUsd": {"currencyCode": "USD", "units": 50, "nanos": 0},
             "categories": ["gift-cards"]
         }
     ]
