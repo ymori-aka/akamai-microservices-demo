@@ -18,6 +18,3 @@ allowed_outbound_hosts = ["http://172.238.48.187:8000"]
 [component.product-intro-service.build]
 command = ["npm install", "npm run build"]
 watch = ["src/**/*.ts"]
-
-[component.product-intro-service.variables]
-llm_endpoint = { default = "http://172.238.48.187:8000" }

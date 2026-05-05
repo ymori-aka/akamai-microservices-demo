@@ -103,11 +103,13 @@ jobs:
         run: |
           npm install
           npm run build
-          spin aka deploy --app recommendation-service
+          spin aka app link --app-name recommendation-service
+          spin aka app deploy --no-confirm
 
       - name: Deploy product-intro-service
         working-directory: src/spin-functions/product-intro-service
         run: |
           npm install
           npm run build
-          spin aka deploy --app product-intro-service
+          spin aka app link --app-name product-intro-service
+          spin aka app deploy --no-confirm
