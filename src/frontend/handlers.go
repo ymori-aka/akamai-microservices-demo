@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -103,6 +104,32 @@ func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
 		ps[i] = productView{p, price}
 	}
 
+	// Prepend admin-only products (not in gRPC catalog) to the top of the listing
+	loadAdminData()
+	existingIDs := make(map[string]bool)
+	for _, p := range products {
+		existingIDs[p.GetId()] = true
+	}
+	adminMu.RLock()
+	var adminPs []productView
+	for _, ap := range adminProducts {
+		if existingIDs[ap.ID] || ap.Hidden {
+			continue
+		}
+		pbP := adminToPbProduct(ap)
+		price, err := fe.convertCurrency(r.Context(), pbP.GetPriceUsd(), currentCurrency(r))
+		if err != nil {
+			price = pbP.GetPriceUsd()
+		}
+		adminPs = append(adminPs, productView{pbP, price})
+	}
+	adminMu.RUnlock()
+	// Sort by ID descending so newest products appear first
+	sort.Slice(adminPs, func(i, j int) bool {
+		return adminPs[i].Item.Id > adminPs[j].Item.Id
+	})
+	ps = append(adminPs, ps...)
+
 	// Set ENV_PLATFORM (default to local if not set; use env var if set; otherwise detect GCP, which overrides env)_
 	var env = os.Getenv("ENV_PLATFORM")
 	// Only override from env variable if set + valid env
@@ -170,8 +197,16 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 
 	p, err := fe.getProduct(r.Context(), id)
 	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve product"), http.StatusInternalServerError)
-		return
+		// Fall back to admin-only products if gRPC catalog doesn't have it
+		loadAdminData()
+		adminMu.RLock()
+		ap, ok := adminProducts[id]
+		adminMu.RUnlock()
+		if !ok {
+			renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve product"), http.StatusInternalServerError)
+			return
+		}
+		p = adminToPbProduct(ap)
 	}
 	currencies, err := fe.getCurrencies(r.Context())
 	if err != nil {
@@ -709,6 +744,32 @@ func loadAdminData() {
 		return
 	}
 	_ = json.Unmarshal(data, &adminProducts)
+	// Sync JA translations for admin-only products
+	for id, ap := range adminProducts {
+		if ap.NameJA != "" || ap.DescJA != "" {
+			jaTranslations[id] = jaProduct{Name: ap.NameJA, Description: ap.DescJA}
+		}
+	}
+}
+
+// adminToPbProduct converts an AdminProduct to a pb.Product for rendering.
+func adminToPbProduct(ap *AdminProduct) *pb.Product {
+	units := int64(ap.Price)
+	nanos := int32((ap.Price - float64(units)) * 1e9)
+	var cats []string
+	for _, c := range strings.Split(ap.Categories, ",") {
+		if t := strings.TrimSpace(c); t != "" {
+			cats = append(cats, t)
+		}
+	}
+	return &pb.Product{
+		Id:          ap.ID,
+		Name:        ap.NameEN,
+		Description: ap.Description,
+		Picture:     ap.Picture,
+		PriceUsd:    &pb.Money{CurrencyCode: "USD", Units: units, Nanos: nanos},
+		Categories:  cats,
+	}
 }
 
 func saveAdminData() error {
