@@ -29,6 +29,8 @@ const PRODUCTS = [
   { id: "AKMT025", name: "Akamai 25th Anniversary Cap",               categories: ["accessories", "hats"] },
   { id: "AKMT026", name: "Akamai Laptop Backpack",                    categories: ["accessories", "bags"] },
   { id: "AKMT027", name: "Akamai Gift Card - $50",                    categories: ["gift-cards"] },
+  { id: "AKMT028", name: "PEACE FOR ALL Tee / Akamai - White",        categories: ["apparel", "t-shirts"] },
+  { id: "AKMT029", name: "PEACE FOR ALL Tee / Akamai - Black",        categories: ["apparel", "t-shirts"] },
 ];
 
 const LLM_ENDPOINT = "http://172.238.48.187:8000";
