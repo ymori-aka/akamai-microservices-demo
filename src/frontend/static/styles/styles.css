@@ -492,7 +492,8 @@ similar to that of the hot-products-row.
 .onprem-platform,
 .azure-platform,
 .alibaba-platform,
-.gcp-platform {
+.gcp-platform,
+.akamai-platform {
   position: fixed;
   top: 0;
   left: 0;
@@ -527,6 +528,11 @@ similar to that of the hot-products-row.
 .alibaba-platform,
 .alibaba-platform .platform-flag {
   background-color: #ffC300;
+}
+
+.akamai-platform,
+.akamai-platform .platform-flag {
+  background-color: #009BDE;
 }
 
 .local,
