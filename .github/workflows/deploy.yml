@@ -86,6 +86,56 @@ jobs:
           kubectl rollout restart deployment/productcatalogservice
           kubectl rollout status deployment/productcatalogservice --timeout=180s
 
+      - name: Seed admin-only products (AKMT028, AKMT029)
+        run: |
+          FRONTEND="http://$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          ADMIN_USER=$(kubectl get deployment frontend -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_USER")].value}')
+          ADMIN_PASS=$(kubectl get deployment frontend -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ADMIN_PASSWORD")].value}')
+          AUTH="-u ${ADMIN_USER}:${ADMIN_PASS}"
+
+          seed_product() {
+            local ID=$1; local NAME_EN=$2; local NAME_JA=$3
+            local PRICE=$4; local PICTURE=$5
+            local DESC_EN=$6; local DESC_JA=$7
+
+            # Skip if already registered (check via admin page)
+            if curl -s $AUTH "${FRONTEND}/admin/inventory" | grep -q "\"${ID}\""; then
+              echo "${ID}: already exists, skipping"
+              return
+            fi
+
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" $AUTH \
+              -F "action=add" \
+              -F "new_id=${ID}" \
+              -F "new_name_en=${NAME_EN}" \
+              -F "new_name_ja=${NAME_JA}" \
+              -F "new_price=${PRICE}" \
+              -F "new_categories=apparel,t-shirts" \
+              -F "new_picture=${PICTURE}" \
+              -F "new_desc_en=${DESC_EN}" \
+              -F "new_desc_ja=${DESC_JA}" \
+              "${FRONTEND}/admin/inventory")
+            echo "${ID}: ${HTTP}"
+          }
+
+          seed_product \
+            "AKMT028" \
+            "PEACE FOR ALL Tee / Akamai - White" \
+            "PEACE FOR ALL Tシャツ/アカマイ　白" \
+            "29.99" \
+            "/static/img/products/custom/AKMT028.jpg" \
+            "Over 25 years ago, Akamai laid the foundation for today's connected internet. This T-shirt is a tribute to the dawn of the internet era. The beige color references the iconic 'beige box' computers of that time. The heart on the chest symbolizes how the internet has connected people toward a better world. The code on the back is real — a nod to Linux and the open-source spirit powering the web. Through these shared languages, Akamai connects the world's leading brands with users everywhere, building a safer, more connected future." \
+            "25年以上前、Akamaiは今日のインターネットが自在に使える時代の礎を築きました。このTシャツのデザインは、そんなインターネット黎明期へのオマージュです。カラーは、当時「ベージュの箱」と呼ばれたコンピューターのプラスチック製の筐体をイメージしました。胸もとのハートは、インターネットが人々をつなぎ、より良い世界へ導いてきたことを表現しています。Tシャツの背面にプリントされているのは本物のコードです。それは、インターネットを支えるオープンソースのしくみを象徴する基本ソフト Linux にも通じます。世界中で愛されるこれらの共通言語の力を借りて、Akamaiが、世界を導くブランドとその先のユーザーとを結びつけ、より安全で、よりつながる未来を共に築いていきたい ―― そんな想いを、この一枚に込めました。"
+
+          seed_product \
+            "AKMT029" \
+            "PEACE FOR ALL Tee / Akamai - Black" \
+            "PEACE FOR ALL Tシャツ/アカマイ　黒" \
+            "29.99" \
+            "/static/img/products/custom/AKMT029.webp" \
+            "Every day, billions of people connect online — working, playing, learning, shopping, and sharing ideas. The 'texture' code featured in this design represents the common language behind every digital experience. For 25 years, Akamai has built a comfortable, secure internet to enrich lives around the world. We remain committed to making the world safer and more deeply connected." \
+            "毎日、何十億もの人々が、オンラインで仕事、遊び、学び、ショッピング、アイデアの共有をしながら、つながっています。このデザインに使われている「texture」というコードは、デジタル体験の裏側にある共通言語を表現しています。Akamaiは 25 年にわたり、世界中の人々の人生をより豊かなものにするために、快適で安心なインターネット環境を築いてきました。これからも、世界をより安全に、より深く結びつける一役を担いたいと願っています。"
+
   # -------------------------------------------------------
   # Job 3: Build and deploy Spin apps to Akamai Functions
   # -------------------------------------------------------
