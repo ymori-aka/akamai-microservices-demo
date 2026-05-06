@@ -72,6 +72,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Update microservices to v0.10.5
+        run: |
+          REGISTRY="us-central1-docker.pkg.dev/google-samples/microservices-demo"
+          VERSION="v0.10.5"
+          kubectl set image deployment/adservice             server=${REGISTRY}/adservice:${VERSION}
+          kubectl set image deployment/cartservice           server=${REGISTRY}/cartservice:${VERSION}
+          kubectl set image deployment/checkoutservice       server=${REGISTRY}/checkoutservice:${VERSION}
+          kubectl set image deployment/currencyservice       server=${REGISTRY}/currencyservice:${VERSION}
+          kubectl set image deployment/emailservice          server=${REGISTRY}/emailservice:${VERSION}
+          kubectl set image deployment/paymentservice        server=${REGISTRY}/paymentservice:${VERSION}
+          kubectl set image deployment/recommendationservice server=${REGISTRY}/recommendationservice:${VERSION}
+          kubectl set image deployment/shippingservice       server=${REGISTRY}/shippingservice:${VERSION}
+          kubectl set image deployment/loadgenerator         server=${REGISTRY}/loadgenerator:${VERSION}
+          # productcatalogservice is handled separately (ConfigMap update + restart below)
+          kubectl set image deployment/productcatalogservice server=${REGISTRY}/productcatalogservice:${VERSION}
+
       - name: Update frontend deployment
         run: |
           IMAGE_TAG="ghcr.io/ymori-aka/frontend:sha-$(echo ${{ github.sha }} | cut -c1-7)"
