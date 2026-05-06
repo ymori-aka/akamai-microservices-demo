@@ -1,166 +1,385 @@
-<!-- <p align="center">
-<img src="/src/frontend/static/icons/Hipster_HeroLogoMaroon.svg" width="300" alt="Online Boutique" />
-</p> -->
-![Continuous Integration](https://github.com/GoogleCloudPlatform/microservices-demo/workflows/Continuous%20Integration%20-%20Main/Release/badge.svg)
+# Akamai Microservices Demo
 
-**Online Boutique** is a cloud-first microservices demo application.  The application is a
-web-based e-commerce app where users can browse items, add them to the cart, and purchase them.
+> **Akamai の各種サービスを組み合わせた、エンドツーエンドのデモ環境です。**  
+> LKE（Linode Kubernetes Engine）上のマイクロサービス EC サイトに、Akamai Functions による AI 機能・Grafana Cloud による可観測性を統合した、実際のユースケースを想定した構成になっています。
 
-Google uses this application to demonstrate how developers can modernize enterprise applications using Google Cloud products, including: [Google Kubernetes Engine (GKE)](https://cloud.google.com/kubernetes-engine), [Cloud Service Mesh (CSM)](https://cloud.google.com/service-mesh), [gRPC](https://grpc.io/), [Cloud Operations](https://cloud.google.com/products/operations), [Spanner](https://cloud.google.com/spanner), [Memorystore](https://cloud.google.com/memorystore), [AlloyDB](https://cloud.google.com/alloydb), and [Gemini](https://ai.google.dev/). This application works on any Kubernetes cluster.
+[![Build and Deploy](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml/badge.svg)](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml)
 
-If you’re using this demo, please **★Star** this repository to show your interest!
+---
 
-**Note to Googlers:** Please fill out the form at [go/microservices-demo](http://go/microservices-demo).
+## 目次
 
-## Architecture
+- [デモで見せられること](#デモで見せられること)
+- [アーキテクチャ](#アーキテクチャ)
+- [技術スタック](#技術スタック)
+- [デモ環境へのアクセス](#デモ環境へのアクセス)
+- [セットアップ手順](#セットアップ手順)
+- [CI/CD パイプライン](#cicd-パイプライン)
+- [商品管理画面の使い方](#商品管理画面の使い方)
+- [リポジトリ構成](#リポジトリ構成)
+- [ライセンス・派生元について](#ライセンス派生元について)
 
-**Online Boutique** is composed of 11 microservices written in different
-languages that talk to each other over gRPC.
+---
 
-[![Architecture of
-microservices](/docs/img/architecture-diagram.png)](/docs/img/architecture-diagram.png)
+## デモで見せられること
 
-Find **Protocol Buffers Descriptions** at the [`./protos` directory](/protos).
+| # | シナリオ | 訴求ポイント |
+|---|----------|-------------|
+| 1 | **EC サイトを LKE で運用** | マネージド Kubernetes の手軽さ、スケーラビリティ |
+| 2 | **AI 商品紹介文を Akamai Functions で生成** | GPU サーバー（Gemma 4）をエッジ Function から呼び出し、低レイテンシで応答 |
+| 3 | **AI によるパーソナライズドレコメンド** | 閲覧中の商品に応じて関連商品を動的に提案 |
+| 4 | **日本語 / 英語 リアルタイム切替** | グローバル対応の UI をワンクリックで切替 |
+| 5 | **Grafana Cloud でクラスター全体を可視化** | Node・Pod・コンテナのメトリクス・ログを一元管理 |
+| 6 | **GitHub Actions で自動デプロイ** | push → ビルド → LKE デプロイ → Akamai Functions デプロイ を完全自動化 |
+| 7 | **商品管理画面（認証付き）** | 商品の追加・削除・在庫管理・画像アップロードをブラウザから操作 |
 
-| Service                                              | Language      | Description                                                                                                                       |
-| ---------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [frontend](/src/frontend)                           | Go            | Exposes an HTTP server to serve the website. Does not require signup/login and generates session IDs for all users automatically. |
-| [cartservice](/src/cartservice)                     | C#            | Stores the items in the user's shopping cart in Redis and retrieves it.                                                           |
-| [productcatalogservice](/src/productcatalogservice) | Go            | Provides the list of products from a JSON file and ability to search products and get individual products.                        |
-| [currencyservice](/src/currencyservice)             | Node.js       | Converts one money amount to another currency. Uses real values fetched from European Central Bank. It's the highest QPS service. |
-| [paymentservice](/src/paymentservice)               | Node.js       | Charges the given credit card info (mock) with the given amount and returns a transaction ID.                                     |
-| [shippingservice](/src/shippingservice)             | Go            | Gives shipping cost estimates based on the shopping cart. Ships items to the given address (mock)                                 |
-| [emailservice](/src/emailservice)                   | Python        | Sends users an order confirmation email (mock).                                                                                   |
-| [checkoutservice](/src/checkoutservice)             | Go            | Retrieves user cart, prepares order and orchestrates the payment, shipping and the email notification.                            |
-| [recommendationservice](/src/recommendationservice) | Python        | Recommends other products based on what's given in the cart.                                                                      |
-| [adservice](/src/adservice)                         | Java          | Provides text ads based on given context words.                                                                                   |
-| [loadgenerator](/src/loadgenerator)                 | Python/Locust | Continuously sends requests imitating realistic user shopping flows to the frontend.                                              |
+---
 
-## Screenshots
+## アーキテクチャ
 
-| Home Page                                                                                                         | Checkout Screen                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [![Screenshot of store homepage](/docs/img/online-boutique-frontend-1.png)](/docs/img/online-boutique-frontend-1.png) | [![Screenshot of checkout screen](/docs/img/online-boutique-frontend-2.png)](/docs/img/online-boutique-frontend-2.png) |
+```mermaid
+graph TB
+    subgraph Client["クライアント (ブラウザ)"]
+        USER([ユーザー])
+    end
 
-## Quickstart (GKE)
+    subgraph AkamaiEdge["Akamai Functions (Fermyon Spin)"]
+        INTRO["product-intro-service\n✨ AI 商品紹介文生成"]
+        REC["recommendation-service\n🤖 AI レコメンド"]
+    end
 
-1. Ensure you have the following requirements:
-   - [Google Cloud project](https://cloud.google.com/resource-manager/docs/creating-managing-projects#creating_a_project).
-   - Shell environment with `gcloud`, `git`, and `kubectl`.
+    subgraph LKE["LKE クラスター (3 ノード / Kubernetes v1.35)"]
+        direction TB
+        FE["frontend\n(Go)"]
+        PC["productcatalog\n(Go)"]
+        CART["cartservice\n(Go)"]
+        CHK["checkoutservice\n(Go)"]
+        CUR["currencyservice\n(Node.js)"]
+        REC2["recommendationservice\n(Python)"]
+        SHIP["shippingservice\n(Go)"]
+        PAY["paymentservice\n(Node.js)"]
+        EMAIL["emailservice\n(Python)"]
+        AD["adservice\n(Java)"]
+        REDIS[("Redis\n(Cart Store)")]
+    end
 
-2. Clone the latest major version.
+    subgraph GPU["GPU サーバー"]
+        GEMMA["Gemma 4 26B\n(llama.cpp / OpenAI API互換)"]
+    end
 
-   ```sh
-   git clone --depth 1 --branch v0 https://github.com/GoogleCloudPlatform/microservices-demo.git
-   cd microservices-demo/
-   ```
+    subgraph Observability["可観測性"]
+        GRAFANA["Grafana Cloud\n(メトリクス / ログ)"]
+    end
 
-   The `--depth 1` argument skips downloading git history.
+    USER -->|HTTP| FE
+    USER -.->|Async fetch| INTRO
+    USER -.->|Async fetch| REC
+    INTRO -->|OpenAI API| GEMMA
+    REC -->|OpenAI API| GEMMA
+    FE --> PC & CART & CHK & CUR & REC2 & SHIP & AD
+    CHK --> PAY & EMAIL & SHIP & CART & CUR & PC
+    CART --> REDIS
+    LKE -->|Grafana Alloy / Beyla| GRAFANA
+```
 
-3. Set the Google Cloud project and region and ensure the Google Kubernetes Engine API is enabled.
+---
 
-   ```sh
-   export PROJECT_ID=<PROJECT_ID>
-   export REGION=us-central1
-   gcloud services enable container.googleapis.com \
-     --project=${PROJECT_ID}
-   ```
+## 技術スタック
 
-   Substitute `<PROJECT_ID>` with the ID of your Google Cloud project.
+| レイヤー | 技術 | 役割 |
+|----------|------|------|
+| **インフラ** | Linode Kubernetes Engine (LKE) | Kubernetes クラスター（3 ノード） |
+| **エッジ AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript 製 Wasm Function をエッジで実行 |
+| **AI モデル** | Gemma 4 26B / llama.cpp | GPU サーバー上のオープンソース LLM |
+| **フロントエンド** | Go + HTML テンプレート | EC サイト本体 |
+| **マイクロサービス** | Go / Python / Node.js / Java | カート・決済・通貨換算など各業務ロジック |
+| **可観測性** | Grafana Cloud + Grafana Alloy + Beyla | メトリクス・ログ・eBPF トレーシング |
+| **CI/CD** | GitHub Actions + self-hosted runner | push 時に自動ビルド & デプロイ |
+| **コンテナレジストリ** | GitHub Container Registry (ghcr.io) | Docker イメージ管理 |
 
-4. Create a GKE cluster and get the credentials for it.
+---
 
-   ```sh
-   gcloud container clusters create-auto online-boutique \
-     --project=${PROJECT_ID} --region=${REGION}
-   ```
+## デモ環境へのアクセス
 
-   Creating the cluster may take a few minutes.
+| URL | 説明 |
+|-----|------|
+| `http://172.233.68.25/` | EC ストア（一般公開） |
+| `http://172.233.68.25/admin/inventory` | 商品管理画面（Basic 認証あり） |
 
-5. Deploy Online Boutique to the cluster.
+**管理画面のデフォルト認証情報**
 
-   ```sh
-   kubectl apply -f ./release/kubernetes-manifests.yaml
-   ```
+| 項目 | 値 |
+|------|----|
+| ID | `admin` |
+| パスワード | `akamai-demo` |
 
-6. Wait for the pods to be ready.
+> 環境変数 `ADMIN_USER` / `ADMIN_PASSWORD` で変更できます（後述）。
 
-   ```sh
-   kubectl get pods
-   ```
+---
 
-   After a few minutes, you should see the Pods in a `Running` state:
+## セットアップ手順
 
-   ```
-   NAME                                     READY   STATUS    RESTARTS   AGE
-   adservice-76bdd69666-ckc5j               1/1     Running   0          2m58s
-   cartservice-66d497c6b7-dp5jr             1/1     Running   0          2m59s
-   checkoutservice-666c784bd6-4jd22         1/1     Running   0          3m1s
-   currencyservice-5d5d496984-4jmd7         1/1     Running   0          2m59s
-   emailservice-667457d9d6-75jcq            1/1     Running   0          3m2s
-   frontend-6b8d69b9fb-wjqdg                1/1     Running   0          3m1s
-   loadgenerator-665b5cd444-gwqdq           1/1     Running   0          3m
-   paymentservice-68596d6dd6-bf6bv          1/1     Running   0          3m
-   productcatalogservice-557d474574-888kr   1/1     Running   0          3m
-   recommendationservice-69c56b74d4-7z8r5   1/1     Running   0          3m1s
-   redis-cart-5f59546cdd-5jnqf              1/1     Running   0          2m58s
-   shippingservice-6ccc89f8fd-v686r         1/1     Running   0          2m58s
-   ```
+### 前提条件
 
-7. Access the web frontend in a browser using the frontend's external IP.
+| ツール | バージョン | 用途 |
+|--------|-----------|------|
+| kubectl | v1.28+ | Kubernetes 操作 |
+| Spin CLI | v3.6.3 | Akamai Functions ビルド & デプロイ |
+| Spin aka プラグイン | v0.7.0 | Akamai Functions 認証 & デプロイ |
+| Node.js | v20+ | Spin TypeScript アプリのビルド |
+| Linode CLI（任意） | latest | LKE クラスター作成 |
 
-   ```sh
-   kubectl get service frontend-external | awk '{print $4}'
-   ```
+---
 
-   Visit `http://EXTERNAL_IP` in a web browser to access your instance of Online Boutique.
+### Step 1 — LKE クラスターの作成
 
-8. Congrats! You've deployed the default Online Boutique. To deploy a different variation of Online Boutique (e.g., with Google Cloud Operations tracing, Istio, etc.), see [Deploy Online Boutique variations with Kustomize](#deploy-online-boutique-variations-with-kustomize).
+Akamai Cloud コンソールまたは Linode CLI でクラスターを作成します。
 
-9. Once you are done with it, delete the GKE cluster.
+```bash
+linode-cli lke cluster-create \
+  --label akamai-demo \
+  --region ap-northeast \
+  --k8s_version 1.35 \
+  --node_pools.type g6-standard-4 \
+  --node_pools.count 3
+```
 
-   ```sh
-   gcloud container clusters delete online-boutique \
-     --project=${PROJECT_ID} --region=${REGION}
-   ```
+作成後、kubeconfig をダウンロードしてローカルに配置します。
 
-   Deleting the cluster may take a few minutes.
+```bash
+linode-cli lke kubeconfig-view <cluster-id> --text | base64 -d > ~/.kube/config
+kubectl get nodes   # Ready が確認できれば OK
+```
 
-## Additional deployment options
+---
 
-- **Terraform**: [See these instructions](/terraform) to learn how to deploy Online Boutique using [Terraform](https://www.terraform.io/intro).
-- **Istio / Cloud Service Mesh**: [See these instructions](/kustomize/components/service-mesh-istio/README.md) to deploy Online Boutique alongside an Istio-backed service mesh.
-- **Non-GKE clusters (Minikube, Kind, etc)**: See the [Development guide](/docs/development-guide.md) to learn how you can deploy Online Boutique on non-GKE clusters.
-- **AI assistant using Gemini**: [See these instructions](/kustomize/components/shopping-assistant/README.md) to deploy a Gemini-powered AI assistant that suggests products to purchase based on an image.
-- **And more**: The [`/kustomize` directory](/kustomize) contains instructions for customizing the deployment of Online Boutique with other variations.
+### Step 2 — マイクロサービスのデプロイ
 
-## Documentation
+```bash
+git clone https://github.com/ymori-aka/akamai-microservices-demo.git
+cd akamai-microservices-demo
 
-- [Development](/docs/development-guide.md) to learn how to run and develop this app locally.
+# 全マイクロサービスを一括デプロイ
+kubectl apply -f kubernetes-manifests/
 
-## Demos featuring Online Boutique
+# フロントエンドのプラットフォームバッジを Akamai に設定
+kubectl set env deployment/frontend ENV_PLATFORM=akamai
 
-- [Platform Engineering in action: Deploy the Online Boutique sample apps with Score and Humanitec](https://medium.com/p/d99101001e69)
-- [The new Kubernetes Gateway API with Istio and Anthos Service Mesh (ASM)](https://medium.com/p/9d64c7009cd)
-- [Use Azure Redis Cache with the Online Boutique sample on AKS](https://medium.com/p/981bd98b53f8)
-- [Sail Sharp, 8 tips to optimize and secure your .NET containers for Kubernetes](https://medium.com/p/c68ba253844a)
-- [Deploy multi-region application with Anthos and Google cloud Spanner](https://medium.com/google-cloud/a2ea3493ed0)
-- [Use Google Cloud Memorystore (Redis) with the Online Boutique sample on GKE](https://medium.com/p/82f7879a900d)
-- [Use Helm to simplify the deployment of Online Boutique, with a Service Mesh, GitOps, and more!](https://medium.com/p/246119e46d53)
-- [How to reduce microservices complexity with Apigee and Anthos Service Mesh](https://cloud.google.com/blog/products/application-modernization/api-management-and-service-mesh-go-together)
-- [gRPC health probes with Kubernetes 1.24+](https://medium.com/p/b5bd26253a4c)
-- [Use Google Cloud Spanner with the Online Boutique sample](https://medium.com/p/f7248e077339)
-- [Seamlessly encrypt traffic from any apps in your Mesh to Memorystore (redis)](https://medium.com/google-cloud/64b71969318d)
-- [Strengthen your app's security with Cloud Service Mesh and Anthos Config Management](https://cloud.google.com/service-mesh/docs/strengthen-app-security)
-- [From edge to mesh: Exposing service mesh applications through GKE Ingress](https://cloud.google.com/architecture/exposing-service-mesh-apps-through-gke-ingress)
-- [Take the first step toward SRE with Cloud Operations Sandbox](https://cloud.google.com/blog/products/operations/on-the-road-to-sre-with-cloud-operations-sandbox)
-- [Deploying the Online Boutique sample application on Cloud Service Mesh](https://cloud.google.com/service-mesh/docs/onlineboutique-install-kpt)
-- [Anthos Service Mesh Workshop: Lab Guide](https://codelabs.developers.google.com/codelabs/anthos-service-mesh-workshop)
-- [KubeCon EU 2019 - Reinventing Networking: A Deep Dive into Istio's Multicluster Gateways - Steve Dake, Independent](https://youtu.be/-t2BfT59zJA?t=982)
-- Google Cloud Next'18 SF
-  - [Day 1 Keynote](https://youtu.be/vJ9OaAqfxo4?t=2416) showing GKE On-Prem
-  - [Day 3 Keynote](https://youtu.be/JQPOPV_VH5w?t=815) showing Stackdriver
-    APM (Tracing, Code Search, Profiler, Google Cloud Build)
-  - [Introduction to Service Management with Istio](https://www.youtube.com/watch?v=wCJrdKdD6UM&feature=youtu.be&t=586)
-- [Google Cloud Next'18 London – Keynote](https://youtu.be/nIq2pkNcfEI?t=3071)
-  showing Stackdriver Incident Response Management
+# 全 Pod が Running になるまで待機（3〜5 分）
+kubectl get pods -w
+```
+
+---
+
+### Step 3 — 商品カタログの反映
+
+商品データは ConfigMap で管理しています。
+
+```bash
+kubectl create configmap products-catalog \
+  --from-file=products.json=./src/productcatalogservice/products.json
+kubectl rollout restart deployment/productcatalogservice
+```
+
+---
+
+### Step 4 — 管理サーバー（GitHub Actions self-hosted runner）のセットアップ
+
+CI/CD には LKE にアクセス可能な管理サーバー（Ubuntu 24.04 推奨）が 1 台必要です。
+
+**GitHub Actions Runner のインストール**
+
+```bash
+# GitHub リポジトリ → Settings → Actions → Runners → New self-hosted runner
+# に表示されるコマンドを実行（トークンはコンソールで取得）
+mkdir -p ~/actions-runner && cd ~/actions-runner
+curl -o actions-runner-linux-x64-2.321.0.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
+tar xzf ./actions-runner-linux-x64-2.321.0.tar.gz
+./config.sh --url https://github.com/ymori-aka/akamai-microservices-demo --token <TOKEN>
+sudo ./svc.sh install && sudo ./svc.sh start
+```
+
+**管理サーバーに必要な追加ツール**
+
+```bash
+# kubectl（kubeconfig は ~/.kube/config に配置）
+curl -LO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+# Spin CLI + aka プラグイン
+curl -fsSL https://developer.fermyon.com/downloads/install.sh | bash
+sudo mv spin /usr/local/bin/
+spin plugins install aka
+
+# Node.js v20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+---
+
+### Step 5 — Akamai Functions へのデプロイ
+
+```bash
+# 認証（初回のみ）
+spin aka login
+
+# recommendation-service
+cd src/spin-functions/recommendation-service
+npm install && npm run build
+spin aka app link --app-name recommendation-service
+spin aka app deploy --no-confirm
+
+# product-intro-service
+cd ../product-intro-service
+npm install && npm run build
+spin aka app link --app-name product-intro-service
+spin aka app deploy --no-confirm
+```
+
+デプロイ後に発行される URL（`https://<uuid>.fwf.app`）を  
+`src/frontend/templates/product.html` の以下の変数に設定してください。
+
+```javascript
+var introUrl = "https://<uuid>.fwf.app/intro?product_id=...";
+var recUrl   = "https://<uuid>.fwf.app/recommendations?product_id=...";
+```
+
+---
+
+### Step 6 — GitHub Secrets の設定
+
+リポジトリの **Settings → Secrets and variables → Actions** で設定します。
+
+| Secret 名 | 説明 |
+|-----------|------|
+| `GHCR_TOKEN` | GitHub Personal Access Token（`write:packages` スコープ必須） |
+
+> kubeconfig・Spin 認証情報は管理サーバー上に直接配置するため、Secret への登録不要です。
+
+---
+
+### Step 7 — Grafana Cloud 監視のセットアップ
+
+Grafana Cloud コンソール（**Connections → Add new connection → Kubernetes**）で  
+Helm インストールコマンドが生成されます。そのコマンドをそのまま実行してください。
+
+```bash
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+kubectl create namespace monitoring
+
+# Grafana Cloud コンソールで生成されるコマンドを実行
+helm install grafana-cloud-metrics grafana/k8s-monitoring \
+  --namespace monitoring \
+  --set ... # コンソールの指示に従う
+```
+
+---
+
+### Step 8 — 環境変数の設定（オプション）
+
+```bash
+kubectl set env deployment/frontend \
+  ENV_PLATFORM=akamai \         # プラットフォームバッジ（akamai / gcp / aws / azure）
+  ADMIN_USER=admin \            # 管理画面 Basic 認証 ID
+  ADMIN_PASSWORD=akamai-demo \  # 管理画面 Basic 認証パスワード
+  ENABLE_ASSISTANT=true         # AI ショッピングアシスタント（オプション）
+```
+
+---
+
+## CI/CD パイプライン
+
+`main` ブランチへの push をトリガーに、以下の 3 ジョブが実行されます。
+
+```
+push to main
+    │
+    ▼
+┌──────────────────────────┐
+│  Job 1: Build            │  GitHub-hosted runner (ubuntu-latest)
+│  Frontend Docker Image   │  → ghcr.io/ymori-aka/frontend:sha-XXXXXXX
+└────────────┬─────────────┘
+             │ (完了後、並列実行)
+    ┌────────┴──────────────────────────────────┐
+    │                                           │
+    ▼                                           ▼
+┌────────────────────────┐     ┌────────────────────────────────┐
+│  Job 2: Deploy to LKE  │     │  Job 3: Deploy Spin Apps       │
+│  (self-hosted runner)  │     │  to Akamai Functions           │
+│                        │     │  (self-hosted runner)          │
+│  kubectl set image ... │     │  recommendation-service        │
+│  kubectl rollout ...   │     │  product-intro-service         │
+└────────────────────────┘     └────────────────────────────────┘
+```
+
+---
+
+## 商品管理画面の使い方
+
+`http://<FRONTEND_IP>/admin/inventory` にアクセス（Basic 認証あり）。
+
+| 操作 | 方法 |
+|------|------|
+| 商品名・説明文の編集 | 表の各セルを直接編集 → 「Save All Changes」をクリック |
+| 価格・在庫の変更 | 数値セルを編集 → 保存 |
+| 商品画像の変更 | サムネイルをクリック → ファイル選択 → 保存 |
+| 商品の非表示 | 「Hide」列のチェックを ON → 保存 |
+| 商品の削除 | 🗑 ボタン → 確認ダイアログ → 削除 |
+| 新規商品の追加 | 画面下部のフォームに入力 → 画像をアップロード → 「追加」 |
+
+> **注意:** アップロード画像は Pod のローカルストレージに保存されます。  
+> 恒久的に保存したい場合は `src/frontend/static/img/products/custom/` に  
+> 画像ファイルをコミットして CI/CD 経由でデプロイしてください。
+
+---
+
+## リポジトリ構成
+
+```
+.
+├── .github/workflows/
+│   └── deploy.yml                    # CI/CD パイプライン定義
+├── kubernetes-manifests/             # 全マイクロサービスの K8s マニフェスト
+│   ├── frontend.yaml
+│   ├── productcatalogservice.yaml
+│   └── ...（11 サービス分）
+├── src/
+│   ├── frontend/                     # ★ メイン改変箇所（Go）
+│   │   ├── handlers.go               # ルーティング・ビジネスロジック・管理API
+│   │   ├── translations.go           # 日本語翻訳データ（全商品）
+│   │   ├── main.go                   # サーバー起動・ルーティング定義
+│   │   ├── templates/                # HTML テンプレート
+│   │   │   ├── header.html           # Akamai ロゴ・言語切替ボタン
+│   │   │   ├── product.html          # AI 紹介文・AI レコメンド表示
+│   │   │   └── inventory.html        # 商品管理画面
+│   │   └── static/
+│   │       ├── icons/akamai_logo.png # Akamai ロゴ
+│   │       └── img/products/         # 商品画像
+│   ├── spin-functions/               # ★ Akamai Functions（TypeScript）
+│   │   ├── recommendation-service/   # AI レコメンド
+│   │   └── product-intro-service/    # AI 商品紹介文生成
+│   └── productcatalogservice/
+│       └── products.json             # 商品カタログデータ（ConfigMap）
+└── README.md
+```
+
+---
+
+## ライセンス・派生元について
+
+このプロジェクトは [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo) を派生元とし、**Apache License 2.0** に従い改変・利用しています。
+
+**主な変更点:**
+
+- フロントエンドを Akamai ブランドに変更（ロゴ・カラー・商品カタログ）
+- Akamai Functions（Fermyon Spin）による AI 機能を追加
+- 日本語 / 英語切替機能を追加
+- 商品管理画面（CRUD・Basic 認証・画像アップロード）を追加
+- Grafana Cloud 監視統合を追加
+- GitHub Actions による LKE + Akamai Functions への自動デプロイを追加
+
+Copyright 2018 Google LLC（派生元コード） — See [LICENSE](./LICENSE) for details.
