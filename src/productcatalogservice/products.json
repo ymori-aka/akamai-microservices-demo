@@ -1,6 +1,22 @@
 {
     "products": [
         {
+            "id": "AKMT029",
+            "name": "PEACE FOR ALL Tee / Akamai - Black",
+            "description": "Every day, billions of people connect online — working, playing, learning, shopping, and sharing ideas. The 'texture' code featured in this design represents the common language behind every digital experience. For 25 years, Akamai has built a comfortable, secure internet to enrich lives around the world. We remain committed to making the world safer and more deeply connected.",
+            "picture": "/static/img/products/custom/AKMT029.webp",
+            "priceUsd": {"currencyCode": "USD", "units": 29, "nanos": 990000000},
+            "categories": ["apparel", "t-shirts"]
+        },
+        {
+            "id": "AKMT028",
+            "name": "PEACE FOR ALL Tee / Akamai - White",
+            "description": "Over 25 years ago, Akamai laid the foundation for today's connected internet. This T-shirt is a tribute to the dawn of the internet era. The beige color references the iconic 'beige box' computers of that time. The heart on the chest symbolizes how the internet has connected people toward a better world. The code on the back is real — a nod to Linux and the open-source spirit powering the web.",
+            "picture": "/static/img/products/custom/AKMT028.jpg",
+            "priceUsd": {"currencyCode": "USD", "units": 29, "nanos": 990000000},
+            "categories": ["apparel", "t-shirts"]
+        },
+        {
             "id": "AKMT001",
             "name": "Akamai Unisex Short Sleeve Tee - Blue",
             "description": "Rep the edge in style with this Akamai \"We Move Mountains\" crew-neck tee in blue. Made from soft, breathable cotton blend. A bold statement tee for those who push limits every day.",
