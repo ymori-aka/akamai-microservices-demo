@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -742,6 +743,28 @@ func getAdminProduct(p *pb.Product) *AdminProduct {
 	}
 }
 
+// adminBasicAuth wraps a handler with HTTP Basic Auth.
+// Credentials are read from env vars ADMIN_USER / ADMIN_PASSWORD (defaults: admin / akamai-demo).
+func adminBasicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := os.Getenv("ADMIN_USER")
+		pass := os.Getenv("ADMIN_PASSWORD")
+		if user == "" {
+			user = "admin"
+		}
+		if pass == "" {
+			pass = "akamai-demo"
+		}
+		u, p, ok := r.BasicAuth()
+		if !ok || u != user || p != pass {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Inventory Admin"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
 func (fe *frontendServer) inventoryHandler(w http.ResponseWriter, r *http.Request) {
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 
@@ -780,10 +803,40 @@ func (fe *frontendServer) inventoryHandler(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// uploadProductPicture saves an uploaded image file and returns the URL path.
+// fieldName is the multipart form field name. id is used as the filename base.
+func uploadProductPicture(r *http.Request, fieldName, id string) string {
+	file, header, err := r.FormFile(fieldName)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext == "" {
+		ext = ".jpg"
+	}
+	dir := "./static/img/products/custom"
+	_ = os.MkdirAll(dir, 0755)
+	savePath := filepath.Join(dir, id+ext)
+	f, err := os.Create(savePath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, file); err != nil {
+		return ""
+	}
+	return "/static/img/products/custom/" + id + ext
+}
+
 func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
+	// 32 MB limit for file uploads
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		if err2 := r.ParseForm(); err2 != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
 	}
 
 	action := r.FormValue("action")
@@ -798,6 +851,11 @@ func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.
 		id := strings.TrimSpace(r.FormValue("new_id"))
 		if id != "" {
 			price, _ := strconv.ParseFloat(r.FormValue("new_price"), 64)
+			// Picture: prefer uploaded file, fall back to typed path
+			picturePath := r.FormValue("new_picture")
+			if uploaded := uploadProductPicture(r, "new_picture_file", id); uploaded != "" {
+				picturePath = uploaded
+			}
 			adminProducts[id] = &AdminProduct{
 				ID:          id,
 				NameEN:      r.FormValue("new_name_en"),
@@ -805,7 +863,7 @@ func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.
 				Description: r.FormValue("new_desc_en"),
 				DescJA:      r.FormValue("new_desc_ja"),
 				Price:       price,
-				Picture:     r.FormValue("new_picture"),
+				Picture:     picturePath,
 				Categories:  r.FormValue("new_categories"),
 				Stock:       100,
 				Hidden:      false,
@@ -813,7 +871,6 @@ func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.
 		}
 
 	default: // bulk save
-		// Collect all product IDs from form
 		ids := r.Form["product_ids"]
 		for _, id := range ids {
 			ap, exists := adminProducts[id]
@@ -832,6 +889,10 @@ func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.
 				ap.Stock = qty
 			}
 			ap.Hidden = r.FormValue("hidden_"+id) == "1"
+			// Optional picture replacement per product
+			if uploaded := uploadProductPicture(r, "pic_"+id, id); uploaded != "" {
+				ap.Picture = uploaded
+			}
 		}
 	}
 	adminMu.Unlock()

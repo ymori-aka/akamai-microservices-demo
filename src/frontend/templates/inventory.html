@@ -75,7 +75,7 @@
   </div>
 
   <!-- Main product table -->
-  <form method="POST" action="{{ $.baseUrl }}/admin/inventory" id="main-form">
+  <form method="POST" action="{{ $.baseUrl }}/admin/inventory" id="main-form" enctype="multipart/form-data">
     <input type="hidden" name="action" value="save">
     {{ range $.items }}
     <input type="hidden" name="product_ids" value="{{ .ID }}">
@@ -105,11 +105,16 @@
             {{ range $.items }}
             <tr class="product-row" data-name="{{ .NameEN }} {{ .NameJA }}">
               <td>
-                {{ if .Picture }}
-                <img src="{{ $.baseUrl }}{{ .Picture }}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;">
-                {{ else }}
-                <div style="width:44px;height:44px;background:#eee;border-radius:5px;"></div>
-                {{ end }}
+                <label style="cursor:pointer; position:relative; display:inline-block;" title="{{ if eq $.user_lang "ja" }}クリックして画像を変更{{ else }}Click to change image{{ end }}">
+                  {{ if .Picture }}
+                  <img src="{{ $.baseUrl }}{{ .Picture }}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;" id="thumb-{{ .ID }}">
+                  {{ else }}
+                  <div style="width:44px;height:44px;background:#eee;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:18px;" id="thumb-{{ .ID }}">📷</div>
+                  {{ end }}
+                  <input type="file" name="pic_{{ .ID }}" accept="image/*" style="display:none;"
+                    onchange="previewThumb(this,'thumb-{{ .ID }}')">
+                  <span style="position:absolute;bottom:0;right:0;background:rgba(0,0,0,0.5);border-radius:3px;padding:1px 3px;font-size:9px;color:#fff;">✏️</span>
+                </label>
               </td>
               <td><input class="inv-input" name="name_en_{{ .ID }}" value="{{ .NameEN }}" placeholder="English name"></td>
               <td><input class="inv-input" name="name_ja_{{ .ID }}" value="{{ .NameJA }}" placeholder="日本語名"></td>
@@ -166,7 +171,7 @@
     <div class="section-title">
       ➕ {{ if eq $.user_lang "ja" }}新しい商品を追加{{ else }}Add New Product{{ end }}
     </div>
-    <form method="POST" action="{{ $.baseUrl }}/admin/inventory" style="padding:16px;">
+    <form method="POST" action="{{ $.baseUrl }}/admin/inventory" style="padding:16px;" enctype="multipart/form-data">
       <input type="hidden" name="action" value="add">
       <div class="row">
         <div class="col-md-2">
@@ -190,8 +195,17 @@
           <input class="inv-input" name="new_categories" placeholder="apparel,t-shirts">
         </div>
         <div class="col-md-2">
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}画像パス{{ else }}Picture path{{ end }}</label>
-          <input class="inv-input" name="new_picture" placeholder="/static/img/...">
+          <!-- Photo upload (preferred) or manual path -->
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品画像{{ else }}Picture{{ end }}</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px;">
+            <span id="new-pic-preview" style="width:44px;height:44px;background:#eee;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">📷</span>
+            <span style="font-size:12px;color:#009BDE;text-decoration:underline;">
+              {{ if eq $.user_lang "ja" }}画像を選択{{ else }}Choose file{{ end }}
+            </span>
+            <input type="file" name="new_picture_file" accept="image/*" style="display:none;"
+              onchange="previewNew(this)">
+          </label>
+          <input class="inv-input" name="new_picture" placeholder="/static/img/... {{ if eq $.user_lang "ja" }}(任意){{ else }}(or path){{ end }}" style="margin-top:4px;font-size:11px;">
         </div>
       </div>
       <div class="row" style="margin-top:10px;">
@@ -254,6 +268,44 @@ function setAllStock(qty) {
     inp.value = qty;
     updateBadge(inp);
   });
+}
+
+// Preview an uploaded image on the existing product thumbnail
+function previewThumb(input, thumbId) {
+  if (!input.files || !input.files[0]) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var el = document.getElementById(thumbId);
+    if (!el) return;
+    // Replace div placeholder with img, or update existing img
+    if (el.tagName === 'IMG') {
+      el.src = e.target.result;
+    } else {
+      var img = document.createElement('img');
+      img.id = thumbId;
+      img.src = e.target.result;
+      img.style.cssText = 'width:44px;height:44px;object-fit:cover;border-radius:5px;';
+      el.parentNode.replaceChild(img, el);
+    }
+  };
+  reader.readAsDataURL(input.files[0]);
+}
+
+// Preview an uploaded image for the new product form
+function previewNew(input) {
+  if (!input.files || !input.files[0]) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var el = document.getElementById('new-pic-preview');
+    if (!el) return;
+    el.innerHTML = '';
+    el.style.background = 'none';
+    var img = document.createElement('img');
+    img.src = e.target.result;
+    img.style.cssText = 'width:44px;height:44px;object-fit:cover;border-radius:5px;';
+    el.appendChild(img);
+  };
+  reader.readAsDataURL(input.files[0]);
 }
 </script>
 
