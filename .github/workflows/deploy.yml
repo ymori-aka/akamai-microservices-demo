@@ -98,12 +98,7 @@ jobs:
             local PRICE=$4; local PICTURE=$5
             local DESC_EN=$6; local DESC_JA=$7
 
-            # Skip if already registered (check via admin page)
-            if curl -s $AUTH "${FRONTEND}/admin/inventory" | grep -q "\"${ID}\""; then
-              echo "${ID}: already exists, skipping"
-              return
-            fi
-
+            # Always register (add action overwrites if ID already exists)
             HTTP=$(curl -s -o /dev/null -w "%{http_code}" $AUTH \
               -F "action=add" \
               -F "new_id=${ID}" \

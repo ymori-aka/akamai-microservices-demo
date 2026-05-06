@@ -195,18 +195,10 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 	log.WithField("id", id).WithField("currency", currentCurrency(r)).
 		Debug("serving product page")
 
-	p, err := fe.getProduct(r.Context(), id)
+	p, err := fe.getProductWithAdminFallback(r.Context(), id)
 	if err != nil {
-		// Fall back to admin-only products if gRPC catalog doesn't have it
-		loadAdminData()
-		adminMu.RLock()
-		ap, ok := adminProducts[id]
-		adminMu.RUnlock()
-		if !ok {
-			renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve product"), http.StatusInternalServerError)
-			return
-		}
-		p = adminToPbProduct(ap)
+		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve product"), http.StatusInternalServerError)
+		return
 	}
 	currencies, err := fe.getCurrencies(r.Context())
 	if err != nil {
@@ -274,7 +266,7 @@ func (fe *frontendServer) addToCartHandler(w http.ResponseWriter, r *http.Reques
 	}
 	log.WithField("product", payload.ProductID).WithField("quantity", payload.Quantity).Debug("adding to cart")
 
-	p, err := fe.getProduct(r.Context(), payload.ProductID)
+	p, err := fe.getProductWithAdminFallback(r.Context(), payload.ProductID)
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve product"), http.StatusInternalServerError)
 		return
@@ -334,7 +326,7 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 	items := make([]cartItemView, len(cart))
 	totalPrice := pb.Money{CurrencyCode: currentCurrency(r)}
 	for i, item := range cart {
-		p, err := fe.getProduct(r.Context(), item.GetProductId())
+		p, err := fe.getProductWithAdminFallback(r.Context(), item.GetProductId())
 		if err != nil {
 			renderHTTPError(log, r, w, errors.Wrapf(err, "could not retrieve product #%s", item.GetProductId()), http.StatusInternalServerError)
 			return
@@ -750,6 +742,23 @@ func loadAdminData() {
 			jaTranslations[id] = jaProduct{Name: ap.NameJA, Description: ap.DescJA}
 		}
 	}
+}
+
+// getProductWithAdminFallback tries the gRPC catalog first, then falls back to admin-only products.
+// Use this everywhere a product ID might be admin-only (not in the gRPC catalog).
+func (fe *frontendServer) getProductWithAdminFallback(ctx context.Context, id string) (*pb.Product, error) {
+	p, err := fe.getProduct(ctx, id)
+	if err != nil {
+		loadAdminData()
+		adminMu.RLock()
+		ap, ok := adminProducts[id]
+		adminMu.RUnlock()
+		if !ok {
+			return nil, err
+		}
+		return adminToPbProduct(ap), nil
+	}
+	return p, nil
 }
 
 // adminToPbProduct converts an AdminProduct to a pb.Product for rendering.
