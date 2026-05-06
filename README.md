@@ -1,54 +1,56 @@
+**English** | [日本語](./README.ja.md)
+
 # Akamai Microservices Demo
 
-> **Akamai の各種サービスを組み合わせた、エンドツーエンドのデモ環境です。**  
-> LKE（Linode Kubernetes Engine）上のマイクロサービス EC サイトに、Akamai Functions による AI 機能・Grafana Cloud による可観測性を統合した、実際のユースケースを想定した構成になっています。
+> **An end-to-end demo environment combining Akamai's key services.**  
+> A microservices e-commerce site running on LKE (Linode Kubernetes Engine), integrated with AI-powered features via Akamai Functions and full observability through Grafana Cloud.
 
 [![Build and Deploy](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml/badge.svg)](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml)
 
 ---
 
-## 目次
+## Table of Contents
 
-- [デモで見せられること](#デモで見せられること)
-- [アーキテクチャ](#アーキテクチャ)
-- [技術スタック](#技術スタック)
-- [デモ環境へのアクセス](#デモ環境へのアクセス)
-- [セットアップ手順](#セットアップ手順)
-- [CI/CD パイプライン](#cicd-パイプライン)
-- [商品管理画面の使い方](#商品管理画面の使い方)
-- [リポジトリ構成](#リポジトリ構成)
-- [ライセンス・派生元について](#ライセンス派生元について)
-
----
-
-## デモで見せられること
-
-| # | シナリオ | 訴求ポイント |
-|---|----------|-------------|
-| 1 | **EC サイトを LKE で運用** | マネージド Kubernetes の手軽さ、スケーラビリティ |
-| 2 | **AI 商品紹介文を Akamai Functions で生成** | GPU サーバー（Gemma 4）をエッジ Function から呼び出し、低レイテンシで応答 |
-| 3 | **AI によるパーソナライズドレコメンド** | 閲覧中の商品に応じて関連商品を動的に提案 |
-| 4 | **日本語 / 英語 リアルタイム切替** | グローバル対応の UI をワンクリックで切替 |
-| 5 | **Grafana Cloud でクラスター全体を可視化** | Node・Pod・コンテナのメトリクス・ログを一元管理 |
-| 6 | **GitHub Actions で自動デプロイ** | push → ビルド → LKE デプロイ → Akamai Functions デプロイ を完全自動化 |
-| 7 | **商品管理画面（認証付き）** | 商品の追加・削除・在庫管理・画像アップロードをブラウザから操作 |
+- [What You Can Demo](#what-you-can-demo)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Accessing the Demo Environment](#accessing-the-demo-environment)
+- [Setup Guide](#setup-guide)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Using the Admin Panel](#using-the-admin-panel)
+- [Repository Structure](#repository-structure)
+- [License & Attribution](#license--attribution)
 
 ---
 
-## アーキテクチャ
+## What You Can Demo
+
+| # | Scenario | Key Selling Point |
+|---|----------|-------------------|
+| 1 | **Running an e-commerce site on LKE** | Ease and scalability of managed Kubernetes |
+| 2 | **AI product descriptions via Akamai Functions** | Edge Function calling a GPU-hosted LLM (Gemma 4) with low latency |
+| 3 | **AI-powered personalized recommendations** | Dynamic product suggestions based on what the customer is viewing |
+| 4 | **Real-time Japanese / English language switching** | One-click global-ready UI |
+| 5 | **Full cluster observability with Grafana Cloud** | Unified metrics, logs, and traces for nodes, pods, and containers |
+| 6 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
+| 7 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
+
+---
+
+## Architecture
 
 ```mermaid
 graph TB
-    subgraph Client["クライアント (ブラウザ)"]
-        USER([ユーザー])
+    subgraph Client["Client (Browser)"]
+        USER([User])
     end
 
     subgraph AkamaiEdge["Akamai Functions (Fermyon Spin)"]
-        INTRO["product-intro-service\n✨ AI 商品紹介文生成"]
-        REC["recommendation-service\n🤖 AI レコメンド"]
+        INTRO["product-intro-service\n✨ AI product description"]
+        REC["recommendation-service\n🤖 AI recommendations"]
     end
 
-    subgraph LKE["LKE クラスター (3 ノード / Kubernetes v1.35)"]
+    subgraph LKE["LKE Cluster (3 nodes / Kubernetes v1.35)"]
         direction TB
         FE["frontend\n(Go)"]
         PC["productcatalog\n(Go)"]
@@ -63,12 +65,12 @@ graph TB
         REDIS[("Redis\n(Cart Store)")]
     end
 
-    subgraph GPU["GPU サーバー"]
-        GEMMA["Gemma 4 26B\n(llama.cpp / OpenAI API互換)"]
+    subgraph GPU["GPU Server"]
+        GEMMA["Gemma 4 26B\n(llama.cpp / OpenAI-compatible API)"]
     end
 
-    subgraph Observability["可観測性"]
-        GRAFANA["Grafana Cloud\n(メトリクス / ログ)"]
+    subgraph Observability["Observability"]
+        GRAFANA["Grafana Cloud\n(Metrics / Logs)"]
     end
 
     USER -->|HTTP| FE
@@ -84,56 +86,56 @@ graph TB
 
 ---
 
-## 技術スタック
+## Tech Stack
 
-| レイヤー | 技術 | 役割 |
-|----------|------|------|
-| **インフラ** | Linode Kubernetes Engine (LKE) | Kubernetes クラスター（3 ノード） |
-| **エッジ AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript 製 Wasm Function をエッジで実行 |
-| **AI モデル** | Gemma 4 26B / llama.cpp | GPU サーバー上のオープンソース LLM |
-| **フロントエンド** | Go + HTML テンプレート | EC サイト本体 |
-| **マイクロサービス** | Go / Python / Node.js / Java | カート・決済・通貨換算など各業務ロジック |
-| **可観測性** | Grafana Cloud + Grafana Alloy + Beyla | メトリクス・ログ・eBPF トレーシング |
-| **CI/CD** | GitHub Actions + self-hosted runner | push 時に自動ビルド & デプロイ |
-| **コンテナレジストリ** | GitHub Container Registry (ghcr.io) | Docker イメージ管理 |
-
----
-
-## デモ環境へのアクセス
-
-| URL | 説明 |
-|-----|------|
-| `http://172.233.68.25/` | EC ストア（一般公開） |
-| `http://172.233.68.25/admin/inventory` | 商品管理画面（Basic 認証あり） |
-
-**管理画面のデフォルト認証情報**
-
-| 項目 | 値 |
-|------|----|
-| ID | `admin` |
-| パスワード | `akamai-demo` |
-
-> 環境変数 `ADMIN_USER` / `ADMIN_PASSWORD` で変更できます（後述）。
+| Layer | Technology | Role |
+|-------|-----------|------|
+| **Infrastructure** | Linode Kubernetes Engine (LKE) | Kubernetes cluster (3 nodes) |
+| **Edge AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript Wasm functions running at the edge |
+| **AI Model** | Gemma 4 26B / llama.cpp | Open-source LLM on a GPU server |
+| **Frontend** | Go + HTML templates | E-commerce storefront |
+| **Microservices** | Go / Python / Node.js / Java | Cart, checkout, currency, shipping, etc. |
+| **Observability** | Grafana Cloud + Grafana Alloy + Beyla | Metrics, logs, eBPF tracing |
+| **CI/CD** | GitHub Actions + self-hosted runner | Automated build & deploy on push |
+| **Container Registry** | GitHub Container Registry (ghcr.io) | Docker image storage |
 
 ---
 
-## セットアップ手順
+## Accessing the Demo Environment
 
-### 前提条件
+| URL | Description |
+|-----|-------------|
+| `http://172.233.68.25/` | E-commerce store (public) |
+| `http://172.233.68.25/admin/inventory` | Admin panel (Basic Auth required) |
 
-| ツール | バージョン | 用途 |
-|--------|-----------|------|
-| kubectl | v1.28+ | Kubernetes 操作 |
-| Spin CLI | v3.6.3 | Akamai Functions ビルド & デプロイ |
-| Spin aka プラグイン | v0.7.0 | Akamai Functions 認証 & デプロイ |
-| Node.js | v20+ | Spin TypeScript アプリのビルド |
-| Linode CLI（任意） | latest | LKE クラスター作成 |
+**Default admin credentials**
+
+| Field | Value |
+|-------|-------|
+| Username | `admin` |
+| Password | `akamai-demo` |
+
+> Credentials can be changed via the `ADMIN_USER` / `ADMIN_PASSWORD` environment variables (see Step 8).
 
 ---
 
-### Step 1 — LKE クラスターの作成
+## Setup Guide
 
-Akamai Cloud コンソールまたは Linode CLI でクラスターを作成します。
+### Prerequisites
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| kubectl | v1.28+ | Kubernetes operations |
+| Spin CLI | v3.6.3 | Akamai Functions build & deploy |
+| Spin aka plugin | v0.7.0 | Akamai Functions auth & deploy |
+| Node.js | v20+ | Building Spin TypeScript apps |
+| Linode CLI (optional) | latest | Creating the LKE cluster |
+
+---
+
+### Step 1 — Create an LKE Cluster
+
+Create a cluster from the Akamai Cloud console or via the Linode CLI.
 
 ```bash
 linode-cli lke cluster-create \
@@ -144,36 +146,36 @@ linode-cli lke cluster-create \
   --node_pools.count 3
 ```
 
-作成後、kubeconfig をダウンロードしてローカルに配置します。
+Download the kubeconfig and verify connectivity.
 
 ```bash
 linode-cli lke kubeconfig-view <cluster-id> --text | base64 -d > ~/.kube/config
-kubectl get nodes   # Ready が確認できれば OK
+kubectl get nodes   # All nodes should show Ready
 ```
 
 ---
 
-### Step 2 — マイクロサービスのデプロイ
+### Step 2 — Deploy the Microservices
 
 ```bash
 git clone https://github.com/ymori-aka/akamai-microservices-demo.git
 cd akamai-microservices-demo
 
-# 全マイクロサービスを一括デプロイ
+# Deploy all microservices at once
 kubectl apply -f kubernetes-manifests/
 
-# フロントエンドのプラットフォームバッジを Akamai に設定
+# Set the platform badge to Akamai
 kubectl set env deployment/frontend ENV_PLATFORM=akamai
 
-# 全 Pod が Running になるまで待機（3〜5 分）
+# Wait for all pods to reach Running state (3–5 minutes)
 kubectl get pods -w
 ```
 
 ---
 
-### Step 3 — 商品カタログの反映
+### Step 3 — Load the Product Catalog
 
-商品データは ConfigMap で管理しています。
+Product data is managed as a ConfigMap.
 
 ```bash
 kubectl create configmap products-catalog \
@@ -183,15 +185,15 @@ kubectl rollout restart deployment/productcatalogservice
 
 ---
 
-### Step 4 — 管理サーバー（GitHub Actions self-hosted runner）のセットアップ
+### Step 4 — Set Up the Management Server (GitHub Actions self-hosted runner)
 
-CI/CD には LKE にアクセス可能な管理サーバー（Ubuntu 24.04 推奨）が 1 台必要です。
+A management server (Ubuntu 24.04 recommended) with access to the LKE cluster is required for CI/CD.
 
-**GitHub Actions Runner のインストール**
+**Install the GitHub Actions Runner**
 
 ```bash
-# GitHub リポジトリ → Settings → Actions → Runners → New self-hosted runner
-# に表示されるコマンドを実行（トークンはコンソールで取得）
+# Go to: GitHub repo → Settings → Actions → Runners → New self-hosted runner
+# Run the commands shown in the console (token is generated there)
 mkdir -p ~/actions-runner && cd ~/actions-runner
 curl -o actions-runner-linux-x64-2.321.0.tar.gz -L \
   https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
@@ -200,14 +202,14 @@ tar xzf ./actions-runner-linux-x64-2.321.0.tar.gz
 sudo ./svc.sh install && sudo ./svc.sh start
 ```
 
-**管理サーバーに必要な追加ツール**
+**Additional tools required on the management server**
 
 ```bash
-# kubectl（kubeconfig は ~/.kube/config に配置）
+# kubectl (with kubeconfig at ~/.kube/config)
 curl -LO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
-# Spin CLI + aka プラグイン
+# Spin CLI + aka plugin
 curl -fsSL https://developer.fermyon.com/downloads/install.sh | bash
 sudo mv spin /usr/local/bin/
 spin plugins install aka
@@ -219,10 +221,10 @@ sudo apt-get install -y nodejs
 
 ---
 
-### Step 5 — Akamai Functions へのデプロイ
+### Step 5 — Deploy to Akamai Functions
 
 ```bash
-# 認証（初回のみ）
+# Authenticate (first time only)
 spin aka login
 
 # recommendation-service
@@ -238,8 +240,7 @@ spin aka app link --app-name product-intro-service
 spin aka app deploy --no-confirm
 ```
 
-デプロイ後に発行される URL（`https://<uuid>.fwf.app`）を  
-`src/frontend/templates/product.html` の以下の変数に設定してください。
+After deploying, update the endpoint URLs in `src/frontend/templates/product.html`:
 
 ```javascript
 var introUrl = "https://<uuid>.fwf.app/intro?product_id=...";
@@ -248,22 +249,22 @@ var recUrl   = "https://<uuid>.fwf.app/recommendations?product_id=...";
 
 ---
 
-### Step 6 — GitHub Secrets の設定
+### Step 6 — Configure GitHub Secrets
 
-リポジトリの **Settings → Secrets and variables → Actions** で設定します。
+Go to **Settings → Secrets and variables → Actions** in your repository.
 
-| Secret 名 | 説明 |
-|-----------|------|
-| `GHCR_TOKEN` | GitHub Personal Access Token（`write:packages` スコープ必須） |
+| Secret | Description |
+|--------|-------------|
+| `GHCR_TOKEN` | GitHub Personal Access Token with `write:packages` scope |
 
-> kubeconfig・Spin 認証情報は管理サーバー上に直接配置するため、Secret への登録不要です。
+> The kubeconfig and Spin credentials live directly on the management server, so no additional secrets are needed.
 
 ---
 
-### Step 7 — Grafana Cloud 監視のセットアップ
+### Step 7 — Set Up Grafana Cloud Monitoring
 
-Grafana Cloud コンソール（**Connections → Add new connection → Kubernetes**）で  
-Helm インストールコマンドが生成されます。そのコマンドをそのまま実行してください。
+Open the Grafana Cloud console and go to **Connections → Add new connection → Kubernetes**.  
+A ready-to-run Helm command will be generated — simply copy and run it.
 
 ```bash
 helm repo add grafana https://grafana.github.io/helm-charts
@@ -271,29 +272,29 @@ helm repo update
 
 kubectl create namespace monitoring
 
-# Grafana Cloud コンソールで生成されるコマンドを実行
+# Use the command generated in the Grafana Cloud console
 helm install grafana-cloud-metrics grafana/k8s-monitoring \
   --namespace monitoring \
-  --set ... # コンソールの指示に従う
+  --set ...
 ```
 
 ---
 
-### Step 8 — 環境変数の設定（オプション）
+### Step 8 — Optional Environment Variables (frontend)
 
 ```bash
 kubectl set env deployment/frontend \
-  ENV_PLATFORM=akamai \         # プラットフォームバッジ（akamai / gcp / aws / azure）
-  ADMIN_USER=admin \            # 管理画面 Basic 認証 ID
-  ADMIN_PASSWORD=akamai-demo \  # 管理画面 Basic 認証パスワード
-  ENABLE_ASSISTANT=true         # AI ショッピングアシスタント（オプション）
+  ENV_PLATFORM=akamai \         # Platform badge (akamai / gcp / aws / azure)
+  ADMIN_USER=admin \            # Admin panel Basic Auth username
+  ADMIN_PASSWORD=akamai-demo \  # Admin panel Basic Auth password
+  ENABLE_ASSISTANT=true         # Enable AI shopping assistant (optional)
 ```
 
 ---
 
-## CI/CD パイプライン
+## CI/CD Pipeline
 
-`main` ブランチへの push をトリガーに、以下の 3 ジョブが実行されます。
+A push to `main` triggers three jobs:
 
 ```
 push to main
@@ -303,7 +304,7 @@ push to main
 │  Job 1: Build            │  GitHub-hosted runner (ubuntu-latest)
 │  Frontend Docker Image   │  → ghcr.io/ymori-aka/frontend:sha-XXXXXXX
 └────────────┬─────────────┘
-             │ (完了後、並列実行)
+             │ (runs in parallel after Job 1)
     ┌────────┴──────────────────────────────────┐
     │                                           │
     ▼                                           ▼
@@ -318,68 +319,67 @@ push to main
 
 ---
 
-## 商品管理画面の使い方
+## Using the Admin Panel
 
-`http://<FRONTEND_IP>/admin/inventory` にアクセス（Basic 認証あり）。
+Navigate to `http://<FRONTEND_IP>/admin/inventory` (Basic Auth required).
 
-| 操作 | 方法 |
-|------|------|
-| 商品名・説明文の編集 | 表の各セルを直接編集 → 「Save All Changes」をクリック |
-| 価格・在庫の変更 | 数値セルを編集 → 保存 |
-| 商品画像の変更 | サムネイルをクリック → ファイル選択 → 保存 |
-| 商品の非表示 | 「Hide」列のチェックを ON → 保存 |
-| 商品の削除 | 🗑 ボタン → 確認ダイアログ → 削除 |
-| 新規商品の追加 | 画面下部のフォームに入力 → 画像をアップロード → 「追加」 |
+| Action | How |
+|--------|-----|
+| Edit product name / description | Edit the cell directly → click "Save All Changes" |
+| Change price / stock | Edit the numeric field → save |
+| Replace product image | Click the thumbnail → select a file → save |
+| Hide a product from the store | Check the "Hide" checkbox → save |
+| Delete a product | Click 🗑 → confirm in the dialog |
+| Add a new product | Fill in the form at the bottom → upload an image → click "Add" |
 
-> **注意:** アップロード画像は Pod のローカルストレージに保存されます。  
-> 恒久的に保存したい場合は `src/frontend/static/img/products/custom/` に  
-> 画像ファイルをコミットして CI/CD 経由でデプロイしてください。
+> **Note:** Uploaded images are stored on the pod's local filesystem and will be lost if the pod restarts.  
+> For permanent storage, commit the image to `src/frontend/static/img/products/custom/` and redeploy via CI/CD.
 
 ---
 
-## リポジトリ構成
+## Repository Structure
 
 ```
 .
 ├── .github/workflows/
-│   └── deploy.yml                    # CI/CD パイプライン定義
-├── kubernetes-manifests/             # 全マイクロサービスの K8s マニフェスト
+│   └── deploy.yml                    # CI/CD pipeline definition
+├── kubernetes-manifests/             # K8s manifests for all microservices
 │   ├── frontend.yaml
 │   ├── productcatalogservice.yaml
-│   └── ...（11 サービス分）
+│   └── ...  (11 services total)
 ├── src/
-│   ├── frontend/                     # ★ メイン改変箇所（Go）
-│   │   ├── handlers.go               # ルーティング・ビジネスロジック・管理API
-│   │   ├── translations.go           # 日本語翻訳データ（全商品）
-│   │   ├── main.go                   # サーバー起動・ルーティング定義
-│   │   ├── templates/                # HTML テンプレート
-│   │   │   ├── header.html           # Akamai ロゴ・言語切替ボタン
-│   │   │   ├── product.html          # AI 紹介文・AI レコメンド表示
-│   │   │   └── inventory.html        # 商品管理画面
+│   ├── frontend/                     # ★ Primary modified service (Go)
+│   │   ├── handlers.go               # Routing, business logic, admin API
+│   │   ├── translations.go           # Japanese translation data (all products)
+│   │   ├── main.go                   # Server startup & route definitions
+│   │   ├── templates/                # HTML templates
+│   │   │   ├── header.html           # Akamai logo, language toggle
+│   │   │   ├── product.html          # AI intro & AI recommendations
+│   │   │   └── inventory.html        # Admin product management UI
 │   │   └── static/
-│   │       ├── icons/akamai_logo.png # Akamai ロゴ
-│   │       └── img/products/         # 商品画像
-│   ├── spin-functions/               # ★ Akamai Functions（TypeScript）
-│   │   ├── recommendation-service/   # AI レコメンド
-│   │   └── product-intro-service/    # AI 商品紹介文生成
+│   │       ├── icons/akamai_logo.png # Akamai logo
+│   │       └── img/products/         # Product images
+│   ├── spin-functions/               # ★ Akamai Functions (TypeScript)
+│   │   ├── recommendation-service/   # AI recommendations
+│   │   └── product-intro-service/    # AI product description generation
 │   └── productcatalogservice/
-│       └── products.json             # 商品カタログデータ（ConfigMap）
+│       └── products.json             # Product catalog data (ConfigMap source)
 └── README.md
 ```
 
 ---
 
-## ライセンス・派生元について
+## License & Attribution
 
-このプロジェクトは [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo) を派生元とし、**Apache License 2.0** に従い改変・利用しています。
+This project is derived from [GoogleCloudPlatform/microservices-demo](https://github.com/GoogleCloudPlatform/microservices-demo) and used under the **Apache License 2.0**.
 
-**主な変更点:**
+**Key modifications made:**
 
-- フロントエンドを Akamai ブランドに変更（ロゴ・カラー・商品カタログ）
-- Akamai Functions（Fermyon Spin）による AI 機能を追加
-- 日本語 / 英語切替機能を追加
-- 商品管理画面（CRUD・Basic 認証・画像アップロード）を追加
-- Grafana Cloud 監視統合を追加
-- GitHub Actions による LKE + Akamai Functions への自動デプロイを追加
+- Rebranded frontend to Akamai (logo, colors, product catalog)
+- Added AI features via Akamai Functions (Fermyon Spin)
+- Added Japanese / English language switching
+- Added admin panel with full CRUD, Basic Auth, and image upload
+- Integrated Grafana Cloud monitoring
+- Added GitHub Actions CI/CD for automated LKE + Akamai Functions deployment
 
-Copyright 2018 Google LLC（派生元コード） — See [LICENSE](./LICENSE) for details.
+Copyright 2018 Google LLC (original code) — See [LICENSE](./LICENSE) for details.
