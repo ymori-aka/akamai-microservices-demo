@@ -58,7 +58,7 @@ ${catalogList}`;
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gemma-3-27b-it",
+        model: "google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
         messages: [{ role: "user", content: prompt }],
         max_tokens: 100,
         temperature: 0.3,
