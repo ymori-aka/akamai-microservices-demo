@@ -543,7 +543,8 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	}
 	var req IncomingReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to decode request"), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] decode request error: " + err.Error()})
 		return
 	}
 	if req.Lang == "" {
@@ -600,7 +601,8 @@ Never invent products that are not in the catalog.
 	// LKE pods cannot reach the GPU server directly; route via Akamai Functions.
 	assistantURL := os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR")
 	if assistantURL == "" {
-		renderHTTPError(log, r, w, errors.New("SHOPPING_ASSISTANT_SERVICE_ADDR is not configured"), http.StatusServiceUnavailable)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] SHOPPING_ASSISTANT_SERVICE_ADDR is not set"})
 		return
 	}
 	// Trim trailing slash for safety
