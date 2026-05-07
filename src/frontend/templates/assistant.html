@@ -28,186 +28,340 @@
     <div class="row">
       <div class="col-md-12">
         <div id="chat-modal" class="chat-modal">
+
+          <div class="chat-assistant-header">
+            <div class="chat-assistant-avatar">🤖</div>
+            <div>
+              <div class="chat-assistant-title">
+                {{ if eq $.user_lang "ja" }}Akamai Store アシスタント{{ else }}Akamai Store Assistant{{ end }}
+              </div>
+              <div class="chat-assistant-subtitle">Gemma 4 powered · 日本語 / English</div>
+            </div>
+          </div>
+
           <div id="bot-messages" class="bot-messages">
             <p class="bot-message">
-              <span class="bot-message-text">Hi, I'm the Akamai Store assistant. I can help you with your shopping experience.</span>
-            </p>
-            <p class="bot-message">
-              <span class="bot-message-text">What can I help you with?</span>
+              <span class="bot-message-text">
+                {{ if eq $.user_lang "ja" }}
+                  こんにちは！Akamai Store のショッピングアシスタントです。商品の検索やおすすめ、サイズ・用途に合わせたご提案など、お気軽にどうぞ 😊
+                {{ else }}
+                  Hi! I'm the Akamai Store shopping assistant. Feel free to ask me anything — product search, recommendations, or help finding the right item for you 😊
+                {{ end }}
+              </span>
             </p>
           </div>
+
           <div class="bot-input">
-            <input id="bot-input-text" type="text" style="margin-right: 30px;" class="bot-input-text" placeholder="Recommend me items...">
-            <input type="file" class="bot-input-file-button"  onchange="getBase64()">
-            <button id="bot-input-button" class="bot-input-button">Send</button>
+            <input id="bot-input-text" type="text" class="bot-input-text"
+              placeholder="{{ if eq $.user_lang "ja" }}商品について質問する、おすすめを聞く...{{ else }}Ask about products, get recommendations...{{ end }}">
+            <button id="bot-input-button" class="bot-input-button">
+              {{ if eq $.user_lang "ja" }}送信{{ else }}Send{{ end }}
+            </button>
           </div>
+
         </div>
       </div>
     </div>
   </div>
 </main>
 
+<style>
+.chat-assistant-header {
+  background: white;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 16px 16px 0 0;
+  flex-shrink: 0;
+}
+.chat-assistant-avatar {
+  width: 38px; height: 38px;
+  background: var(--blue, #009BDE);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+}
+.chat-assistant-title { font-weight: 600; font-size: 15px; }
+.chat-assistant-subtitle { font-size: 12px; color: #888; margin-top: 2px; }
+
+.chat-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 85vh;
+  margin-top: 32px;
+  background-color: #EEEEEE;
+  border-radius: 16px;
+  box-shadow: 0px 4px 12px rgba(0,0,0,0.15);
+  overflow: hidden;
+  position: relative;
+}
+.bot-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  padding-bottom: 90px;
+}
+.bot-message {
+  margin: 10px 0;
+  padding: 14px 16px;
+  margin-right: 20%;
+  border-radius: 16px;
+  background-color: white;
+  min-height: 48px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  font-size: 14px;
+  line-height: 1.6;
+  animation: fadeInUp .2s ease;
+  white-space: pre-wrap;
+}
+.bot-message-loading {
+  color: #bbb;
+  -webkit-mask: linear-gradient(-60deg,#000 30%,#0005,#000 70%) right/300% 100%;
+  animation: shimmer 1.5s infinite;
+}
+.user-message {
+  margin: 10px 0;
+  margin-left: 20%;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background-color: var(--blue, #009BDE);
+  font-size: 14px;
+  line-height: 1.6;
+  animation: fadeInUp .2s ease;
+}
+.user-message-text { color: white; }
+
+/* Product cards */
+.bot-products {
+  margin: 8px 0;
+  margin-right: 20%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bot-product {
+  display: flex;
+  align-items: center;
+  border-radius: 14px;
+  background-color: white;
+  color: black;
+  text-decoration: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  overflow: hidden;
+  transition: box-shadow .15s, transform .15s;
+}
+.bot-product:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+  color: black;
+  text-decoration: none;
+}
+.bot-product-img {
+  width: 110px; height: 110px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.bot-product-description {
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.4;
+  flex: 1;
+}
+.bot-product-description strong { font-size: 14px; display: block; margin-bottom: 4px; }
+.bot-product-price { color: var(--blue, #009BDE); font-weight: 600; margin-top: 6px; font-size: 14px; }
+
+.bot-input {
+  display: flex;
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  margin: 14px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background-color: white;
+  box-shadow: 0 -1px 8px rgba(0,0,0,0.08);
+  align-items: center;
+  gap: 10px;
+}
+.bot-input-text {
+  border: none;
+  border-bottom: 1px solid #ddd;
+  padding: 4px 8px;
+  outline: none;
+  color: #222;
+  flex: 1;
+  font-size: 14px;
+  background: transparent;
+}
+.bot-input-button {
+  border: solid 1px var(--blue, #009BDE);
+  padding: 8px 20px;
+  outline: none;
+  font-size: 14px;
+  border-radius: 22px;
+  cursor: pointer;
+  background-color: var(--blue, #009BDE);
+  color: white;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+.bot-input-button:disabled { border-color: #999; background: #ccc; color: #666; cursor: default; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer { 100% { -webkit-mask-position: left } }
+</style>
+
 <script>
-  var image;
-  function getBase64 ()  {
-    var file = document.querySelector('input[type=file]')['files'][0];
-    var reader = new FileReader();
-    var baseString;
-    reader.onloadend = function () {
-      baseString = reader.result;
-      console.log(baseString);
-      image = baseString;
-    };
-    reader.readAsDataURL(file);
-  }
+  var LANG = "{{ $.user_lang }}";
+  var BASE_URL = "{{ $.baseUrl }}";
 
-  function extractIdsFromString(message) {
-    const idPattern = /\[([a-zA-Z0-9-]+)\]/g;
-    const matches = message.matchAll(idPattern);
-    const ids = [];
-    for (const match of matches) {
-      ids.push(match[1]);
+  // Conversation history for multi-turn
+  var history = [];
+
+  var botMessages  = document.getElementById("bot-messages");
+  var botButton    = document.getElementById("bot-input-button");
+  var botInput     = document.getElementById("bot-input-text");
+
+  botButton.addEventListener("click", sendMessage);
+  botInput.addEventListener("keypress", function(e) {
+    if (e.key === "Enter") sendMessage();
+  });
+
+  function extractProductIds(text) {
+    var matches = [];
+    var re = /\[([A-Z0-9]{6,8})\]/g;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      if (matches.indexOf(m[1]) === -1) matches.push(m[1]);
     }
-
-    return ids;
+    return matches.slice(0, 3);
   }
 
-  const chatModal = document.getElementById("chat-modal");
-  const botMessages = document.getElementById("bot-messages");
-  const botbutton = document.getElementById("bot-input-button");
-  const botinput = document.getElementById("bot-input-text");
-
-  async function main() {
-    botbutton.addEventListener("click", handleButtonClick);
-
-    botinput.addEventListener("keypress", (event) => {
-      if (event.key === "Enter") {
-        botbutton.click();
-      }
-    });
+  function appendBotMessage(text, loading) {
+    var p = document.createElement("p");
+    p.classList.add("bot-message");
+    if (loading) p.classList.add("bot-message-loading");
+    var span = document.createElement("span");
+    span.classList.add("bot-message-text");
+    span.innerText = text || "...";
+    p.appendChild(span);
+    botMessages.appendChild(p);
+    botMessages.scrollTop = botMessages.scrollHeight;
+    return { p: p, span: span };
   }
 
-  async function handleButtonClick() {
-    if(!botinput.value || !botinput.value.trim){
-      return;
-    }
+  function appendUserMessage(text) {
+    var p = document.createElement("p");
+    p.classList.add("user-message");
+    var span = document.createElement("span");
+    span.classList.add("user-message-text");
+    span.innerText = text;
+    p.appendChild(span);
+    botMessages.appendChild(p);
+    botMessages.scrollTop = botMessages.scrollHeight;
+  }
 
-    // Construct and render user message
-    console.log("bot button clicked");
-    const message = botinput.value;
-    console.log("message: " + message);
-    const usermessage = document.createElement("p");
-    const userMessageSpan = document.createElement("span");
-    const imageDivElement = document.createElement("div");
-    imageDivElement.classList.add("user-image-div")
-    const imageElement = document.createElement("img");
-    imageElement.src = image;
-    imageElement.classList.add("user-image");
-    imageElement.onerror = function() { this.style.display = 'none'; };
-    userMessageSpan.innerText = message;
-    userMessageSpan.classList.add("user-message-text");
-    usermessage.classList.add("user-message");
-    usermessage.appendChild(userMessageSpan);
-    botMessages.appendChild(usermessage);
-    imageDivElement.appendChild(imageElement);
-    botMessages.appendChild(imageDivElement);
-    botMessages.scrollTo(0, botMessages.scrollHeight);
-    botinput.value = "";
+  async function renderProductCards(ids) {
+    if (!ids || ids.length === 0) return;
+    var div = document.createElement("div");
+    div.classList.add("bot-products");
 
-    // Disable send button and input field
-    botbutton.disabled = true;
-    botinput.disabled = true;
-    console.log("bot is typing");
+    for (var i = 0; i < ids.length; i++) {
+      try {
+        var res = await fetch(BASE_URL + "/product-meta/" + ids[i]);
+        if (!res.ok) continue;
+        var p = await res.json();
 
-    // Construct and render placeholder bot message
-    const botMessage = document.createElement("p");
-    botMessage.classList.add("bot-message-loading");
-    const botMessageSpan = document.createElement("span");
-    botMessageSpan.innerText = ""
-    botMessageSpan.classList.add("bot-message-text");
-    botMessage.classList.add("bot-message");
-    botMessage.appendChild(botMessageSpan);
-    botMessages.appendChild(botMessage);
-    botMessages.scrollTo(0, botMessages.scrollHeight);
+        var a = document.createElement("a");
+        a.classList.add("bot-product");
+        a.href = BASE_URL + "/product/" + ids[i];
 
-    // Request a response from the Shopping Assistant
-    const response = await fetch("{{ $.baseUrl }}/bot", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: message,
-        image: image
-      }),
-    });
-    const responseJson = await response.json();
-    console.log(responseJson);
+        var img = document.createElement("img");
+        img.classList.add("bot-product-img");
+        img.src = p.picture || "";
+        img.alt = p.name || "";
+        img.onerror = function() { this.style.display = "none"; };
+        a.appendChild(img);
 
-    // Fetch the product IDs from the response
-    const extractedIds = extractIdsFromString(responseJson.message);
-    console.log(extractedIds);
+        var desc = document.createElement("div");
+        desc.classList.add("bot-product-description");
 
-    // Replace the placeholder bot message text with the real response
-    // Making sure to remove any lists or product IDs from that message
-    botMessageSpan.innerText = responseJson.message.replace(/\n+[-*\d][\S\s]*/g, "");
-    botMessage.classList.remove("bot-message-loading");
+        var name = LANG === "ja" && p.name_ja ? p.name_ja : (p.name || "");
+        var description = LANG === "ja" && p.description_ja ? p.description_ja : (p.description || "");
+        if (description.length > 120) description = description.substring(0, 118) + "…";
 
-    // If there are any product IDs...
-    if (extractedIds.length > 0) {
-      // Construct root products div
-      const botProductsDiv = document.createElement("div");
-      botProductsDiv.classList.add("bot-products");
-
-      // For each product...
-      for (const id of extractedIds) {
-        // Retrieve product metadata from the Product Catalog
-        const productResponse = await fetch("{{ $.baseUrl }}/product-meta/" + id, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
-        const product = await productResponse.json();
-
-        // Construct main product div
-        const botProductDiv = document.createElement("a");
-        botProductDiv.classList.add("bot-product");
-        botProductDiv.href = "{{ $.baseUrl }}/product/" + id;
-
-        // Construct product image
-        const botProductImg = document.createElement("img");
-        botProductImg.src = product["picture"];
-        botProductImg.classList.add("bot-product-img");
-        botProductImg.onerror = function() { this.style.display = 'none'; };
-        botProductDiv.appendChild(botProductImg);
-
-        // Construct product description div
-        const botProductDescription = document.createElement("div");
-        botProductDescription.classList.add("bot-product-description");
-        let productDescription = product["description"];
-        if (productDescription.length > 350) { // Shorten descriptions that are too long
-          productDescription = productDescription.substring(0, 330) + '...';
+        var price = "";
+        if (p.price_usd) {
+          price = "$" + (p.price_usd.units + p.price_usd.nanos / 1e9).toFixed(2);
         }
-        botProductDescription.innerHTML = "<b>" + product["name"] + "</b><br>" + productDescription;
-        botProductDiv.appendChild(botProductDescription);
 
-        // Append main product div into the root products div
-        botProductsDiv.appendChild(botProductDiv);
+        desc.innerHTML =
+          "<strong>" + name + "</strong>" +
+          description +
+          (price ? '<div class="bot-product-price">' + price + "</div>" : "");
+        a.appendChild(desc);
+        div.appendChild(a);
+      } catch(e) {
+        console.warn("Failed to load product " + ids[i], e);
       }
-      // Render products
-      botMessages.appendChild(botProductsDiv)
     }
-
-    botMessages.scrollTo(0, botMessages.scrollHeight);
-
-    // Re-enable button and input field
-    botbutton.disabled = false;
-    botinput.disabled = false;
-    botinput.focus();
+    botMessages.appendChild(div);
+    botMessages.scrollTop = botMessages.scrollHeight;
   }
 
-  main();
+  async function sendMessage() {
+    var text = botInput.value.trim();
+    if (!text) return;
+
+    appendUserMessage(text);
+    botInput.value = "";
+    botButton.disabled = true;
+    botInput.disabled = true;
+
+    var loading = appendBotMessage("", true);
+
+    try {
+      var res = await fetch(BASE_URL + "/bot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history: history, lang: LANG })
+      });
+
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      var data = await res.json();
+      var reply = data.message || "";
+
+      // Update history
+      history.push({ role: "user",      content: text  });
+      history.push({ role: "assistant", content: reply });
+      // Keep last 10 turns to avoid token overflow
+      if (history.length > 20) history = history.slice(history.length - 20);
+
+      // Show message text (strip [ID] tags for cleaner display)
+      var displayReply = reply.replace(/\[[A-Z0-9]{6,8}\]/g, "").trim();
+      loading.span.innerText = displayReply;
+      loading.p.classList.remove("bot-message-loading");
+
+      // Render product cards
+      var ids = extractProductIds(reply);
+      await renderProductCards(ids);
+
+    } catch(e) {
+      loading.span.innerText = LANG === "ja"
+        ? "申し訳ありません、エラーが発生しました。もう一度お試しください。"
+        : "Sorry, something went wrong. Please try again.";
+      loading.p.classList.remove("bot-message-loading");
+    }
+
+    botButton.disabled = false;
+    botInput.disabled = false;
+    botInput.focus();
+  }
 </script>
 
 {{ end }}

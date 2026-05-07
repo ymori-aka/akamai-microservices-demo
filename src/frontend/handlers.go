@@ -477,67 +477,177 @@ func (fe *frontendServer) getProductByID(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p, err := fe.getProduct(r.Context(), id)
+	p, err := fe.getProductWithAdminFallback(r.Context(), id)
 	if err != nil {
+		http.Error(w, "product not found", http.StatusNotFound)
 		return
 	}
 
-	jsonData, err := json.Marshal(p)
-	if err != nil {
-		fmt.Println(err)
-		return
+	// Return a JSON-friendly struct including Japanese translations
+	type priceJSON struct {
+		CurrencyCode string  `json:"currency_code"`
+		Units        int64   `json:"units"`
+		Nanos        int32   `json:"nanos"`
+	}
+	type productJSON struct {
+		ID            string    `json:"id"`
+		Name          string    `json:"name"`
+		NameJa        string    `json:"name_ja,omitempty"`
+		Description   string    `json:"description"`
+		DescriptionJa string    `json:"description_ja,omitempty"`
+		Picture       string    `json:"picture"`
+		PriceUSD      priceJSON `json:"price_usd"`
 	}
 
-	w.Write(jsonData)
-	w.WriteHeader(http.StatusOK)
+	nameJa := ""
+	descJa := ""
+	if t, ok := jaTranslations[id]; ok {
+		nameJa = t.Name
+		descJa = t.Description
+	}
+
+	out := productJSON{
+		ID:            p.GetId(),
+		Name:          p.GetName(),
+		NameJa:        nameJa,
+		Description:   p.GetDescription(),
+		DescriptionJa: descJa,
+		Picture:       p.GetPicture(),
+		PriceUSD: priceJSON{
+			CurrencyCode: p.GetPriceUsd().GetCurrencyCode(),
+			Units:        p.GetPriceUsd().GetUnits(),
+			Nanos:        p.GetPriceUsd().GetNanos(),
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
 }
 
+// chatBotHandler handles the shopping assistant chat.
+// It fetches the product catalog, builds an OpenAI-compatible prompt,
+// calls the Gemma 4 LLM directly, and returns the response.
 func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request) {
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
-	type Response struct {
-		Message string `json:"message"`
+
+	// --- parse request ---
+	type IncomingMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
 	}
-
-	type LLMResponse struct {
-		Content string         `json:"content"`
-		Details map[string]any `json:"details"`
+	type IncomingReq struct {
+		Message string        `json:"message"`
+		History []IncomingMsg `json:"history"`
+		Lang    string        `json:"lang"`
 	}
-
-	var response LLMResponse
-
-	url := "http://" + fe.shoppingAssistantSvcAddr
-	req, err := http.NewRequest(http.MethodPost, url, r.Body)
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create request"), http.StatusInternalServerError)
+	var req IncomingReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to decode request"), http.StatusBadRequest)
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	res, err := http.DefaultClient.Do(req)
+	if req.Lang == "" {
+		req.Lang = "en"
+	}
+
+	// --- build system prompt with product catalog ---
+	products, err := fe.getProducts(r.Context())
 	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to send request"), http.StatusInternalServerError)
+		log.WithError(err).Warn("chatbot: failed to fetch product catalog, using empty catalog")
+	}
+	var catalogLines strings.Builder
+	for _, p := range products {
+		price := float64(p.GetPriceUsd().GetUnits()) + float64(p.GetPriceUsd().GetNanos())/1e9
+		catalogLines.WriteString(fmt.Sprintf(
+			"- [%s] %s — $%.2f — %s\n",
+			p.GetId(), p.GetName(), price, p.GetDescription(),
+		))
+	}
+
+	var systemPrompt string
+	if req.Lang == "ja" {
+		systemPrompt = fmt.Sprintf(`あなたはAkamai Storeのショッピングアシスタントです。
+お客様の質問に日本語で答えてください。商品の推薦を行う際は、必ず以下のカタログから選び、
+商品IDを [AKMT001] のような形式でメッセージ内に含めてください（最大3件）。
+カタログにない商品は絶対に作らないでください。
+
+【商品カタログ】
+%s`, catalogLines.String())
+	} else {
+		systemPrompt = fmt.Sprintf(`You are a helpful shopping assistant for the Akamai Store.
+Answer the customer's questions in English. When recommending products, choose from the catalog below
+and include the product ID in [AKMT001] format in your message (up to 3 items).
+Never invent products that are not in the catalog.
+
+[Product Catalog]
+%s`, catalogLines.String())
+	}
+
+	// --- build OpenAI messages array ---
+	type LLMMessage struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	messages := []LLMMessage{{Role: "system", Content: systemPrompt}}
+	for _, h := range req.History {
+		if h.Role == "user" || h.Role == "assistant" {
+			messages = append(messages, LLMMessage{Role: h.Role, Content: h.Content})
+		}
+	}
+	messages = append(messages, LLMMessage{Role: "user", Content: req.Message})
+
+	// --- call LLM ---
+	llmEndpoint := os.Getenv("LLM_ENDPOINT")
+	if llmEndpoint == "" {
+		llmEndpoint = "http://172.238.48.187:8000"
+	}
+
+	type LLMRequest struct {
+		Model       string       `json:"model"`
+		Messages    []LLMMessage `json:"messages"`
+		MaxTokens   int          `json:"max_tokens"`
+		Temperature float64      `json:"temperature"`
+	}
+	llmReqBody, _ := json.Marshal(LLMRequest{
+		Model:       "google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
+		Messages:    messages,
+		MaxTokens:   512,
+		Temperature: 0.7,
+	})
+
+	llmReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		llmEndpoint+"/v1/chat/completions", strings.NewReader(string(llmReqBody)))
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create LLM request"), http.StatusInternalServerError)
+		return
+	}
+	llmReq.Header.Set("Content-Type", "application/json")
+
+	llmResp, err := http.DefaultClient.Do(llmReq)
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to call LLM"), http.StatusInternalServerError)
+		return
+	}
+	defer llmResp.Body.Close()
+
+	var llmResult struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(llmResp.Body).Decode(&llmResult); err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to decode LLM response"), http.StatusInternalServerError)
 		return
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to read response"), http.StatusInternalServerError)
-		return
+	reply := ""
+	if len(llmResult.Choices) > 0 {
+		reply = llmResult.Choices[0].Message.Content
 	}
 
-	fmt.Printf("%+v\n", body)
-	fmt.Printf("%+v\n", res)
-
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to unmarshal body"), http.StatusInternalServerError)
-		return
-	}
-
-	// respond with the same message
-	json.NewEncoder(w).Encode(Response{Message: response.Content})
-
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"message": reply})
 }
 
 func (fe *frontendServer) setCurrencyHandler(w http.ResponseWriter, r *http.Request) {
