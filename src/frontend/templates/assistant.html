@@ -352,9 +352,7 @@
       await renderProductCards(ids);
 
     } catch(e) {
-      loading.span.innerText = LANG === "ja"
-        ? "申し訳ありません、エラーが発生しました。もう一度お試しください。"
-        : "Sorry, something went wrong. Please try again.";
+      loading.span.innerText = "[ERROR] " + (e && e.message ? e.message : String(e));
       loading.p.classList.remove("bot-message-loading");
     }
 
