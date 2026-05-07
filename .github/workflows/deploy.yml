@@ -204,11 +204,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Spin CLI
+      - name: Install Spin CLI and aka plugin
         run: |
           curl -fsSL https://developer.fermyon.com/downloads/install.sh | bash
           sudo mv spin /usr/local/bin/spin
           spin --version
+          spin plugins update --yes
+          spin plugins install aka --yes
 
       - name: Authenticate with Akamai Functions
         run: spin aka login --token ${{ secrets.SPIN_AKA_ACCESS_TOKEN }}
