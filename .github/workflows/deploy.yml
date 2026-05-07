@@ -130,9 +130,8 @@ jobs:
       - name: Update frontend deployment
         run: |
           IMAGE_TAG="ghcr.io/ymori-aka/frontend:sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          kubectl apply -f kubernetes-manifests/frontend.yaml
           kubectl set image deployment/frontend server=${IMAGE_TAG}
-          kubectl set env deployment/frontend \
-            SHOPPING_ASSISTANT_SERVICE_ADDR=https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app
           kubectl rollout status deployment/frontend --timeout=300s
 
       - name: Update product catalog ConfigMap
