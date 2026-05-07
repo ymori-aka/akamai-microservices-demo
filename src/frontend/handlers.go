@@ -633,20 +633,29 @@ Never invent products that are not in the catalog.
 	}
 	spinResp, err := spinClient.Do(spinReq)
 	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to call assistant service"), http.StatusInternalServerError)
+		log.WithError(err).Error("chatbot: failed to call assistant service")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] call error: " + err.Error()})
 		return
 	}
 	defer spinResp.Body.Close()
 
+	respBody, _ := io.ReadAll(spinResp.Body)
+	log.Infof("chatbot: spin response status=%d body=%s", spinResp.StatusCode, string(respBody))
+
 	var spinResult struct {
 		Message string `json:"message"`
 	}
-	if err := json.NewDecoder(spinResp.Body).Decode(&spinResult); err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to decode assistant response"), http.StatusInternalServerError)
+	if err := json.Unmarshal(respBody, &spinResult); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("[DEBUG] decode error: %v | body: %s", err, string(respBody))})
 		return
 	}
 
 	reply := spinResult.Message
+	if reply == "" {
+		reply = fmt.Sprintf("[DEBUG] empty reply | status=%d body=%s", spinResp.StatusCode, string(respBody))
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": reply})
