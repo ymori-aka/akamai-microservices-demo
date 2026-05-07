@@ -221,7 +221,7 @@
   var BASE_URL = "{{ $.baseUrl }}";
 
   // Conversation history for multi-turn
-  var history = [];
+  var chatHistory = [];
 
   var botMessages  = document.getElementById("bot-messages");
   var botButton    = document.getElementById("bot-input-button");
@@ -329,7 +329,7 @@
       var res = await fetch(BASE_URL + "/bot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: history, lang: LANG })
+        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG })
       });
 
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -337,10 +337,10 @@
       var reply = data.message || "";
 
       // Update history
-      history.push({ role: "user",      content: text  });
-      history.push({ role: "assistant", content: reply });
+      chatHistory.push({ role: "user",      content: text  });
+      chatHistory.push({ role: "assistant", content: reply });
       // Keep last 10 turns to avoid token overflow
-      if (history.length > 20) history = history.slice(history.length - 20);
+      if (chatHistory.length > 20) chatHistory = chatHistory.slice(chatHistory.length - 20);
 
       // Show message text (strip [ID] tags for cleaner display)
       var displayReply = reply.replace(/\[[A-Z0-9]{6,8}\]/g, "").trim();
@@ -352,7 +352,9 @@
       await renderProductCards(ids);
 
     } catch(e) {
-      loading.span.innerText = "[ERROR] " + (e && e.message ? e.message : String(e));
+      loading.span.innerText = LANG === "ja"
+        ? "申し訳ありません、エラーが発生しました。もう一度お試しください。"
+        : "Sorry, something went wrong. Please try again.";
       loading.p.classList.remove("bot-message-loading");
     }
 
