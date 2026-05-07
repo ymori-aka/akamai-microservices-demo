@@ -54,6 +54,243 @@
 <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/js/bootstrap.min.js"
     integrity="sha384-smHYKdLADwkXOn1EmN1qk/HfnUcbVRZyYmZ4qpPea6sjB/pTJ0euyQp0Mk8ck+5T" crossorigin="anonymous">
 </script>
+
+<!-- ===== Chat Widget ===== -->
+<style>
+#chat-fab {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #009BDE;
+  color: #fff;
+  border: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  font-size: 26px;
+  cursor: pointer;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+#chat-fab:hover { background: #0077AA; }
+
+#chat-overlay {
+  position: fixed;
+  bottom: 96px;
+  right: 28px;
+  width: 360px;
+  max-width: calc(100vw - 40px);
+  height: 520px;
+  max-height: calc(100vh - 120px);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.22);
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+#chat-overlay.open { display: flex; }
+
+#chat-overlay-header {
+  background: #009BDE;
+  color: #fff;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+#chat-overlay-close {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+#chat-overlay-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #f5f7fa;
+}
+.cw-bot-msg, .cw-user-msg {
+  max-width: 85%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.cw-bot-msg  { background: #fff; color: #222; align-self: flex-start; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.cw-user-msg { background: #009BDE; color: #fff; align-self: flex-end; }
+.cw-loading::after {
+  content: '●●●';
+  animation: cw-blink 1s steps(3, end) infinite;
+  letter-spacing: 2px;
+  font-size: 12px;
+  color: #aaa;
+}
+@keyframes cw-blink { 0%,100%{opacity:0} 50%{opacity:1} }
+
+#chat-overlay-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #e5e5e5;
+  background: #fff;
+  flex-shrink: 0;
+}
+#cw-input {
+  flex: 1;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 14px;
+  outline: none;
+}
+#cw-input:focus { border-color: #009BDE; }
+#cw-send {
+  background: #009BDE;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#cw-send:hover { background: #0077AA; }
+#cw-send:disabled { background: #aaa; cursor: default; }
+</style>
+
+<!-- FAB button -->
+<button id="chat-fab" title="ショッピングアシスタント" aria-label="チャット">💬</button>
+
+<!-- Chat overlay panel -->
+<div id="chat-overlay" role="dialog" aria-label="ショッピングアシスタント">
+  <div id="chat-overlay-header">
+    <span>🛍 {{ if eq $.user_lang "ja" }}ショッピングアシスタント{{ else }}Shopping Assistant{{ end }}</span>
+    <button id="chat-overlay-close" aria-label="閉じる">✕</button>
+  </div>
+  <div id="chat-overlay-messages"></div>
+  <div id="chat-overlay-input-row">
+    <input id="cw-input" type="text"
+      placeholder="{{ if eq $.user_lang "ja" }}質問を入力…{{ else }}Ask a question…{{ end }}"
+      autocomplete="off" />
+    <button id="cw-send">{{ if eq $.user_lang "ja" }}送信{{ else }}Send{{ end }}</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  var LANG = "{{ $.user_lang }}";
+  var BASE_URL = "{{ $.baseUrl }}";
+  var chatHistory = [];
+  var isOpen = false;
+
+  var fab      = document.getElementById("chat-fab");
+  var overlay  = document.getElementById("chat-overlay");
+  var closeBtn = document.getElementById("chat-overlay-close");
+  var messages = document.getElementById("chat-overlay-messages");
+  var input    = document.getElementById("cw-input");
+  var sendBtn  = document.getElementById("cw-send");
+
+  // Toggle open/close
+  fab.addEventListener("click", function() {
+    isOpen = !isOpen;
+    overlay.classList.toggle("open", isOpen);
+    fab.textContent = isOpen ? "✕" : "💬";
+    if (isOpen) {
+      if (messages.children.length === 0) addBotMsg(
+        LANG === "ja"
+          ? "こんにちは！Akamai Store のショッピングアシスタントです。商品の検索やおすすめなど、お気軽にどうぞ 😊"
+          : "Hi! I'm the Akamai Store shopping assistant. Ask me anything about our products 😊"
+      );
+      input.focus();
+    }
+  });
+  closeBtn.addEventListener("click", function() {
+    isOpen = false;
+    overlay.classList.remove("open");
+    fab.textContent = "💬";
+  });
+
+  // Send on Enter or button click
+  input.addEventListener("keypress", function(e) { if (e.key === "Enter") send(); });
+  sendBtn.addEventListener("click", send);
+
+  function addBotMsg(text, loading) {
+    var p = document.createElement("p");
+    p.className = "cw-bot-msg" + (loading ? " cw-loading" : "");
+    if (!loading) p.textContent = text;
+    messages.appendChild(p);
+    messages.scrollTop = messages.scrollHeight;
+    return p;
+  }
+
+  function addUserMsg(text) {
+    var p = document.createElement("p");
+    p.className = "cw-user-msg";
+    p.textContent = text;
+    messages.appendChild(p);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function send() {
+    var text = input.value.trim();
+    if (!text) return;
+    addUserMsg(text);
+    input.value = "";
+    sendBtn.disabled = true;
+    input.disabled = true;
+
+    var loadingEl = addBotMsg("", true);
+
+    try {
+      var res = await fetch(BASE_URL + "/bot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG })
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      var data = await res.json();
+      var reply = data.message || "";
+
+      chatHistory.push({ role: "user",      content: text  });
+      chatHistory.push({ role: "assistant", content: reply });
+      if (chatHistory.length > 20) chatHistory = chatHistory.slice(chatHistory.length - 20);
+
+      loadingEl.className = "cw-bot-msg";
+      loadingEl.textContent = reply.replace(/\[[A-Z0-9]{6,8}\]/g, "").trim();
+    } catch(e) {
+      loadingEl.className = "cw-bot-msg";
+      loadingEl.textContent = LANG === "ja"
+        ? "申し訳ありません、エラーが発生しました。もう一度お試しください。"
+        : "Sorry, something went wrong. Please try again.";
+    }
+
+    messages.scrollTop = messages.scrollHeight;
+    sendBtn.disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+})();
+</script>
+<!-- ===== /Chat Widget ===== -->
+
 </body>
 
 </html>
