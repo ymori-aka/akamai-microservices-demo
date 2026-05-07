@@ -192,18 +192,32 @@ jobs:
   # -------------------------------------------------------
   deploy-spin:
     name: Deploy Spin Apps to Akamai Functions
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: build-frontend
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Spin CLI
+        run: |
+          curl -fsSL https://developer.fermyon.com/downloads/install.sh | bash
+          sudo mv spin /usr/local/bin/spin
+          spin --version
+
+      - name: Authenticate with Akamai Functions
+        run: spin aka login --token ${{ secrets.SPIN_AKA_ACCESS_TOKEN }}
+
       - name: Deploy recommendation-service
         continue-on-error: true
         working-directory: src/spin-functions/recommendation-service
         run: |
-          npm install
+          npm ci
           npm run build
           spin aka app link --app-name recommendation-service
           spin aka app deploy --no-confirm
@@ -212,7 +226,7 @@ jobs:
         continue-on-error: true
         working-directory: src/spin-functions/product-intro-service
         run: |
-          npm install
+          npm ci
           npm run build
           spin aka app link --app-name product-intro-service
           spin aka app deploy --no-confirm
@@ -221,7 +235,7 @@ jobs:
         continue-on-error: true
         working-directory: src/spin-functions/shopping-assistant-service
         run: |
-          npm install
+          npm ci
           npm run build
           spin aka app link --app-name shopping-assistant-service
           spin aka app deploy --no-confirm
