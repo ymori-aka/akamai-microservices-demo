@@ -100,12 +100,69 @@ function _loadProto (path) {
 }
 
 /**
- * Helper function that gets currency data from a stored JSON file
- * Uses public data from European Central Bank
+ * Exchange rate cache (in-memory, refreshed once per day)
+ */
+const https = require('https');
+
+const RATE_API_URL = process.env.CURRENCY_API_URL || 'https://api.frankfurter.app/latest?base=EUR';
+const CACHE_TTL_MS = parseInt(process.env.CURRENCY_CACHE_TTL_MS || String(24 * 60 * 60 * 1000)); // 24h default
+
+let _rateCache = { data: null, fetchedAt: 0 };
+let _pendingFetch = null; // prevents duplicate in-flight requests
+
+function _loadStaticRates () {
+  return require('./data/currency_conversion.json');
+}
+
+function _fetchRatesFromAPI () {
+  if (_pendingFetch) return _pendingFetch;
+
+  _pendingFetch = new Promise((resolve, reject) => {
+    https.get(RATE_API_URL, (res) => {
+      let body = '';
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(body);
+          // frankfurter returns { base:"EUR", rates:{ USD:1.09, JPY:160.2, ... } }
+          // Convert to { EUR:"1.0", USD:"1.09", ... } matching static file format
+          const rates = { EUR: '1.0' };
+          for (const [code, val] of Object.entries(json.rates)) {
+            rates[code] = String(val);
+          }
+          resolve(rates);
+        } catch (e) {
+          reject(new Error(`Failed to parse rate API response: ${e.message}`));
+        }
+      });
+    }).on('error', reject);
+  }).finally(() => { _pendingFetch = null; });
+
+  return _pendingFetch;
+}
+
+/**
+ * Returns exchange rates (EUR-based).
+ * Uses in-memory cache refreshed once per CACHE_TTL_MS (default 24h).
+ * Falls back to static JSON on API failure.
  */
 function _getCurrencyData (callback) {
-  const data = require('./data/currency_conversion.json');
-  callback(data);
+  const now = Date.now();
+  if (_rateCache.data && (now - _rateCache.fetchedAt) < CACHE_TTL_MS) {
+    callback(_rateCache.data);
+    return;
+  }
+
+  _fetchRatesFromAPI()
+    .then(rates => {
+      _rateCache = { data: rates, fetchedAt: Date.now() };
+      logger.info(`Exchange rates refreshed from API (${Object.keys(rates).length} currencies, next refresh in ${CACHE_TTL_MS / 3600000}h)`);
+      callback(rates);
+    })
+    .catch(err => {
+      logger.warn(`Rate API unavailable: ${err.message} — using ${_rateCache.data ? 'cached' : 'static'} rates`);
+      callback(_rateCache.data || _loadStaticRates());
+    });
 }
 
 /**
