@@ -142,6 +142,28 @@ jobs:
           kubectl rollout restart deployment/productcatalogservice
           kubectl rollout status deployment/productcatalogservice --timeout=180s
 
+      - name: Deploy monitoring stack
+        continue-on-error: true
+        run: |
+          kubectl apply -f kubernetes-manifests/monitoring/namespace.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/otel-collector.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/redis-exporter.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+
+      - name: Configure OTel for microservices
+        continue-on-error: true
+        run: |
+          OTEL_ENDPOINT="http://otel-collector.monitoring.svc.cluster.local:4317"
+          for svc in adservice cartservice checkoutservice emailservice paymentservice \
+                     recommendationservice shippingservice productcatalogservice frontend; do
+            kubectl set env deployment/${svc} \
+              OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT} \
+              OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+              OTEL_SERVICE_NAME=${svc} 2>/dev/null || true
+          done
+
       - name: Seed admin-only products (AKMT028, AKMT029)
         run: |
           FRONTEND="http://$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
