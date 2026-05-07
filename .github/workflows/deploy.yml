@@ -209,8 +209,8 @@ jobs:
           curl -fsSL https://developer.fermyon.com/downloads/install.sh | bash
           sudo mv spin /usr/local/bin/spin
           spin --version
-          spin plugins update --yes
-          spin plugins install aka --yes
+          spin plugins update
+          spin plugins install aka -y
 
       - name: Authenticate with Akamai Functions
         run: spin aka login --token ${{ secrets.SPIN_AKA_ACCESS_TOKEN }}
