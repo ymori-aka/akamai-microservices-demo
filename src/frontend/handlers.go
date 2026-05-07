@@ -595,56 +595,51 @@ Never invent products that are not in the catalog.
 	}
 	messages = append(messages, LLMMessage{Role: "user", Content: req.Message})
 
-	// --- call LLM ---
-	llmEndpoint := os.Getenv("LLM_ENDPOINT")
-	if llmEndpoint == "" {
-		llmEndpoint = "http://172.238.48.187:8000"
+	// --- call Spin shopping-assistant-service (which proxies to GPU) ---
+	// LKE pods cannot reach the GPU server directly; route via Akamai Functions.
+	assistantURL := os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR")
+	if assistantURL == "" {
+		renderHTTPError(log, r, w, errors.New("SHOPPING_ASSISTANT_SERVICE_ADDR is not configured"), http.StatusServiceUnavailable)
+		return
 	}
+	// Trim trailing slash for safety
+	assistantURL = strings.TrimRight(assistantURL, "/")
 
-	type LLMRequest struct {
-		Model       string       `json:"model"`
+	type SpinRequest struct {
 		Messages    []LLMMessage `json:"messages"`
 		MaxTokens   int          `json:"max_tokens"`
 		Temperature float64      `json:"temperature"`
 	}
-	llmReqBody, _ := json.Marshal(LLMRequest{
-		Model:       "google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
+	spinReqBody, _ := json.Marshal(SpinRequest{
 		Messages:    messages,
 		MaxTokens:   512,
 		Temperature: 0.7,
 	})
 
-	llmReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		llmEndpoint+"/v1/chat/completions", strings.NewReader(string(llmReqBody)))
+	spinReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		assistantURL+"/chat", strings.NewReader(string(spinReqBody)))
 	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create LLM request"), http.StatusInternalServerError)
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create assistant request"), http.StatusInternalServerError)
 		return
 	}
-	llmReq.Header.Set("Content-Type", "application/json")
+	spinReq.Header.Set("Content-Type", "application/json")
 
-	llmResp, err := http.DefaultClient.Do(llmReq)
+	spinResp, err := http.DefaultClient.Do(spinReq)
 	if err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to call LLM"), http.StatusInternalServerError)
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to call assistant service"), http.StatusInternalServerError)
 		return
 	}
-	defer llmResp.Body.Close()
+	defer spinResp.Body.Close()
 
-	var llmResult struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+	var spinResult struct {
+		Message string `json:"message"`
 	}
-	if err := json.NewDecoder(llmResp.Body).Decode(&llmResult); err != nil {
-		renderHTTPError(log, r, w, errors.Wrap(err, "failed to decode LLM response"), http.StatusInternalServerError)
+	if err := json.NewDecoder(spinResp.Body).Decode(&spinResult); err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "failed to decode assistant response"), http.StatusInternalServerError)
 		return
 	}
 
-	reply := ""
-	if len(llmResult.Choices) > 0 {
-		reply = llmResult.Choices[0].Message.Content
-	}
+	reply := spinResult.Message
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": reply})
