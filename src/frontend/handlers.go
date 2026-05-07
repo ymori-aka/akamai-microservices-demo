@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -624,7 +625,13 @@ Never invent products that are not in the catalog.
 	}
 	spinReq.Header.Set("Content-Type", "application/json")
 
-	spinResp, err := http.DefaultClient.Do(spinReq)
+	spinClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // Spin function uses self-signed cert
+		},
+		Timeout: 60 * time.Second,
+	}
+	spinResp, err := spinClient.Do(spinReq)
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to call assistant service"), http.StatusInternalServerError)
 		return
