@@ -110,6 +110,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Update microservices to v0.10.5
+        continue-on-error: true
         run: |
           REGISTRY="us-central1-docker.pkg.dev/google-samples/microservices-demo"
           VERSION="v0.10.5"
