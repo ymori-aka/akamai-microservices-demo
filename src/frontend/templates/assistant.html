@@ -33,9 +33,9 @@
             <div class="chat-assistant-avatar">🤖</div>
             <div>
               <div class="chat-assistant-title">
-                {{ if eq $.user_lang "ja" }}Akamai Store アシスタント{{ else }}Akamai Store Assistant{{ end }}
+                {{ if eq $.user_lang "ja" }}Akamai Store アシスタント{{ else if eq $.user_lang "ko" }}Akamai Store 어시스턴트{{ else if eq $.user_lang "zh" }}Akamai Store 购物助手{{ else }}Akamai Store Assistant{{ end }}
               </div>
-              <div class="chat-assistant-subtitle">Gemma 4 powered · 日本語 / English</div>
+              <div class="chat-assistant-subtitle">Gemma 4 powered · 日本語 / English / 한국어 / 中文</div>
             </div>
           </div>
 
@@ -44,6 +44,10 @@
               <span class="bot-message-text">
                 {{ if eq $.user_lang "ja" }}
                   こんにちは！Akamai Store のショッピングアシスタントです。商品の検索やおすすめ、サイズ・用途に合わせたご提案など、お気軽にどうぞ 😊
+                {{ else if eq $.user_lang "ko" }}
+                  안녕하세요! Akamai Store 쇼핑 어시스턴트입니다. 상품 검색, 추천, 사이즈 및 용도에 맞는 제안 등 무엇이든 편하게 물어보세요 😊
+                {{ else if eq $.user_lang "zh" }}
+                  您好！我是Akamai Store购物助手。无论是商品搜索、推荐，还是根据您的尺码和需求提供建议，请随时告诉我 😊
                 {{ else }}
                   Hi! I'm the Akamai Store shopping assistant. Feel free to ask me anything — product search, recommendations, or help finding the right item for you 😊
                 {{ end }}
@@ -53,9 +57,9 @@
 
           <div class="bot-input">
             <input id="bot-input-text" type="text" class="bot-input-text"
-              placeholder="{{ if eq $.user_lang "ja" }}商品について質問する、おすすめを聞く...{{ else }}Ask about products, get recommendations...{{ end }}">
+              placeholder="{{ if eq $.user_lang "ja" }}商品について質問する、おすすめを聞く...{{ else if eq $.user_lang "ko" }}상품에 대해 질문하거나 추천을 받아보세요...{{ else if eq $.user_lang "zh" }}询问商品或获取推荐...{{ else }}Ask about products, get recommendations...{{ end }}">
             <button id="bot-input-button" class="bot-input-button">
-              {{ if eq $.user_lang "ja" }}送信{{ else }}Send{{ end }}
+              {{ if eq $.user_lang "ja" }}送信{{ else if eq $.user_lang "ko" }}전송{{ else if eq $.user_lang "zh" }}发送{{ else }}Send{{ end }}
             </button>
           </div>
 
@@ -291,8 +295,8 @@
         var desc = document.createElement("div");
         desc.classList.add("bot-product-description");
 
-        var name = LANG === "ja" && p.name_ja ? p.name_ja : (p.name || "");
-        var description = LANG === "ja" && p.description_ja ? p.description_ja : (p.description || "");
+        var name = (LANG === "ja" && p.name_ja) ? p.name_ja : (LANG === "ko" && p.name_ko) ? p.name_ko : (LANG === "zh" && p.name_zh) ? p.name_zh : (p.name || "");
+        var description = (LANG === "ja" && p.description_ja) ? p.description_ja : (LANG === "ko" && p.description_ko) ? p.description_ko : (LANG === "zh" && p.description_zh) ? p.description_zh : (p.description || "");
         if (description.length > 120) description = description.substring(0, 118) + "…";
 
         var price = "";
@@ -354,6 +358,8 @@
     } catch(e) {
       loading.span.innerText = LANG === "ja"
         ? "申し訳ありません、エラーが発生しました。もう一度お試しください。"
+        : LANG === "ko" ? "죄송합니다, 오류가 발생했습니다. 다시 시도해 주세요."
+        : LANG === "zh" ? "抱歉，发生了错误。请再试一次。"
         : "Sorry, something went wrong. Please try again.";
       loading.p.classList.remove("bot-message-loading");
     }

@@ -51,7 +51,7 @@
             </a>
             <div>
               <div class="hot-product-card-name">
-                {{ if eq $.user_lang "ja" }}{{ jaName .Item.Id }}{{ else }}{{ .Item.Name }}{{ end }}
+                {{ if eq $.user_lang "ja" }}{{ jaName .Item.Id }}{{ else if eq $.user_lang "ko" }}{{ koName .Item.Id }}{{ else if eq $.user_lang "zh" }}{{ zhName .Item.Id }}{{ else }}{{ .Item.Name }}{{ end }}
               </div>
               <div class="hot-product-card-price">{{ renderMoney .Price }}</div>
             </div>

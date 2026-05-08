@@ -28,49 +28,49 @@
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
     <div>
       <h2 style="margin:0; color:#333;">
-        📦 {{ if eq $.user_lang "ja" }}商品管理{{ else }}Product Management{{ end }}
+        📦 {{ if eq $.user_lang "ja" }}商品管理{{ else if eq $.user_lang "ko" }}상품 관리{{ else if eq $.user_lang "zh" }}商品管理{{ else }}Product Management{{ end }}
       </h2>
       <p style="margin:4px 0 0; color:#888; font-size:13px;">
-        {{ if eq $.user_lang "ja" }}商品名・説明文・価格・在庫の編集、商品の追加・削除{{ else }}Edit names, descriptions, prices, stock · Add &amp; delete products{{ end }}
+        {{ if eq $.user_lang "ja" }}商品名・説明文・価格・在庫の編集、商品の追加・削除{{ else if eq $.user_lang "ko" }}상품명・설명・가격・재고 편집, 상품 추가・삭제{{ else if eq $.user_lang "zh" }}编辑商品名称、描述、价格和库存，添加和删除商品{{ else }}Edit names, descriptions, prices, stock · Add &amp; delete products{{ end }}
       </p>
     </div>
     <a href="{{ $.baseUrl }}/" style="color:#009BDE; font-size:14px; text-decoration:none;">
-      ← {{ if eq $.user_lang "ja" }}ストアに戻る{{ else }}Back to Store{{ end }}
+      ← {{ if eq $.user_lang "ja" }}ストアに戻る{{ else if eq $.user_lang "ko" }}스토어로 돌아가기{{ else if eq $.user_lang "zh" }}返回商店{{ else }}Back to Store{{ end }}
     </a>
   </div>
 
   {{ if eq $.flash "saved" }}
-  <div class="flash-msg">✅ {{ if eq $.user_lang "ja" }}保存しました{{ else }}Changes saved successfully{{ end }}</div>
+  <div class="flash-msg">✅ {{ if eq $.user_lang "ja" }}保存しました{{ else if eq $.user_lang "ko" }}저장되었습니다{{ else if eq $.user_lang "zh" }}已保存{{ else }}Changes saved successfully{{ end }}</div>
   {{ end }}
 
   <!-- Summary cards -->
   <div class="row" style="margin-bottom:20px;">
     <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
       <div style="font-size:26px;font-weight:700;color:#333;" id="total-count">{{ len $.items }}</div>
-      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}総商品数{{ else }}Total Products{{ end }}</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}総商品数{{ else if eq $.user_lang "ko" }}총 상품 수{{ else if eq $.user_lang "zh" }}总商品数{{ else }}Total Products{{ end }}</div>
     </div></div>
     <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
       <div style="font-size:26px;font-weight:700;color:#28a745;" id="in-stock-count">-</div>
-      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫あり{{ else if eq $.user_lang "ko" }}재고 있음{{ else if eq $.user_lang "zh" }}有库存{{ else }}In Stock{{ end }}</div>
     </div></div>
     <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
       <div style="font-size:26px;font-weight:700;color:#ffc107;" id="low-stock-count">-</div>
-      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫少 (≤10){{ else }}Low Stock (≤10){{ end }}</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫少 (≤10){{ else if eq $.user_lang "ko" }}재고 적음 (≤10){{ else if eq $.user_lang "zh" }}库存不足 (≤10){{ else }}Low Stock (≤10){{ end }}</div>
     </div></div>
     <div class="col-md-3"><div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:16px;text-align:center;">
       <div style="font-size:26px;font-weight:700;color:#dc3545;" id="out-count">-</div>
-      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out of Stock{{ end }}</div>
+      <div style="font-size:12px;color:#888;">{{ if eq $.user_lang "ja" }}在庫切れ{{ else if eq $.user_lang "ko" }}품절{{ else if eq $.user_lang "zh" }}缺货{{ else }}Out of Stock{{ end }}</div>
     </div></div>
   </div>
 
   <!-- Search + bulk actions -->
   <div style="display:flex; gap:10px; margin-bottom:14px; align-items:center;">
     <input id="search-box" type="text"
-      placeholder="{{ if eq $.user_lang "ja" }}商品名で検索...{{ else }}Search products...{{ end }}"
+      placeholder="{{ if eq $.user_lang "ja" }}商品名で検索...{{ else if eq $.user_lang "ko" }}상품명으로 검색...{{ else if eq $.user_lang "zh" }}按商品名搜索...{{ else }}Search products...{{ end }}"
       style="flex:1; padding:9px 14px; border:1px solid #ddd; border-radius:7px; font-size:13px;"
       oninput="filterRows(this.value)">
     <button type="button" class="btn-outline" onclick="setAllStock(100)">
-      {{ if eq $.user_lang "ja" }}全在庫を100に{{ else }}Set All Stock → 100{{ end }}
+      {{ if eq $.user_lang "ja" }}全在庫を100に{{ else if eq $.user_lang "ko" }}전체 재고 100으로{{ else if eq $.user_lang "zh" }}将所有库存设为100{{ else }}Set All Stock → 100{{ end }}
     </button>
   </div>
 
@@ -83,21 +83,21 @@
 
     <div class="section-card">
       <div class="section-title">
-        {{ if eq $.user_lang "ja" }}商品一覧 ({{ len $.items }}件){{ else }}Products ({{ len $.items }}){{ end }}
+        {{ if eq $.user_lang "ja" }}商品一覧 ({{ len $.items }}件){{ else if eq $.user_lang "ko" }}상품 목록 ({{ len $.items }}개){{ else if eq $.user_lang "zh" }}商品列表 ({{ len $.items }}件){{ else }}Products ({{ len $.items }}){{ end }}
       </div>
       <div style="overflow-x:auto;">
         <table class="inv-table" style="width:100%; border-collapse:collapse;">
           <thead>
             <tr>
               <th style="width:52px;"></th>
-              <th>{{ if eq $.user_lang "ja" }}商品名（英語）{{ else }}Name (EN){{ end }}</th>
-              <th>{{ if eq $.user_lang "ja" }}商品名（日本語）{{ else }}Name (JA){{ end }}</th>
-              <th>{{ if eq $.user_lang "ja" }}説明（英語）{{ else }}Description (EN){{ end }}</th>
-              <th>{{ if eq $.user_lang "ja" }}説明（日本語）{{ else }}Description (JA){{ end }}</th>
-              <th style="width:90px;">{{ if eq $.user_lang "ja" }}単価 ($){{ else }}Price ($){{ end }}</th>
-              <th style="width:90px;">{{ if eq $.user_lang "ja" }}在庫数{{ else }}Stock{{ end }}</th>
-              <th style="width:90px;">{{ if eq $.user_lang "ja" }}ステータス{{ else }}Status{{ end }}</th>
-              <th style="width:70px;">{{ if eq $.user_lang "ja" }}非表示{{ else }}Hide{{ end }}</th>
+              <th>{{ if eq $.user_lang "ja" }}商品名（英語）{{ else if eq $.user_lang "ko" }}상품명（영어）{{ else if eq $.user_lang "zh" }}商品名（英语）{{ else }}Name (EN){{ end }}</th>
+              <th>{{ if eq $.user_lang "ja" }}商品名（日本語）{{ else if eq $.user_lang "ko" }}상품명（일본어）{{ else if eq $.user_lang "zh" }}商品名（日语）{{ else }}Name (JA){{ end }}</th>
+              <th>{{ if eq $.user_lang "ja" }}説明（英語）{{ else if eq $.user_lang "ko" }}설명（영어）{{ else if eq $.user_lang "zh" }}描述（英语）{{ else }}Description (EN){{ end }}</th>
+              <th>{{ if eq $.user_lang "ja" }}説明（日本語）{{ else if eq $.user_lang "ko" }}설명（일본어）{{ else if eq $.user_lang "zh" }}描述（日语）{{ else }}Description (JA){{ end }}</th>
+              <th style="width:90px;">{{ if eq $.user_lang "ja" }}単価 ($){{ else if eq $.user_lang "ko" }}단가 ($){{ else if eq $.user_lang "zh" }}单价 ($){{ else }}Price ($){{ end }}</th>
+              <th style="width:90px;">{{ if eq $.user_lang "ja" }}在庫数{{ else if eq $.user_lang "ko" }}재고 수{{ else if eq $.user_lang "zh" }}库存数量{{ else }}Stock{{ end }}</th>
+              <th style="width:90px;">{{ if eq $.user_lang "ja" }}ステータス{{ else if eq $.user_lang "ko" }}상태{{ else if eq $.user_lang "zh" }}状态{{ else }}Status{{ end }}</th>
+              <th style="width:70px;">{{ if eq $.user_lang "ja" }}非表示{{ else if eq $.user_lang "ko" }}비공개{{ else if eq $.user_lang "zh" }}隐藏{{ else }}Hide{{ end }}</th>
               <th style="width:50px;"></th>
             </tr>
           </thead>
@@ -105,7 +105,7 @@
             {{ range $.items }}
             <tr class="product-row" data-name="{{ .NameEN }} {{ .NameJA }}">
               <td>
-                <label style="cursor:pointer; position:relative; display:inline-block;" title="{{ if eq $.user_lang "ja" }}クリックして画像を変更{{ else }}Click to change image{{ end }}">
+                <label style="cursor:pointer; position:relative; display:inline-block;" title="{{ if eq $.user_lang "ja" }}クリックして画像を変更{{ else if eq $.user_lang "ko" }}클릭하여 이미지 변경{{ else if eq $.user_lang "zh" }}点击更改图片{{ else }}Click to change image{{ end }}">
                   {{ if .Picture }}
                   <img src="{{ $.baseUrl }}{{ .Picture }}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;" id="thumb-{{ .ID }}">
                   {{ else }}
@@ -128,20 +128,20 @@
               </td>
               <td style="text-align:center;">
                 {{ if gt .Stock 10 }}
-                <span class="stock-badge badge-in">{{ if eq $.user_lang "ja" }}在庫あり{{ else }}In Stock{{ end }}</span>
+                <span class="stock-badge badge-in">{{ if eq $.user_lang "ja" }}在庫あり{{ else if eq $.user_lang "ko" }}재고 있음{{ else if eq $.user_lang "zh" }}有库存{{ else }}In Stock{{ end }}</span>
                 {{ else if gt .Stock 0 }}
-                <span class="stock-badge badge-low">{{ if eq $.user_lang "ja" }}在庫少{{ else }}Low{{ end }}</span>
+                <span class="stock-badge badge-low">{{ if eq $.user_lang "ja" }}在庫少{{ else if eq $.user_lang "ko" }}재고 적음{{ else if eq $.user_lang "zh" }}库存不足{{ else }}Low{{ end }}</span>
                 {{ else }}
-                <span class="stock-badge badge-out">{{ if eq $.user_lang "ja" }}在庫切れ{{ else }}Out{{ end }}</span>
+                <span class="stock-badge badge-out">{{ if eq $.user_lang "ja" }}在庫切れ{{ else if eq $.user_lang "ko" }}품절{{ else if eq $.user_lang "zh" }}缺货{{ else }}Out{{ end }}</span>
                 {{ end }}
               </td>
               <td style="text-align:center;">
                 <input type="checkbox" name="hidden_{{ .ID }}" value="1" {{ if .Hidden }}checked{{ end }}
-                  title="{{ if eq $.user_lang "ja" }}ストアから非表示{{ else }}Hide from store{{ end }}"
+                  title="{{ if eq $.user_lang "ja" }}ストアから非表示{{ else if eq $.user_lang "ko" }}스토어에서 숨기기{{ else if eq $.user_lang "zh" }}从商店隐藏{{ else }}Hide from store{{ end }}"
                   style="width:16px;height:16px;cursor:pointer;">
               </td>
               <td style="text-align:center;">
-                <button type="submit" form="delete-form-{{ .ID }}" class="btn-del" title="{{ if eq $.user_lang "ja" }}削除{{ else }}Delete{{ end }}">🗑</button>
+                <button type="submit" form="delete-form-{{ .ID }}" class="btn-del" title="{{ if eq $.user_lang "ja" }}削除{{ else if eq $.user_lang "ko" }}삭제{{ else if eq $.user_lang "zh" }}删除{{ else }}Delete{{ end }}">🗑</button>
               </td>
             </tr>
             {{ end }}
@@ -152,7 +152,7 @@
 
     <div style="display:flex; justify-content:flex-end; margin-bottom:32px;">
       <button type="submit" class="btn-save">
-        💾 {{ if eq $.user_lang "ja" }}変更を保存{{ else }}Save All Changes{{ end }}
+        💾 {{ if eq $.user_lang "ja" }}変更を保存{{ else if eq $.user_lang "ko" }}변경사항 저장{{ else if eq $.user_lang "zh" }}保存更改{{ else }}Save All Changes{{ end }}
       </button>
     </div>
   </form>
@@ -160,7 +160,7 @@
   <!-- Delete forms (one per product, outside main form) -->
   {{ range $.items }}
   <form id="delete-form-{{ .ID }}" method="POST" action="{{ $.baseUrl }}/admin/inventory"
-    onsubmit="return confirm('{{ if eq $.user_lang "ja" }}この商品を削除しますか？{{ else }}Delete this product?{{ end }}')">
+    onsubmit="return confirm('{{ if eq $.user_lang "ja" }}この商品を削除しますか？{{ else if eq $.user_lang "ko" }}이 상품을 삭제하시겠습니까?{{ else if eq $.user_lang "zh" }}确定要删除此商品吗？{{ else }}Delete this product?{{ end }}')">
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="product_id" value="{{ .ID }}">
   </form>
@@ -169,7 +169,7 @@
   <!-- Add new product -->
   <div class="section-card">
     <div class="section-title">
-      ➕ {{ if eq $.user_lang "ja" }}新しい商品を追加{{ else }}Add New Product{{ end }}
+      ➕ {{ if eq $.user_lang "ja" }}新しい商品を追加{{ else if eq $.user_lang "ko" }}새 상품 추가{{ else if eq $.user_lang "zh" }}添加新商品{{ else }}Add New Product{{ end }}
     </div>
     <form method="POST" action="{{ $.baseUrl }}/admin/inventory" style="padding:16px;" enctype="multipart/form-data">
       <input type="hidden" name="action" value="add">
@@ -179,47 +179,47 @@
           <input class="inv-input" name="new_id" placeholder="AKMT028" required>
         </div>
         <div class="col-md-2">
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品名（英語）*{{ else }}Name (EN) *{{ end }}</label>
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品名（英語）*{{ else if eq $.user_lang "ko" }}상품명（영어）*{{ else if eq $.user_lang "zh" }}商品名（英语）*{{ else }}Name (EN) *{{ end }}</label>
           <input class="inv-input" name="new_name_en" placeholder="Product name" required>
         </div>
         <div class="col-md-2">
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品名（日本語）{{ else }}Name (JA){{ end }}</label>
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品名（日本語）{{ else if eq $.user_lang "ko" }}상품명（일본어）{{ else if eq $.user_lang "zh" }}商品名（日语）{{ else }}Name (JA){{ end }}</label>
           <input class="inv-input" name="new_name_ja" placeholder="商品名">
         </div>
         <div class="col-md-2">
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}単価 ($){{ else }}Price ($){{ end }}</label>
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}単価 ($){{ else if eq $.user_lang "ko" }}단가 ($){{ else if eq $.user_lang "zh" }}单价 ($){{ else }}Price ($){{ end }}</label>
           <input class="inv-input" name="new_price" type="number" placeholder="29.99" min="0" step="0.01">
         </div>
         <div class="col-md-2">
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}カテゴリ{{ else }}Categories{{ end }}</label>
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}カテゴリ{{ else if eq $.user_lang "ko" }}카테고리{{ else if eq $.user_lang "zh" }}类别{{ else }}Categories{{ end }}</label>
           <input class="inv-input" name="new_categories" placeholder="apparel,t-shirts">
         </div>
         <div class="col-md-2">
           <!-- Photo upload (preferred) or manual path -->
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品画像{{ else }}Picture{{ end }}</label>
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}商品画像{{ else if eq $.user_lang "ko" }}상품 이미지{{ else if eq $.user_lang "zh" }}商品图片{{ else }}Picture{{ end }}</label>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px;">
             <span id="new-pic-preview" style="width:44px;height:44px;background:#eee;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">📷</span>
             <span style="font-size:12px;color:#009BDE;text-decoration:underline;">
-              {{ if eq $.user_lang "ja" }}画像を選択{{ else }}Choose file{{ end }}
+              {{ if eq $.user_lang "ja" }}画像を選択{{ else if eq $.user_lang "ko" }}이미지 선택{{ else if eq $.user_lang "zh" }}选择文件{{ else }}Choose file{{ end }}
             </span>
             <input type="file" name="new_picture_file" accept="image/*" style="display:none;"
               onchange="previewNew(this)">
           </label>
-          <input class="inv-input" name="new_picture" placeholder="/static/img/... {{ if eq $.user_lang "ja" }}(任意){{ else }}(or path){{ end }}" style="margin-top:4px;font-size:11px;">
+          <input class="inv-input" name="new_picture" placeholder="/static/img/... {{ if eq $.user_lang "ja" }}(任意){{ else if eq $.user_lang "ko" }}(선택사항){{ else if eq $.user_lang "zh" }}(可选){{ else }}(or path){{ end }}" style="margin-top:4px;font-size:11px;">
         </div>
       </div>
       <div class="row" style="margin-top:10px;">
         <div class="col-md-5">
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}説明（英語）{{ else }}Description (EN){{ end }}</label>
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}説明（英語）{{ else if eq $.user_lang "ko" }}설명（영어）{{ else if eq $.user_lang "zh" }}描述（英语）{{ else }}Description (EN){{ end }}</label>
           <textarea class="inv-input" name="new_desc_en" rows="2" placeholder="Product description..."></textarea>
         </div>
         <div class="col-md-5">
-          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}説明（日本語）{{ else }}Description (JA){{ end }}</label>
+          <label style="font-size:12px;color:#666;font-weight:600;">{{ if eq $.user_lang "ja" }}説明（日本語）{{ else if eq $.user_lang "ko" }}설명（일본어）{{ else if eq $.user_lang "zh" }}描述（日语）{{ else }}Description (JA){{ end }}</label>
           <textarea class="inv-input" name="new_desc_ja" rows="2" placeholder="商品説明..."></textarea>
         </div>
         <div class="col-md-2" style="display:flex; align-items:flex-end;">
           <button type="submit" class="btn-save" style="width:100%;">
-            ➕ {{ if eq $.user_lang "ja" }}追加{{ else }}Add{{ end }}
+            ➕ {{ if eq $.user_lang "ja" }}追加{{ else if eq $.user_lang "ko" }}추가{{ else if eq $.user_lang "zh" }}添加{{ else }}Add{{ end }}
           </button>
         </div>
       </div>

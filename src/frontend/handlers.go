@@ -66,6 +66,30 @@ var (
 				}
 				return ""
 			},
+			"koName": func(id string) string {
+				if t, ok := koTranslations[id]; ok {
+					return t.Name
+				}
+				return ""
+			},
+			"koDesc": func(id string) string {
+				if t, ok := koTranslations[id]; ok {
+					return t.Description
+				}
+				return ""
+			},
+			"zhName": func(id string) string {
+				if t, ok := zhTranslations[id]; ok {
+					return t.Name
+				}
+				return ""
+			},
+			"zhDesc": func(id string) string {
+				if t, ok := zhTranslations[id]; ok {
+					return t.Description
+				}
+				return ""
+			},
 		}).ParseGlob("templates/*.html"))
 	plat platformDetails
 )
@@ -749,7 +773,7 @@ func currentCurrency(r *http.Request) string {
 
 func currentLang(r *http.Request) string {
 	c, _ := r.Cookie(cookieLang)
-	if c != nil && (c.Value == "ja" || c.Value == "en") {
+	if c != nil && (c.Value == "ja" || c.Value == "en" || c.Value == "ko" || c.Value == "zh") {
 		return c.Value
 	}
 	return "en"
@@ -757,7 +781,7 @@ func currentLang(r *http.Request) string {
 
 func (fe *frontendServer) setLangHandler(w http.ResponseWriter, r *http.Request) {
 	lang := r.FormValue("lang")
-	if lang == "ja" || lang == "en" {
+	if lang == "ja" || lang == "en" || lang == "ko" || lang == "zh" {
 		http.SetCookie(w, &http.Cookie{
 			Name:   cookieLang,
 			Value:  lang,

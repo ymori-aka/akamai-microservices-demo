@@ -31,19 +31,19 @@
       <div class="product-info col-md-5">
         <div class="product-wrapper">
 
-          <h2>{{ if eq $.user_lang "ja" }}{{ jaName $.product.Item.Id }}{{ else }}{{ $.product.Item.Name }}{{ end }}</h2>
+          <h2>{{ if eq $.user_lang "ja" }}{{ jaName $.product.Item.Id }}{{ else if eq $.user_lang "ko" }}{{ koName $.product.Item.Id }}{{ else if eq $.user_lang "zh" }}{{ zhName $.product.Item.Id }}{{ else }}{{ $.product.Item.Name }}{{ end }}</h2>
           <p class="product-price">{{ renderMoney $.product.Price }}</p>
-          <p>{{ if eq $.user_lang "ja" }}{{ jaDesc $.product.Item.Id }}{{ else }}{{ $.product.Item.Description }}{{ end }}</p>
+          <p>{{ if eq $.user_lang "ja" }}{{ jaDesc $.product.Item.Id }}{{ else if eq $.user_lang "ko" }}{{ koDesc $.product.Item.Id }}{{ else if eq $.user_lang "zh" }}{{ zhDesc $.product.Item.Id }}{{ else }}{{ $.product.Item.Description }}{{ end }}</p>
 
           <!-- AI-generated introduction -->
           <div id="ai-intro-box" style="display:none; margin: 12px 0; padding: 14px 16px; background: linear-gradient(135deg, #f0f8ff, #e8f4fd); border-left: 4px solid #009BDE; border-radius: 6px;">
             <p style="margin:0 0 4px 0; font-size:11px; color:#009BDE; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">
-              ✨ {{ if eq $.user_lang "ja" }}AIによる紹介{{ else }}AI Introduction{{ end }}
+              ✨ {{ if eq $.user_lang "ja" }}AIによる紹介{{ else if eq $.user_lang "ko" }}AI 소개{{ else if eq $.user_lang "zh" }}AI 介绍{{ else }}AI Introduction{{ end }}
             </p>
             <p id="ai-intro-text" style="margin:0; font-size:14px; line-height:1.6; color:#333;"></p>
           </div>
           <div id="ai-intro-loading" style="margin: 12px 0; color: #999; font-size: 13px;">
-            <span>{{ if eq $.user_lang "ja" }}✨ AI紹介を生成中...{{ else }}✨ Generating AI introduction...{{ end }}</span>
+            <span>{{ if eq $.user_lang "ja" }}✨ AI紹介を生成中...{{ else if eq $.user_lang "ko" }}✨ AI 소개 생성 중...{{ else if eq $.user_lang "zh" }}✨ 正在生成AI介绍...{{ else }}✨ Generating AI introduction...{{ end }}</span>
           </div>
 
           {{ if $.packagingInfo }}
@@ -78,7 +78,7 @@
               <img src="{{ $.baseUrl }}/static/icons/Hipster_DownArrow.svg" alt="">
             </div>
             <button type="submit" class="cymbal-button-primary">
-              {{ if eq $.user_lang "ja" }}カートに追加{{ else }}Add To Cart{{ end }}
+              {{ if eq $.user_lang "ja" }}カートに追加{{ else if eq $.user_lang "ko" }}장바구니에 추가{{ else if eq $.user_lang "zh" }}加入购物车{{ else }}Add To Cart{{ end }}
             </button>
           </form>
         </div>
@@ -96,7 +96,7 @@
       <div class="container">
         <div class="row">
           <div class="col-xl-10 offset-xl-1">
-            <h2>{{ if eq $.user_lang "ja" }}🤖 AIおすすめ商品{{ else }}🤖 AI Recommendations{{ end }}</h2>
+            <h2>{{ if eq $.user_lang "ja" }}🤖 AIおすすめ商品{{ else if eq $.user_lang "ko" }}🤖 AI 추천 상품{{ else if eq $.user_lang "zh" }}🤖 AI 推荐商品{{ else }}🤖 AI Recommendations{{ end }}</h2>
             <div class="row" id="ai-rec-cards"></div>
           </div>
         </div>

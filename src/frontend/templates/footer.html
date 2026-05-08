@@ -22,7 +22,7 @@
             <p class="footer-text">Akamai Store Demo — powered by LKE + Akamai Functions + Gemma AI</p>
             <p class="footer-text">
               <a href="{{ $.baseUrl }}/admin/inventory" style="color: #009BDE; text-decoration: none;">
-                📦 {{ if eq $.user_lang "ja" }}在庫管理{{ else }}Inventory Management{{ end }}
+                📦 {{ if eq $.user_lang "ja" }}在庫管理{{ else if eq $.user_lang "ko" }}재고 관리{{ else if eq $.user_lang "zh" }}库存管理{{ else }}Inventory Management{{ end }}
               </a>
             </p>
             <p class="footer-text">
@@ -182,15 +182,15 @@
 <!-- Chat overlay panel -->
 <div id="chat-overlay" role="dialog" aria-label="ショッピングアシスタント">
   <div id="chat-overlay-header">
-    <span>🛍 {{ if eq $.user_lang "ja" }}ショッピングアシスタント{{ else }}Shopping Assistant{{ end }}</span>
+    <span>🛍 {{ if eq $.user_lang "ja" }}ショッピングアシスタント{{ else if eq $.user_lang "ko" }}쇼핑 어시스턴트{{ else if eq $.user_lang "zh" }}购物助手{{ else }}Shopping Assistant{{ end }}</span>
     <button id="chat-overlay-close" aria-label="閉じる">✕</button>
   </div>
   <div id="chat-overlay-messages"></div>
   <div id="chat-overlay-input-row">
     <input id="cw-input" type="text"
-      placeholder="{{ if eq $.user_lang "ja" }}質問を入力…{{ else }}Ask a question…{{ end }}"
+      placeholder="{{ if eq $.user_lang "ja" }}質問を入力…{{ else if eq $.user_lang "ko" }}질문을 입력하세요…{{ else if eq $.user_lang "zh" }}请输入问题…{{ else }}Ask a question…{{ end }}"
       autocomplete="off" />
-    <button id="cw-send">{{ if eq $.user_lang "ja" }}送信{{ else }}Send{{ end }}</button>
+    <button id="cw-send">{{ if eq $.user_lang "ja" }}送信{{ else if eq $.user_lang "ko" }}전송{{ else if eq $.user_lang "zh" }}发送{{ else }}Send{{ end }}</button>
   </div>
 </div>
 
