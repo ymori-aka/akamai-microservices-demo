@@ -233,6 +233,106 @@ data:
             "sortOrder": "Descending",
             "prettifyLogMessage": false
           }
+        },
+
+        {
+          "id": 40, "type": "row", "title": "Traces (OpenTelemetry)",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 57 },
+          "collapsed": false
+        },
+
+        {
+          "id": 41, "type": "stat", "title": "Spans Received/min",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 58 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "rate(otelcol_receiver_accepted_spans{job=\"otel-collector-internal\"}[1m]) * 60", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{"color":"green","value":0}] } } }
+        },
+
+        {
+          "id": 42, "type": "stat", "title": "Spans → Tempo/min",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 58 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "rate(otelcol_exporter_sent_spans{job=\"otel-collector-internal\",exporter=\"otlp/tempo\"}[1m]) * 60", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{"color":"green","value":0}] } } }
+        },
+
+        {
+          "id": 43, "type": "stat", "title": "Export Failures",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 58 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "increase(otelcol_exporter_send_failed_spans{job=\"otel-collector-internal\",exporter=\"otlp/tempo\"}[5m])", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "steps": [{"color":"green","value":0},{"color":"red","value":1}] } } }
+        },
+
+        {
+          "id": 44, "type": "stat", "title": "Dropped Spans",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 58 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "increase(otelcol_processor_dropped_spans{job=\"otel-collector-internal\"}[5m])", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "steps": [{"color":"green","value":0},{"color":"red","value":1}] } } }
+        },
+
+        {
+          "id": 45, "type": "timeseries", "title": "Span Throughput",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 62 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "rate(otelcol_receiver_accepted_spans{job=\"otel-collector-internal\"}[1m]) * 60", "legendFormat": "received", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "rate(otelcol_exporter_sent_spans{job=\"otel-collector-internal\",exporter=\"otlp/tempo\"}[1m]) * 60", "legendFormat": "exported → Tempo", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "rate(otelcol_processor_dropped_spans{job=\"otel-collector-internal\"}[1m]) * 60", "legendFormat": "dropped", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
+          "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "list", "placement": "bottom" } }
+        },
+
+        {
+          "id": 46, "type": "traces", "title": "Recent Traces - All Services",
+          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 70 },
+          "datasource": { "type": "tempo", "uid": "tempo-uid" },
+          "targets": [{
+            "refId": "A",
+            "queryType": "traceql",
+            "expr": "{}",
+            "limit": 20,
+            "tableType": "traces",
+            "datasource": { "type": "tempo", "uid": "tempo-uid" }
+          }],
+          "options": { "frameType": "data" }
+        },
+
+        {
+          "id": 47, "type": "traces", "title": "Frontend Traces",
+          "gridPos": { "h": 12, "w": 12, "x": 0, "y": 82 },
+          "datasource": { "type": "tempo", "uid": "tempo-uid" },
+          "targets": [{
+            "refId": "A",
+            "queryType": "traceql",
+            "expr": "{ resource.service.name = \"frontend\" }",
+            "limit": 20,
+            "tableType": "traces",
+            "datasource": { "type": "tempo", "uid": "tempo-uid" }
+          }],
+          "options": { "frameType": "data" }
+        },
+
+        {
+          "id": 48, "type": "traces", "title": "Checkout Traces",
+          "gridPos": { "h": 12, "w": 12, "x": 12, "y": 82 },
+          "datasource": { "type": "tempo", "uid": "tempo-uid" },
+          "targets": [{
+            "refId": "A",
+            "queryType": "traceql",
+            "expr": "{ resource.service.name = \"checkoutservice\" }",
+            "limit": 20,
+            "tableType": "traces",
+            "datasource": { "type": "tempo", "uid": "tempo-uid" }
+          }],
+          "options": { "frameType": "data" }
         }
 
       ]
