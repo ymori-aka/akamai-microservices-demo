@@ -45,18 +45,37 @@ const LLM_ENDPOINT = "http://172.238.48.187:8000";
 
 // ---- LLM call ----
 async function generateIntro(product: Product, lang: string): Promise<string> {
-  const isJapanese = lang === 'ja';
+  let prompt: string;
 
-  const prompt = isJapanese
-    ? `あなたはAkamaiストアの商品紹介ライターです。
+  if (lang === 'ja') {
+    prompt = `あなたはAkamaiストアの商品紹介ライターです。
 以下の商品について、魅力的な紹介文を日本語で2〜3文で書いてください。
 価格帯（$${product.price}）に見合った価値を伝え、購買意欲を高める内容にしてください。
 紹介文のみを返してください。余分な説明は不要です。
 
 商品名: ${product.name}
 カテゴリ: ${product.categories.join(", ")}
-元の説明: ${product.description}`
-    : `You are a product copywriter for the Akamai store.
+元の説明: ${product.description}`;
+  } else if (lang === 'ko') {
+    prompt = `당신은 Akamai 스토어의 상품 소개 카피라이터입니다.
+아래 상품에 대해 매력적인 소개문을 한국어로 2~3문장으로 작성해 주세요.
+가격($${product.price})에 걸맞은 가치를 전달하고 구매 의욕을 높이는 내용으로 써주세요.
+소개문만 반환하세요. 추가 설명은 불필요합니다.
+
+상품명: ${product.name}
+카테고리: ${product.categories.join(", ")}
+원본 설명: ${product.description}`;
+  } else if (lang === 'zh') {
+    prompt = `你是Akamai商店的商品介绍文案撰写者。
+请用中文为以下商品写一段2-3句话的吸引人的介绍文案。
+传递与价格（$${product.price}）相称的价值，激发顾客的购买欲望。
+只返回介绍文案，无需其他说明。
+
+商品名称: ${product.name}
+类别: ${product.categories.join(", ")}
+原始描述: ${product.description}`;
+  } else {
+    prompt = `You are a product copywriter for the Akamai store.
 Write a compelling 2-3 sentence product introduction in English for the following item.
 Convey the value for the price ($${product.price}) and inspire the customer to buy.
 Return only the introduction text, nothing else.
@@ -64,6 +83,7 @@ Return only the introduction text, nothing else.
 Product: ${product.name}
 Category: ${product.categories.join(", ")}
 Description: ${product.description}`;
+  }
 
   try {
     const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
@@ -115,8 +135,8 @@ router
       return error(404, { error: `Product ${productId} not found` });
     }
 
-    if (!['en', 'ja'].includes(lang)) {
-      return error(400, { error: 'lang must be "en" or "ja"' });
+    if (!['en', 'ja', 'ko', 'zh'].includes(lang)) {
+      return error(400, { error: 'lang must be "en", "ja", "ko", or "zh"' });
     }
 
     const intro = await generateIntro(product, lang);
