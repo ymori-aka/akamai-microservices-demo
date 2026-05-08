@@ -56,6 +56,11 @@ data:
         static_configs:
           - targets: ['redis-exporter.monitoring.svc.cluster.local:9121']
 
+      # kube-state-metrics (deployed by grafana-k8s-monitoring)
+      - job_name: 'kube-state-metrics'
+        static_configs:
+          - targets: ['grafana-k8s-monitoring-kube-state-metrics.monitoring.svc.cluster.local:8080']
+
       # Kubernetes nodes (CPU, memory, disk)
       - job_name: 'kubernetes-nodes'
         scheme: https
