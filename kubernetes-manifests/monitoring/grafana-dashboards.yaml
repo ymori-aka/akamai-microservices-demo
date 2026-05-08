@@ -7,7 +7,7 @@ data:
   microservices.json: |
     {
       "title": "Akamai Store - Operations",
-      "uid": "akamai-ops",
+      "uid": "akamai-microservices",
       "schemaVersion": 38,
       "refresh": "30s",
       "time": { "from": "now-1h", "to": "now" },
