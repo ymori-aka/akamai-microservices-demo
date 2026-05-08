@@ -31,9 +31,11 @@ data:
         namespace: boutique
         resource_to_telemetry_conversion:
           enabled: true
-      # Debug logging for traces (swap for Tempo/Jaeger later)
-      debug:
-        verbosity: basic
+      # Forward traces to Grafana Tempo
+      otlp/tempo:
+        endpoint: "tempo.monitoring.svc.cluster.local:4317"
+        tls:
+          insecure: true
 
     service:
       pipelines:
@@ -44,7 +46,7 @@ data:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [debug]
+          exporters: [otlp/tempo]
 ---
 apiVersion: apps/v1
 kind: Deployment
