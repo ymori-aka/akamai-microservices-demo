@@ -291,48 +291,93 @@ data:
         },
 
         {
-          "id": 46, "type": "traces", "title": "Recent Traces - All Services",
-          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 70 },
+          "id": 46, "type": "table", "title": "Recent Traces - All Services",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 70 },
           "datasource": { "type": "tempo", "uid": "tempo-uid" },
           "targets": [{
             "refId": "A",
             "queryType": "traceql",
-            "expr": "{}",
-            "limit": 20,
+            "query": "{}",
+            "limit": 50,
             "tableType": "traces",
+            "spss": 3,
             "datasource": { "type": "tempo", "uid": "tempo-uid" }
           }],
-          "options": { "frameType": "data" }
+          "options": { "showHeader": true, "cellHeight": "sm" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "align": "auto", "displayMode": "auto" },
+              "links": [{
+                "title": "Open trace in Explore",
+                "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo-uid%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields.\"Trace ID\"}%22,%22queryType%22:%22traceql%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                "targetBlank": false
+              }]
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Duration" },
+                "properties": [{ "id": "unit", "value": "ms" }] }
+            ]
+          }
         },
 
         {
-          "id": 47, "type": "traces", "title": "Frontend Traces",
-          "gridPos": { "h": 12, "w": 12, "x": 0, "y": 82 },
+          "id": 47, "type": "table", "title": "Frontend Traces",
+          "gridPos": { "h": 10, "w": 12, "x": 0, "y": 80 },
           "datasource": { "type": "tempo", "uid": "tempo-uid" },
           "targets": [{
             "refId": "A",
             "queryType": "traceql",
-            "expr": "{ resource.service.name = \"frontend\" }",
-            "limit": 20,
+            "query": "{ resource.service.name = \"frontend\" }",
+            "limit": 50,
             "tableType": "traces",
+            "spss": 3,
             "datasource": { "type": "tempo", "uid": "tempo-uid" }
           }],
-          "options": { "frameType": "data" }
+          "options": { "showHeader": true, "cellHeight": "sm" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "align": "auto" },
+              "links": [{
+                "title": "Open trace in Explore",
+                "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo-uid%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields.\"Trace ID\"}%22,%22queryType%22:%22traceql%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                "targetBlank": false
+              }]
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Duration" },
+                "properties": [{ "id": "unit", "value": "ms" }] }
+            ]
+          }
         },
 
         {
-          "id": 48, "type": "traces", "title": "Checkout Traces",
-          "gridPos": { "h": 12, "w": 12, "x": 12, "y": 82 },
+          "id": 48, "type": "table", "title": "Checkout Traces",
+          "gridPos": { "h": 10, "w": 12, "x": 12, "y": 80 },
           "datasource": { "type": "tempo", "uid": "tempo-uid" },
           "targets": [{
             "refId": "A",
             "queryType": "traceql",
-            "expr": "{ resource.service.name = \"checkoutservice\" }",
-            "limit": 20,
+            "query": "{ resource.service.name = \"checkoutservice\" }",
+            "limit": 50,
             "tableType": "traces",
+            "spss": 3,
             "datasource": { "type": "tempo", "uid": "tempo-uid" }
           }],
-          "options": { "frameType": "data" }
+          "options": { "showHeader": true, "cellHeight": "sm" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "align": "auto" },
+              "links": [{
+                "title": "Open trace in Explore",
+                "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo-uid%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields.\"Trace ID\"}%22,%22queryType%22:%22traceql%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                "targetBlank": false
+              }]
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Duration" },
+                "properties": [{ "id": "unit", "value": "ms" }] }
+            ]
+          }
         }
 
       ]
