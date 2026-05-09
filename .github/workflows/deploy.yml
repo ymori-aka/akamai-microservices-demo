@@ -177,11 +177,30 @@ jobs:
           kubectl rollout status statefulset/mongodb --timeout=240s
 
       - name: Update productcatalogservice deployment (MongoDB-backed)
+        id: pcs_rollout
+        continue-on-error: true
         run: |
           IMAGE_TAG="${{ env.PRODUCTCATALOG_IMAGE }}:sha-${{ github.sha }}"
           kubectl apply -f kubernetes-manifests/productcatalogservice.yaml
           kubectl set image deployment/productcatalogservice server=${IMAGE_TAG}
-          kubectl rollout status deployment/productcatalogservice --timeout=240s
+          kubectl rollout status deployment/productcatalogservice --timeout=180s
+
+      - name: Debug productcatalogservice if rollout failed
+        if: steps.pcs_rollout.outcome == 'failure'
+        run: |
+          echo '=== pods ==='
+          kubectl get pods -l app=productcatalogservice -o wide
+          echo '=== describe (newest pod) ==='
+          POD=$(kubectl get pods -l app=productcatalogservice --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
+          kubectl describe pod ${POD} | tail -60
+          echo '=== logs (newest pod, current) ==='
+          kubectl logs ${POD} --tail=100 || true
+          echo '=== logs (newest pod, previous) ==='
+          kubectl logs ${POD} --previous --tail=100 || true
+          echo '=== mongodb status ==='
+          kubectl get pods -l app=mongodb
+          kubectl logs -l app=mongodb --tail=20 || true
+          exit 1
 
       - name: Deploy monitoring stack
         continue-on-error: true
