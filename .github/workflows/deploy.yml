@@ -183,7 +183,9 @@ jobs:
           IMAGE_TAG="${{ env.PRODUCTCATALOG_IMAGE }}:sha-${{ github.sha }}"
           kubectl apply -f kubernetes-manifests/productcatalogservice.yaml
           kubectl set image deployment/productcatalogservice server=${IMAGE_TAG}
-          kubectl rollout status deployment/productcatalogservice --timeout=180s
+          # Clear any stale rollout status from previous failed deploys
+          kubectl rollout restart deployment/productcatalogservice
+          kubectl rollout status deployment/productcatalogservice --timeout=300s
 
       - name: Debug productcatalogservice if rollout failed
         if: steps.pcs_rollout.outcome == 'failure'
