@@ -9,6 +9,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ghcr.io/ymori-aka/frontend
   CURRENCY_IMAGE: ghcr.io/ymori-aka/currencyservice
+  PRODUCTCATALOG_IMAGE: ghcr.io/ymori-aka/productcatalogservice
 
 jobs:
   # -------------------------------------------------------
@@ -95,12 +96,48 @@ jobs:
           cache-to: type=gha,mode=max
 
   # -------------------------------------------------------
+  # Job 1c: Build and push productcatalogservice Docker image
+  # -------------------------------------------------------
+  build-productcatalogservice:
+    name: Build Product Catalog Service Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push productcatalogservice image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/productcatalogservice
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.PRODUCTCATALOG_IMAGE }}:sha-${{ github.sha }}
+            ${{ env.PRODUCTCATALOG_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------
   # Job 2: Deploy to LKE
   # -------------------------------------------------------
   deploy:
     name: Deploy to LKE
     runs-on: self-hosted
-    needs: [build-frontend, build-currencyservice]
+    needs: [build-frontend, build-currencyservice, build-productcatalogservice]
     permissions:
       contents: read
       packages: read
@@ -124,8 +161,8 @@ jobs:
           kubectl set image deployment/recommendationservice server=${REGISTRY}/recommendationservice:${VERSION}
           kubectl set image deployment/shippingservice       server=${REGISTRY}/shippingservice:${VERSION}
           kubectl set image deployment/loadgenerator         server=${REGISTRY}/loadgenerator:${VERSION}
-          # productcatalogservice is handled separately (ConfigMap update + restart below)
-          kubectl set image deployment/productcatalogservice server=${REGISTRY}/productcatalogservice:${VERSION}
+          # productcatalogservice: use our custom build (MongoDB-backed catalog)
+          # Image is set in the dedicated step below.
 
       - name: Update frontend deployment
         run: |
@@ -134,13 +171,17 @@ jobs:
           kubectl set image deployment/frontend server=${IMAGE_TAG}
           kubectl rollout status deployment/frontend --timeout=300s
 
-      - name: Update product catalog ConfigMap
+      - name: Deploy MongoDB (catalog persistence)
         run: |
-          kubectl create configmap products-catalog \
-            --from-file=products.json=./src/productcatalogservice/products.json \
-            --dry-run=client -o yaml | kubectl apply -f -
-          kubectl rollout restart deployment/productcatalogservice
-          kubectl rollout status deployment/productcatalogservice --timeout=180s
+          kubectl apply -f kubernetes-manifests/mongodb.yaml
+          kubectl rollout status statefulset/mongodb --timeout=240s
+
+      - name: Update productcatalogservice deployment (MongoDB-backed)
+        run: |
+          IMAGE_TAG="${{ env.PRODUCTCATALOG_IMAGE }}:sha-${{ github.sha }}"
+          kubectl apply -f kubernetes-manifests/productcatalogservice.yaml
+          kubectl set image deployment/productcatalogservice server=${IMAGE_TAG}
+          kubectl rollout status deployment/productcatalogservice --timeout=240s
 
       - name: Deploy monitoring stack
         continue-on-error: true
@@ -156,12 +197,19 @@ jobs:
         continue-on-error: true
         run: |
           OTEL_ENDPOINT="http://otel-collector.monitoring.svc.cluster.local:4317"
+          OTEL_HOST_PORT="otel-collector.monitoring.svc.cluster.local:4317"
           for svc in adservice cartservice checkoutservice emailservice paymentservice \
                      recommendationservice shippingservice productcatalogservice frontend; do
             kubectl set env deployment/${svc} \
               OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT} \
               OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
               OTEL_SERVICE_NAME=${svc} 2>/dev/null || true
+          done
+          # Python services (recommendation, email) require these to actually emit OTLP traces
+          for svc in recommendationservice emailservice; do
+            kubectl set env deployment/${svc} \
+              ENABLE_TRACING=1 \
+              COLLECTOR_SERVICE_ADDR=${OTEL_HOST_PORT} 2>/dev/null || true
           done
 
       - name: Seed admin-only products (AKMT028, AKMT029)

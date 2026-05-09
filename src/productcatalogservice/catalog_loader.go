@@ -34,6 +34,10 @@ func loadCatalog(catalog *pb.ListProductsResponse) error {
 	catalogMutex.Lock()
 	defer catalogMutex.Unlock()
 
+	if os.Getenv("MONGODB_URI") != "" {
+		return loadCatalogFromMongoDB(catalog)
+	}
+
 	if os.Getenv("ALLOYDB_CLUSTER_NAME") != "" {
 		return loadCatalogFromAlloyDB(catalog)
 	}
