@@ -1,0 +1,40 @@
+# One-shot Job that applies orders-schema.sql to the Linode Managed PG.
+# The schema SQL is sourced from a ConfigMap (created by CI). The DSN
+# comes from the orders-db-credentials Secret (created by CI from the
+# ORDERS_DB_DSN GitHub Secret).
+#
+# Idempotent (CREATE TABLE IF NOT EXISTS). Re-applied on every CI run.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orders-schema-migrate
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: postgres:16-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "Applying orders schema to PostgreSQL..."
+              psql "$DSN" -v ON_ERROR_STOP=1 -f /schema/schema.sql
+              echo "Schema applied successfully."
+          env:
+            - name: DSN
+              valueFrom:
+                secretKeyRef:
+                  name: orders-db-credentials
+                  key: DSN
+          volumeMounts:
+            - name: schema
+              mountPath: /schema
+              readOnly: true
+      volumes:
+        - name: schema
+          configMap:
+            name: orders-schema

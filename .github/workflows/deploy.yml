@@ -10,6 +10,7 @@ env:
   IMAGE_NAME: ghcr.io/ymori-aka/frontend
   CURRENCY_IMAGE: ghcr.io/ymori-aka/currencyservice
   PRODUCTCATALOG_IMAGE: ghcr.io/ymori-aka/productcatalogservice
+  CHECKOUT_IMAGE: ghcr.io/ymori-aka/checkoutservice
 
 jobs:
   # -------------------------------------------------------
@@ -132,15 +133,53 @@ jobs:
           cache-to: type=gha,mode=max
 
   # -------------------------------------------------------
+  # Job 1d: Build and push checkoutservice Docker image
+  # -------------------------------------------------------
+  build-checkoutservice:
+    name: Build Checkout Service Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push checkoutservice image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/checkoutservice
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.CHECKOUT_IMAGE }}:sha-${{ github.sha }}
+            ${{ env.CHECKOUT_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------
   # Job 2: Deploy to LKE
   # -------------------------------------------------------
   deploy:
     name: Deploy to LKE
     runs-on: self-hosted
-    needs: [build-frontend, build-currencyservice, build-productcatalogservice]
+    needs: [build-frontend, build-currencyservice, build-productcatalogservice, build-checkoutservice]
     permissions:
       contents: read
       packages: read
+    env:
+      ORDERS_DB_DSN: ${{ secrets.ORDERS_DB_DSN }}
 
     steps:
       - name: Checkout repository
@@ -153,7 +192,7 @@ jobs:
           VERSION="v0.10.5"
           kubectl set image deployment/adservice             server=${REGISTRY}/adservice:${VERSION}
           kubectl set image deployment/cartservice           server=${REGISTRY}/cartservice:${VERSION}
-          kubectl set image deployment/checkoutservice       server=${REGISTRY}/checkoutservice:${VERSION}
+          # checkoutservice: use our custom build (Postgres-backed orders)
           # currencyservice: use our custom build (live exchange rates)
           kubectl set image deployment/currencyservice server=${{ env.CURRENCY_IMAGE }}:sha-${{ github.sha }}
           kubectl set image deployment/emailservice          server=${REGISTRY}/emailservice:${VERSION}
@@ -186,6 +225,32 @@ jobs:
           # Clear any stale rollout status from previous failed deploys
           kubectl rollout restart deployment/productcatalogservice
           kubectl rollout status deployment/productcatalogservice --timeout=300s
+
+      - name: Apply orders DB credentials and schema (Linode Managed PG)
+        if: env.ORDERS_DB_DSN != ''
+        run: |
+          # K8s Secret with the connection string
+          kubectl create secret generic orders-db-credentials \
+            --from-literal=DSN="${ORDERS_DB_DSN}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # ConfigMap with the schema SQL (re-applied each run; idempotent)
+          kubectl create configmap orders-schema \
+            --from-file=schema.sql=kubernetes-manifests/orders-schema.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Run the migration Job (delete previous to allow re-run)
+          kubectl delete job orders-schema-migrate --ignore-not-found
+          kubectl apply -f kubernetes-manifests/orders-migrate-job.yaml
+          kubectl wait --for=condition=complete --timeout=120s job/orders-schema-migrate || \
+            kubectl logs job/orders-schema-migrate
+
+      - name: Update checkoutservice deployment (Postgres-backed orders)
+        run: |
+          IMAGE_TAG="${{ env.CHECKOUT_IMAGE }}:sha-${{ github.sha }}"
+          kubectl apply -f kubernetes-manifests/checkoutservice.yaml
+          kubectl set image deployment/checkoutservice server=${IMAGE_TAG}
+          kubectl rollout status deployment/checkoutservice --timeout=240s
 
       - name: Debug productcatalogservice if rollout failed
         if: steps.pcs_rollout.outcome == 'failure'

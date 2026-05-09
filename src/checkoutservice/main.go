@@ -120,6 +120,13 @@ func main() {
 	mustConnGRPC(ctx, &svc.emailSvcConn, svc.emailSvcAddr)
 	mustConnGRPC(ctx, &svc.paymentSvcConn, svc.paymentSvcAddr)
 
+	// Optional: connect to PostgreSQL for order persistence. Failure
+	// here is non-fatal — orders simply won't be persisted and the
+	// service continues working in the legacy fire-and-forget mode.
+	if err := initOrdersDB(); err != nil {
+		log.Warnf("orders DB init failed (continuing without persistence): %v", err)
+	}
+
 	log.Infof("service config: %+v", svc)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
@@ -268,6 +275,11 @@ func (cs *checkoutService) PlaceOrder(ctx context.Context, req *pb.PlaceOrderReq
 		ShippingAddress:    req.Address,
 		Items:              prep.orderItems,
 	}
+
+	// Persist the order to PostgreSQL (Linode Managed DB) if configured.
+	// Note: req.UserId is the frontend session-id (cookie value), used
+	// to correlate orders to their shopper without requiring auth.
+	persistOrder(ctx, req.UserId, req.Email, req.UserCurrency, orderResult, &total)
 
 	if err := cs.sendOrderConfirmation(ctx, req.Email, orderResult); err != nil {
 		log.Warnf("failed to send order confirmation to %q: %+v", req.Email, err)

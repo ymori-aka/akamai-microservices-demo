@@ -66,13 +66,19 @@ spec:
             value: "currencyservice:7000"
           - name: CART_SERVICE_ADDR
             value: "cartservice:7070"
+          - name: ORDERS_DB_DSN
+            valueFrom:
+              secretKeyRef:
+                name: orders-db-credentials
+                key: DSN
+                optional: true
           resources:
             requests:
               cpu: 100m
-              memory: 64Mi
+              memory: 96Mi
             limits:
-              cpu: 200m
-              memory: 128Mi
+              cpu: 500m
+              memory: 192Mi
 ---
 apiVersion: v1
 kind: Service
