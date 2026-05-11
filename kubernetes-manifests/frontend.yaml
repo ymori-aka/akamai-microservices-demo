@@ -94,6 +94,8 @@ spec:
                 name: orders-db-credentials
                 key: DSN
                 optional: true
+          - name: IMAGE_BASE_URL
+            value: "https://akamai-boutique-img.jp-osa-1.linodeobjects.com"
           # - name: CYMBAL_BRANDING
           #   value: "true"
           # - name: ENABLE_ASSISTANT

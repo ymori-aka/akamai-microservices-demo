@@ -60,6 +60,21 @@ var (
 			"formatTime": func(t time.Time) string {
 				return t.Format("2006-01-02 15:04:05 MST")
 			},
+			"imgURL": func(picture string) string {
+				if picture == "" {
+					return ""
+				}
+				// Absolute URL: pass through unchanged.
+				if strings.HasPrefix(picture, "http://") || strings.HasPrefix(picture, "https://") {
+					return picture
+				}
+				// Rewrite local product paths to object storage when configured.
+				const prefix = "/static/img/products"
+				if imageBaseURL != "" && strings.HasPrefix(picture, prefix) {
+					return imageBaseURL + strings.TrimPrefix(picture, prefix)
+				}
+				return baseUrl + picture
+			},
 			"jaName": func(id string) string {
 				if t, ok := jaTranslations[id]; ok {
 					return t.Name
@@ -829,6 +844,11 @@ func cartSize(c []*pb.CartItem) int {
 
 func renderMoney(money pb.Money) string {
 	currencyLogo := renderCurrencyLogo(money.GetCurrencyCode())
+	// JPY and KRW have no commonly used fractional unit — render whole.
+	switch money.GetCurrencyCode() {
+	case "JPY", "KRW":
+		return fmt.Sprintf("%s%d", currencyLogo, money.GetUnits())
+	}
 	return fmt.Sprintf("%s%d.%02d", currencyLogo, money.GetUnits(), money.GetNanos()/10000000)
 }
 
@@ -840,6 +860,8 @@ func renderCurrencyLogo(currencyCode string) string {
 		"EUR": "€",
 		"TRY": "₺",
 		"GBP": "£",
+		"KRW": "₩",
+		"CNY": "￥",
 	}
 
 	logo := "$" //default

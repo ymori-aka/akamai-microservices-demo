@@ -107,7 +107,7 @@
               <td>
                 <label style="cursor:pointer; position:relative; display:inline-block;" title="{{ if eq $.user_lang "ja" }}クリックして画像を変更{{ else if eq $.user_lang "ko" }}클릭하여 이미지 변경{{ else if eq $.user_lang "zh" }}点击更改图片{{ else }}Click to change image{{ end }}">
                   {{ if .Picture }}
-                  <img src="{{ $.baseUrl }}{{ .Picture }}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;" id="thumb-{{ .ID }}">
+                  <img src="{{ imgURL .Picture }}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;" id="thumb-{{ .ID }}">
                   {{ else }}
                   <div style="width:44px;height:44px;background:#eee;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:18px;" id="thumb-{{ .ID }}">📷</div>
                   {{ end }}

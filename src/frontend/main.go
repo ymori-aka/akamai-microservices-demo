@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/profiler"
@@ -52,10 +53,17 @@ var (
 		"CAD": true,
 		"JPY": true,
 		"GBP": true,
+		"KRW": true,
+		"CNY": true,
 		"TRY": true,
 	}
 
 	baseUrl         = ""
+
+	// imageBaseURL, when set, replaces the "/static/img/products" prefix
+	// on product picture URLs so images are served from object storage
+	// (e.g. Linode Object Storage) instead of the frontend container.
+	imageBaseURL = ""
 )
 
 type ctxKeySessionID struct{}
@@ -109,6 +117,10 @@ func main() {
 			propagation.TraceContext{}, propagation.Baggage{}))
 
 	baseUrl = os.Getenv("BASE_URL")
+	imageBaseURL = strings.TrimRight(os.Getenv("IMAGE_BASE_URL"), "/")
+	if imageBaseURL != "" {
+		log.Infof("serving product images from %s", imageBaseURL)
+	}
 
 	if os.Getenv("ENABLE_TRACING") == "1" {
 		log.Info("Tracing enabled.")
