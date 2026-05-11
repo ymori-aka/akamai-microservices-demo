@@ -66,7 +66,7 @@ spec:
             value: "currencyservice:7000"
           - name: CART_SERVICE_ADDR
             value: "cartservice:7070"
-          - name: ORDERS_DB_DSN
+          - name: ORDER_DB_DSN
             valueFrom:
               secretKeyRef:
                 name: orders-db-credentials

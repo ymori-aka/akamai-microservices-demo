@@ -179,7 +179,7 @@ jobs:
       contents: read
       packages: read
     env:
-      ORDERS_DB_DSN: ${{ secrets.ORDERS_DB_DSN }}
+      ORDER_DB_DSN: ${{ secrets.ORDER_DB_DSN }}
 
     steps:
       - name: Checkout repository
@@ -227,11 +227,11 @@ jobs:
           kubectl rollout status deployment/productcatalogservice --timeout=300s
 
       - name: Apply orders DB credentials and schema (Linode Managed PG)
-        if: env.ORDERS_DB_DSN != ''
+        if: env.ORDER_DB_DSN != ''
         run: |
           # K8s Secret with the connection string
           kubectl create secret generic orders-db-credentials \
-            --from-literal=DSN="${ORDERS_DB_DSN}" \
+            --from-literal=DSN="${ORDER_DB_DSN}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
           # ConfigMap with the schema SQL (re-applied each run; idempotent)

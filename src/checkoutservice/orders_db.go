@@ -5,7 +5,7 @@
 // Persistence of placed orders to a managed PostgreSQL database
 // (e.g. Linode Managed PostgreSQL).
 //
-// Activated only when ORDERS_DB_DSN env var is set. Otherwise the
+// Activated only when ORDER_DB_DSN env var is set. Otherwise the
 // service falls back to fire-and-forget behaviour, preserving the
 // upstream contract.
 package main
@@ -26,13 +26,13 @@ var (
 	ordersDBOnce sync.Once
 )
 
-// initOrdersDB opens a pool against ORDERS_DB_DSN and pings it once.
+// initOrdersDB opens a pool against ORDER_DB_DSN and pings it once.
 // Safe to call multiple times; idempotent. Returns nil and leaves
 // ordersDB == nil when the DSN is absent.
 func initOrdersDB() error {
-	dsn := os.Getenv("ORDERS_DB_DSN")
+	dsn := os.Getenv("ORDER_DB_DSN")
 	if dsn == "" {
-		log.Info("ORDERS_DB_DSN not set; order persistence disabled.")
+		log.Info("ORDER_DB_DSN not set; order persistence disabled.")
 		return nil
 	}
 

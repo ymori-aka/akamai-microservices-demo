@@ -1,7 +1,7 @@
 # One-shot Job that applies orders-schema.sql to the Linode Managed PG.
 # The schema SQL is sourced from a ConfigMap (created by CI). The DSN
 # comes from the orders-db-credentials Secret (created by CI from the
-# ORDERS_DB_DSN GitHub Secret).
+# ORDER_DB_DSN GitHub Secret).
 #
 # Idempotent (CREATE TABLE IF NOT EXISTS). Re-applied on every CI run.
 apiVersion: batch/v1

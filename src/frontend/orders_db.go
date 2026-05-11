@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License").
 //
 // Read-side access to the orders table on Linode Managed PostgreSQL.
-// Activated only when ORDERS_DB_DSN is set; otherwise the frontend
+// Activated only when ORDER_DB_DSN is set; otherwise the frontend
 // behaves as before and the /orders pages return an "unavailable"
 // notice.
 package main
@@ -53,11 +53,11 @@ type OrderItemRow struct {
 	UnitPriceNanos    int32
 }
 
-// initOrdersDB opens (once) a connection pool to ORDERS_DB_DSN. If
+// initOrdersDB opens (once) a connection pool to ORDER_DB_DSN. If
 // the env var is empty, ordersDB stays nil and the read paths just
 // degrade to "feature disabled".
 func initOrdersDB() error {
-	dsn := os.Getenv("ORDERS_DB_DSN")
+	dsn := os.Getenv("ORDER_DB_DSN")
 	if dsn == "" {
 		return nil
 	}

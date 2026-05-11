@@ -88,7 +88,7 @@ spec:
           #   value: "aws"
           - name: ENABLE_PROFILER
             value: "0"
-          - name: ORDERS_DB_DSN
+          - name: ORDER_DB_DSN
             valueFrom:
               secretKeyRef:
                 name: orders-db-credentials
