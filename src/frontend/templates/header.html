@@ -107,6 +107,17 @@
                     </a>
                     {{ end }}
 
+                    <a href="{{ $.baseUrl }}/orders" class="cart-link"
+                       title="{{ if eq $.user_lang "ja" }}注文履歴{{ else if eq $.user_lang "ko" }}주문 내역{{ else if eq $.user_lang "zh" }}订单历史{{ else }}Orders{{ end }}"
+                       style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-right:8px;">
+                        <!-- receipt / order history icon -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:#555;">
+                          <path d="M4 4h12l4 4v12a2 2 0 0 1-2 2H4z"/>
+                          <polyline points="14 2 14 8 20 8"/>
+                          <line x1="8" y1="13" x2="16" y2="13"/>
+                          <line x1="8" y1="17" x2="13" y2="17"/>
+                        </svg>
+                    </a>
                     <a href="{{ $.baseUrl }}/cart" class="cart-link">
                         <img src="{{ $.baseUrl }}/static/icons/Hipster_CartIcon.svg" alt="Cart icon" class="logo" title="Cart" />
                         {{ if $.cart_size }}
