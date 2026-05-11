@@ -1,0 +1,124 @@
+{{ define "orders" }}
+{{ template "header" . }}
+
+<style>
+.orders-wrap { padding-top:28px; padding-bottom:48px; max-width:1200px; }
+.orders-title { margin:0; color:#333; }
+.orders-sub { margin:4px 0 0; color:#888; font-size:13px; }
+.order-card { background:#fff; border:1px solid #e0e0e0; border-radius:10px; margin-bottom:18px; overflow:hidden; }
+.order-head {
+  display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px;
+  padding:14px 18px; background:#fafafa; border-bottom:1px solid #f0f0f0;
+  font-size:13px; color:#555;
+}
+.order-head .oid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color:#333; font-weight:600; }
+.order-head .total { color:#F47920; font-weight:700; font-size:15px; }
+.order-meta { display:flex; flex-wrap:wrap; gap:18px; padding:12px 18px; font-size:13px; color:#555; }
+.order-meta .lbl { color:#888; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+.items-table { width:100%; border-collapse:collapse; }
+.items-table th { font-size:11px; color:#666; font-weight:600; text-transform:uppercase; letter-spacing:0.4px; padding:8px 18px; background:#f8f9fa; border-bottom:1px solid #e0e0e0; text-align:left; }
+.items-table td { padding:8px 18px; font-size:13px; border-bottom:1px solid #f5f5f5; }
+.items-table tr:last-child td { border-bottom:none; }
+.pid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color:#009BDE; }
+.empty-state { background:#fff; border:1px dashed #ccc; border-radius:10px; padding:48px; text-align:center; color:#888; }
+.warn-box { background:#fff3cd; color:#856404; border:1px solid #ffeeba; padding:12px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; }
+</style>
+
+<main role="main">
+<div class="container orders-wrap">
+
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+    <div>
+      <h2 class="orders-title">
+        {{ if $.is_admin }}🧾
+          {{ if eq $.user_lang "ja" }}注文管理（管理者）{{ else if eq $.user_lang "ko" }}주문 관리 (관리자){{ else if eq $.user_lang "zh" }}订单管理（管理员）{{ else }}Orders (Admin){{ end }}
+        {{ else }}📦
+          {{ if eq $.user_lang "ja" }}注文履歴{{ else if eq $.user_lang "ko" }}주문 내역{{ else if eq $.user_lang "zh" }}订单历史{{ else }}Order History{{ end }}
+        {{ end }}
+      </h2>
+      <p class="orders-sub">
+        {{ if $.is_admin }}
+          {{ if eq $.user_lang "ja" }}全セッションの直近の注文（最新200件）{{ else if eq $.user_lang "ko" }}전체 세션의 최근 주문 (최신 200건){{ else if eq $.user_lang "zh" }}所有会话的最近订单（最新 200 条）{{ else }}Recent orders across all sessions (latest 200){{ end }}
+        {{ else }}
+          {{ if eq $.user_lang "ja" }}このセッションの注文履歴{{ else if eq $.user_lang "ko" }}이 세션의 주문 내역{{ else if eq $.user_lang "zh" }}此会话的订单历史{{ else }}Orders placed in this session{{ end }}
+        {{ end }}
+      </p>
+    </div>
+    <a href="{{ $.baseUrl }}/" style="color:#009BDE; font-size:14px; text-decoration:none;">
+      ← {{ if eq $.user_lang "ja" }}ストアに戻る{{ else if eq $.user_lang "ko" }}스토어로 돌아가기{{ else if eq $.user_lang "zh" }}返回商店{{ else }}Back to Store{{ end }}
+    </a>
+  </div>
+
+  {{ if not $.available }}
+    <div class="warn-box">
+      ⚠️ {{ if eq $.user_lang "ja" }}注文履歴ストレージが構成されていません（ORDERS_DB_DSN 未設定）。{{ else }}Order history storage is not configured (ORDERS_DB_DSN not set).{{ end }}
+    </div>
+  {{ else if not $.orders }}
+    <div class="empty-state">
+      {{ if eq $.user_lang "ja" }}注文はまだありません。{{ else if eq $.user_lang "ko" }}아직 주문이 없습니다.{{ else if eq $.user_lang "zh" }}还没有订单。{{ else }}No orders yet.{{ end }}
+    </div>
+  {{ else }}
+    {{ range $.orders }}
+      <div class="order-card">
+        <div class="order-head">
+          <div>
+            <span style="color:#888;">#</span>
+            <span class="oid">{{ .OrderID }}</span>
+            &nbsp;·&nbsp;
+            <span>{{ formatTime .CreatedAt }}</span>
+          </div>
+          <div class="total">
+            {{ renderMoneyParts .TotalCurrency .TotalUnits .TotalNanos }}
+          </div>
+        </div>
+
+        <div class="order-meta">
+          {{ if $.is_admin }}
+          <div>
+            <div class="lbl">{{ if eq $.user_lang "ja" }}セッション{{ else }}Session{{ end }}</div>
+            <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px;">{{ .SessionID }}</div>
+          </div>
+          <div>
+            <div class="lbl">{{ if eq $.user_lang "ja" }}メール{{ else }}Email{{ end }}</div>
+            <div>{{ if .Email }}{{ .Email }}{{ else }}—{{ end }}</div>
+          </div>
+          {{ end }}
+          <div>
+            <div class="lbl">{{ if eq $.user_lang "ja" }}追跡 ID{{ else }}Tracking{{ end }}</div>
+            <div style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">{{ .ShippingTrackingID }}</div>
+          </div>
+          <div>
+            <div class="lbl">{{ if eq $.user_lang "ja" }}配送先{{ else }}Ship To{{ end }}</div>
+            <div>{{ .ShippingStreet }}, {{ .ShippingCity }} {{ .ShippingState }} {{ .ShippingZipCode }}, {{ .ShippingCountry }}</div>
+          </div>
+        </div>
+
+        {{ if .Items }}
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th>{{ if eq $.user_lang "ja" }}商品 ID{{ else }}Product ID{{ end }}</th>
+              <th style="text-align:right;">{{ if eq $.user_lang "ja" }}数量{{ else }}Qty{{ end }}</th>
+              <th style="text-align:right;">{{ if eq $.user_lang "ja" }}単価{{ else }}Unit Price{{ end }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Items }}
+            <tr>
+              <td><span class="pid">{{ .ProductID }}</span></td>
+              <td style="text-align:right;">{{ .Quantity }}</td>
+              <td style="text-align:right;">{{ renderMoneyParts .UnitPriceCurrency .UnitPriceUnits .UnitPriceNanos }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ end }}
+      </div>
+    {{ end }}
+  {{ end }}
+
+</div>
+</main>
+
+{{ template "footer" . }}
+{{ end }}

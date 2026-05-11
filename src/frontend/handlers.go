@@ -54,6 +54,12 @@ var (
 				Funcs(template.FuncMap{
 			"renderMoney":        renderMoney,
 			"renderCurrencyLogo": renderCurrencyLogo,
+			"renderMoneyParts": func(currency string, units int64, nanos int32) string {
+				return renderMoney(pb.Money{CurrencyCode: currency, Units: units, Nanos: nanos})
+			},
+			"formatTime": func(t time.Time) string {
+				return t.Format("2006-01-02 15:04:05 MST")
+			},
 			"jaName": func(id string) string {
 				if t, ok := jaTranslations[id]; ok {
 					return t.Name
@@ -1118,4 +1124,54 @@ func (fe *frontendServer) updateInventoryHandler(w http.ResponseWriter, r *http.
 
 	w.Header().Set("Location", baseUrl+"/admin/inventory?flash=saved")
 	w.WriteHeader(http.StatusFound)
+}
+
+// ordersHandler renders the current session's order history.
+// Backed by Linode Managed PostgreSQL; degrades gracefully when the
+// DB is not configured.
+func (fe *frontendServer) ordersHandler(w http.ResponseWriter, r *http.Request) {
+	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
+
+	var (
+		orders []OrderRow
+		err    error
+	)
+	if ordersAvailable() {
+		orders, err = listOrdersBySession(r.Context(), sessionID(r), 50)
+		if err != nil {
+			log.WithError(err).Warn("listOrdersBySession failed")
+		}
+	}
+
+	if templErr := templates.ExecuteTemplate(w, "orders", injectCommonTemplateData(r, map[string]interface{}{
+		"orders":    orders,
+		"available": ordersAvailable(),
+		"is_admin":  false,
+	})); templErr != nil {
+		log.Println(templErr)
+	}
+}
+
+// adminOrdersHandler renders all recent orders for an operator.
+func (fe *frontendServer) adminOrdersHandler(w http.ResponseWriter, r *http.Request) {
+	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
+
+	var (
+		orders []OrderRow
+		err    error
+	)
+	if ordersAvailable() {
+		orders, err = listAllOrders(r.Context(), 200)
+		if err != nil {
+			log.WithError(err).Warn("listAllOrders failed")
+		}
+	}
+
+	if templErr := templates.ExecuteTemplate(w, "orders", injectCommonTemplateData(r, map[string]interface{}{
+		"orders":    orders,
+		"available": ordersAvailable(),
+		"is_admin":  true,
+	})); templErr != nil {
+		log.Println(templErr)
+	}
 }

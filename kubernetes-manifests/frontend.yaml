@@ -88,6 +88,12 @@ spec:
           #   value: "aws"
           - name: ENABLE_PROFILER
             value: "0"
+          - name: ORDERS_DB_DSN
+            valueFrom:
+              secretKeyRef:
+                name: orders-db-credentials
+                key: DSN
+                optional: true
           # - name: CYMBAL_BRANDING
           #   value: "true"
           # - name: ENABLE_ASSISTANT

@@ -147,6 +147,12 @@ func main() {
 	mustConnGRPC(ctx, &svc.checkoutSvcConn, svc.checkoutSvcAddr)
 	mustConnGRPC(ctx, &svc.adSvcConn, svc.adSvcAddr)
 
+	// Optional: connect to PostgreSQL for order history reads. Failure
+	// here is non-fatal — the /orders pages just surface "unavailable".
+	if err := initOrdersDB(); err != nil {
+		log.Warnf("orders DB init failed (read-only history disabled): %v", err)
+	}
+
 	r := mux.NewRouter()
 	r.HandleFunc(baseUrl + "/", svc.homeHandler).Methods(http.MethodGet, http.MethodHead)
 	r.HandleFunc(baseUrl + "/product/{id}", svc.productHandler).Methods(http.MethodGet, http.MethodHead)
@@ -160,6 +166,8 @@ func main() {
 	r.HandleFunc(baseUrl + "/assistant", svc.assistantHandler).Methods(http.MethodGet)
 	r.HandleFunc(baseUrl+"/admin/inventory", adminBasicAuth(svc.inventoryHandler)).Methods(http.MethodGet)
 	r.HandleFunc(baseUrl+"/admin/inventory", adminBasicAuth(svc.updateInventoryHandler)).Methods(http.MethodPost)
+	r.HandleFunc(baseUrl+"/orders", svc.ordersHandler).Methods(http.MethodGet)
+	r.HandleFunc(baseUrl+"/admin/orders", adminBasicAuth(svc.adminOrdersHandler)).Methods(http.MethodGet)
 	r.PathPrefix(baseUrl + "/static/").Handler(http.StripPrefix(baseUrl + "/static/", http.FileServer(http.Dir("./static/"))))
 	r.HandleFunc(baseUrl + "/robots.txt", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "User-agent: *\nDisallow: /") })
 	r.HandleFunc(baseUrl + "/_healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "ok") })
