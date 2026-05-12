@@ -2,8 +2,11 @@
 
 # Akamai Microservices Demo
 
-> **An end-to-end demo environment combining Akamai's key services.**  
-> A microservices e-commerce site running on LKE (Linode Kubernetes Engine), integrated with AI-powered features via Akamai Functions and full observability through Grafana Cloud.
+> **An end-to-end demo environment combining Akamai's key services.**
+> A microservices e-commerce site running on LKE (Linode Kubernetes Engine),
+> with AI features at the edge (Akamai Functions), data persistence on
+> Linode managed services, and full observability through an in-cluster
+> Grafana stack augmented with Akamai Cloud Pulse.
 
 [![Build and Deploy](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml/badge.svg)](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml)
 
@@ -14,6 +17,8 @@
 - [What You Can Demo](#what-you-can-demo)
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
+- [Data Persistence](#data-persistence)
+- [Observability](#observability)
 - [Accessing the Demo Environment](#accessing-the-demo-environment)
 - [Setup Guide](#setup-guide)
 - [CI/CD Pipeline](#cicd-pipeline)
@@ -30,10 +35,16 @@
 | 1 | **Running an e-commerce site on LKE** | Ease and scalability of managed Kubernetes |
 | 2 | **AI product descriptions via Akamai Functions** | Edge Function calling a GPU-hosted LLM (Gemma 4) with low latency |
 | 3 | **AI-powered personalized recommendations** | Dynamic product suggestions based on what the customer is viewing |
-| 4 | **Real-time Japanese / English language switching** | One-click global-ready UI |
-| 5 | **Full cluster observability with Grafana Cloud** | Unified metrics, logs, and traces for nodes, pods, and containers |
-| 6 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
-| 7 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
+| 4 | **AI shopping assistant chat** | Spin function chat endpoint streaming Gemma responses |
+| 5 | **4-language UI** | One-click switching between English / 日本語 / 한국어 / 中文 |
+| 6 | **8-currency pricing** | USD / EUR / JPY / CAD / GBP / TRY / KRW / CNY with live FX rates |
+| 7 | **Persistent order history** | Orders written to Linode Managed PostgreSQL; viewable at `/orders` & `/admin/orders` |
+| 8 | **MongoDB-backed product catalog** | StatefulSet PVC with seed-on-first-start, full admin CRUD |
+| 9 | **Product images on Linode Object Storage** | Images served from `*.linodeobjects.com` instead of in-cluster |
+| 10 | **In-cluster Grafana + Cloud Pulse** | DB / LB / LLM metrics in a single dashboard |
+| 11 | **End-to-end LLM telemetry** | Token usage, latency p50/p95/p99, error rate per model |
+| 12 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
+| 13 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
 
 ---
 
@@ -46,42 +57,62 @@ graph TB
     end
 
     subgraph AkamaiEdge["Akamai Functions (Fermyon Spin)"]
-        INTRO["product-intro-service\n✨ AI product description"]
-        REC["recommendation-service\n🤖 AI recommendations"]
+        INTRO["product-intro-service<br/>✨ AI product description"]
+        REC["recommendation-service<br/>🤖 AI recommendations"]
+        ASSIST["shopping-assistant-service<br/>💬 AI chat"]
     end
 
     subgraph LKE["LKE Cluster (3 nodes / Kubernetes v1.35)"]
         direction TB
-        FE["frontend\n(Go)"]
-        PC["productcatalog\n(Go)"]
-        CART["cartservice\n(Go)"]
-        CHK["checkoutservice\n(Go)"]
-        CUR["currencyservice\n(Node.js)"]
-        REC2["recommendationservice\n(Python)"]
-        SHIP["shippingservice\n(Go)"]
-        PAY["paymentservice\n(Node.js)"]
-        EMAIL["emailservice\n(Python)"]
-        AD["adservice\n(Java)"]
-        REDIS[("Redis\n(Cart Store)")]
+        FE["frontend (Go)<br/>/, /cart, /orders, /admin/*"]
+        PC["productcatalog<br/>(Go, MongoDB-backed)"]
+        CART["cartservice (Go)"]
+        CHK["checkoutservice<br/>(Go, PG-persisted orders)"]
+        CUR["currencyservice<br/>(Node.js, live FX)"]
+        REC2["recommendationservice (Python)"]
+        SHIP["shippingservice (Go)"]
+        PAY["paymentservice (Node.js)"]
+        EMAIL["emailservice (Python)"]
+        AD["adservice (Java)"]
+        REDIS[("Redis<br/>Cart Store")]
+        MONGO[("MongoDB<br/>StatefulSet + PVC<br/>Product Catalog")]
     end
 
-    subgraph GPU["GPU Server"]
-        GEMMA["Gemma 4 26B\n(llama.cpp / OpenAI-compatible API)"]
+    subgraph LinodeManaged["Linode Managed Services"]
+        PG[("Managed PostgreSQL<br/>orders / order_items")]
+        OBJ[("Object Storage<br/>akamai-boutique-img")]
     end
 
-    subgraph Observability["Observability"]
-        GRAFANA["Grafana Cloud\n(Metrics / Logs)"]
+    subgraph GPU["GPU Server (Linode VM)"]
+        GEMMA["llama-cpp-python<br/>Gemma 4 26B<br/>/v1/chat/completions + /metrics"]
+    end
+
+    subgraph Monitoring["In-cluster Observability"]
+        OTEL["OTel Collector"]
+        PROM["Prometheus"]
+        LOKI["Loki"]
+        TEMPO["Tempo"]
+        GRAF["Grafana"]
+        ACLP["aclp-collector<br/>(Cloud Pulse bridge)"]
     end
 
     USER -->|HTTP| FE
     USER -.->|Async fetch| INTRO
     USER -.->|Async fetch| REC
-    INTRO -->|OpenAI API| GEMMA
-    REC -->|OpenAI API| GEMMA
+    USER -.->|Chat| ASSIST
+    INTRO --> GEMMA
+    REC --> GEMMA
+    ASSIST --> GEMMA
     FE --> PC & CART & CHK & CUR & REC2 & SHIP & AD
+    FE -->|read| PG
+    FE -->|images| OBJ
     CHK --> PAY & EMAIL & SHIP & CART & CUR & PC
+    CHK -->|write| PG
+    PC --> MONGO
     CART --> REDIS
-    LKE -->|Grafana Alloy / Beyla| GRAFANA
+    ACLP -->|Linode API| PG
+    PROM -->|scrape| OTEL & ACLP & GEMMA
+    GRAF --> PROM & LOKI & TEMPO
 ```
 
 ---
@@ -92,12 +123,70 @@ graph TB
 |-------|-----------|------|
 | **Infrastructure** | Linode Kubernetes Engine (LKE) | Kubernetes cluster (3 nodes) |
 | **Edge AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript Wasm functions running at the edge |
-| **AI Model** | Gemma 4 26B / llama.cpp | Open-source LLM on a GPU server |
-| **Frontend** | Go + HTML templates | E-commerce storefront |
+| **AI Model** | Gemma 4 26B / llama-cpp-python | Open-source LLM on a GPU server, OpenAI-compatible API |
+| **Frontend** | Go + HTML templates | E-commerce storefront (en / ja / ko / zh) |
 | **Microservices** | Go / Python / Node.js / Java | Cart, checkout, currency, shipping, etc. |
-| **Observability** | Grafana Cloud + Grafana Alloy + Beyla | Metrics, logs, eBPF tracing |
+| **Catalog Store** | MongoDB 7.0 (in-cluster StatefulSet + PVC) | Product catalog (auto-seeded from `products.json`) |
+| **Orders Store** | Linode Managed PostgreSQL | Persistent `orders` / `order_items` tables |
+| **Cart Store** | Redis | Ephemeral cart state |
+| **Image Store** | Linode Object Storage | Public-read bucket serving `/static/img/products/*` |
+| **Observability** | Prometheus / Loki / Tempo / Grafana / Grafana Alloy / Beyla / OTel Collector | Metrics, logs, traces, eBPF |
+| **Managed-svc Metrics** | Akamai Cloud Pulse (`aclp-collector`) | DBaaS + NodeBalancer metrics scraped by Prometheus |
+| **LLM Metrics** | prometheus-fastapi-instrumentator + custom middleware | Token / latency / error rate per model |
 | **CI/CD** | GitHub Actions + self-hosted runner | Automated build & deploy on push |
 | **Container Registry** | GitHub Container Registry (ghcr.io) | Docker image storage |
+
+---
+
+## Data Persistence
+
+Three data stores back the demo. All three are provisioned via Kubernetes
+manifests + GitHub Secrets and deployed by CI on every push.
+
+| Domain | Where | Schema / format |
+|--------|-------|-----------------|
+| **Product catalog** | MongoDB 7.0 StatefulSet inside the cluster (`mongodb-0`, 10 Gi PVC) | One document per product (`_id` = SKU, multilingual `name` / `description`, `price`, `categories`, `picture`, `stock`). Seeded on first start from `src/productcatalogservice/products.json`. |
+| **Orders** | Linode Managed PostgreSQL (`postgresql v18`, jp-osa) | `orders(order_id UUID, session_id, email, shipping_*, total_*, created_at)` + `order_items(order_id, product_id, quantity, unit_price_*)`. Created on each CI run via a one-shot `orders-schema-migrate` Job. |
+| **Carts** | Redis (in-cluster) | Ephemeral; per-session shopping cart. |
+
+The frontend exposes:
+
+- `GET /orders` — current session's order history (cookie-bound)
+- `GET /admin/orders` — operator view of recent orders (Basic Auth)
+
+Order persistence is non-blocking: if the DB is unreachable the
+checkout still completes and a warning is logged.
+
+---
+
+## Observability
+
+A self-managed stack runs inside the cluster in the `monitoring`
+namespace, augmented by Akamai Cloud Pulse for Linode-managed
+services.
+
+| Component | What it provides |
+|-----------|------------------|
+| **Prometheus** | Scrapes microservices via OTel Collector + `aclp-collector` + LLM `/metrics` |
+| **Loki** | Container logs (via Grafana Alloy) |
+| **Tempo** | Distributed traces from microservices and Spin functions |
+| **Grafana** | Two dashboards: *Akamai Store — Operations* and *Akamai Store — Infrastructure & LLM* |
+| **`aclp-collector`** | OTel distribution maintained by Akamai; bridges Cloud Pulse → Prometheus for `dbaas` & `nodebalancer` metrics |
+| **LLM instrumentation** | `prometheus-fastapi-instrumentator` + custom token-counting middleware running inside the llama-cpp-python server |
+
+**Cloud Pulse metrics surfaced:**
+
+- *DBaaS (PostgreSQL)*: `avg_cpu_usage`, `avg_memory_usage`, `avg_disk_usage`, `avg_read_iops`, `avg_write_iops`
+- *NodeBalancer*: ingress / egress traffic rate, active sessions, new sessions/s, active backends
+
+**LLM metrics surfaced:**
+
+- `llm_requests_total{model, endpoint, status}`
+- `llm_request_duration_seconds_bucket` (latency histogram → p50 / p95 / p99)
+- `llm_prompt_tokens_total`, `llm_completion_tokens_total`, `llm_total_tokens_total`
+
+> Object Storage metrics are documented as a Cloud Pulse `service_type`
+> but the API endpoint currently returns 404, so they are not yet scraped.
 
 ---
 
@@ -106,7 +195,10 @@ graph TB
 | URL | Description |
 |-----|-------------|
 | `http://172.233.68.25/` | E-commerce store (public) |
-| `http://172.233.68.25/admin/inventory` | Admin panel (Basic Auth required) |
+| `http://172.233.68.25/orders` | Per-session order history |
+| `http://172.233.68.25/admin/inventory` | Admin product management (Basic Auth) |
+| `http://172.233.68.25/admin/orders` | Admin order list (Basic Auth) |
+| `http://172.233.69.90:3000/` | Grafana dashboards |
 
 **Default admin credentials**
 
@@ -129,6 +221,7 @@ graph TB
 | Spin CLI | v3.6.3 | Akamai Functions build & deploy |
 | Spin aka plugin | v0.7.0 | Akamai Functions auth & deploy |
 | Node.js | v20+ | Building Spin TypeScript apps |
+| AWS CLI | latest | Uploading product images to Linode Object Storage (S3-compatible) |
 | Linode CLI (optional) | latest | Creating the LKE cluster |
 
 ---
@@ -155,7 +248,31 @@ kubectl get nodes   # All nodes should show Ready
 
 ---
 
-### Step 2 — Deploy the Microservices
+### Step 2 — Provision Linode Managed Services
+
+1. **Managed PostgreSQL** (Cloud Manager → Databases → Create)
+   - Engine: PostgreSQL v16+, Region: same as the LKE cluster
+   - After creation, open *Manage Networking* and enable **public access**
+     (the LKE cluster cannot reach the VPC-private endpoint without
+     LKE Enterprise; public access + IP allow-list is the supported
+     path for non-Enterprise clusters)
+   - Add the LKE node public IPs (or `0.0.0.0/0` for a closed demo)
+     to the database firewall
+
+2. **Object Storage bucket** (Cloud Manager → Object Storage → Create Bucket)
+   - Label: `akamai-boutique-img` (or your own), Region: same as LKE
+   - Create an Access Key with read/write on this bucket
+
+3. Upload the bundled product images:
+
+   ```bash
+   aws configure --profile linode   # enter Access Key + Secret
+   bash scripts/upload-product-images.sh
+   ```
+
+---
+
+### Step 3 — Deploy the Microservices
 
 ```bash
 git clone https://github.com/ymori-aka/akamai-microservices-demo.git
@@ -171,17 +288,10 @@ kubectl set env deployment/frontend ENV_PLATFORM=akamai
 kubectl get pods -w
 ```
 
----
-
-### Step 3 — Load the Product Catalog
-
-Product data is managed as a ConfigMap.
-
-```bash
-kubectl create configmap products-catalog \
-  --from-file=products.json=./src/productcatalogservice/products.json
-kubectl rollout restart deployment/productcatalogservice
-```
+The product catalog is **self-seeding**: on first start, the
+`productcatalogservice` reads `src/productcatalogservice/products.json`
+(embedded in the image) and inserts every product into MongoDB if the
+collection is empty. Subsequent restarts read from MongoDB only.
 
 ---
 
@@ -221,30 +331,27 @@ sudo apt-get install -y nodejs
 
 ---
 
-### Step 5 — Deploy to Akamai Functions
+### Step 5 — Deploy the Spin Apps to Akamai Functions
 
 ```bash
 # Authenticate (first time only)
 spin aka login
 
-# recommendation-service
-cd src/spin-functions/recommendation-service
-npm install && npm run build
-spin aka app link --app-name recommendation-service
-spin aka app deploy --no-confirm
-
-# product-intro-service
-cd ../product-intro-service
-npm install && npm run build
-spin aka app link --app-name product-intro-service
-spin aka app deploy --no-confirm
+for svc in recommendation-service product-intro-service shopping-assistant-service; do
+  (cd src/spin-functions/$svc \
+    && npm install && npm run build \
+    && spin aka app link --app-name $svc \
+    && spin aka app deploy --no-confirm)
+done
 ```
 
-After deploying, update the endpoint URLs in `src/frontend/templates/product.html`:
+After deploying, update the endpoint URLs in `src/frontend/templates/product.html`
+and the `SHOPPING_ASSISTANT_SERVICE_ADDR` env on `frontend.yaml`:
 
-```javascript
-var introUrl = "https://<uuid>.fwf.app/intro?product_id=...";
-var recUrl   = "https://<uuid>.fwf.app/recommendations?product_id=...";
+```text
+https://<uuid-intro>.fwf.app/intro?product_id=...
+https://<uuid-rec>.fwf.app/recommendations?product_id=...
+https://<uuid-assistant>.fwf.app   # set on the frontend Deployment
 ```
 
 ---
@@ -255,28 +362,31 @@ Go to **Settings → Secrets and variables → Actions** in your repository.
 
 | Secret | Description |
 |--------|-------------|
-| `GHCR_TOKEN` | GitHub Personal Access Token with `write:packages` scope |
-
-> The kubeconfig and Spin credentials live directly on the management server, so no additional secrets are needed.
+| `GHCR_TOKEN` | GitHub Personal Access Token with `write:packages` scope (CI pushes images to ghcr.io) |
+| `KUBECONFIG_DATA` | Base64-encoded kubeconfig used by the self-hosted runner |
+| `SPIN_AKA_ACCESS_TOKEN` | Akamai Functions deploy token (`spin aka login --token …`) |
+| `ORDER_DB_DSN` | Postgres connection string: `postgres://akmadmin:<password>@<public-host>:23630/defaultdb?sslmode=require` |
+| `LINODE_PAT` | Linode Personal Access Token with **Monitor: Read Only** and **Databases: Read Only** (used by `aclp-collector`) |
 
 ---
 
-### Step 7 — Set Up Grafana Cloud Monitoring
+### Step 7 — Set Up the LLM Server (instrumented)
 
-Open the Grafana Cloud console and go to **Connections → Add new connection → Kubernetes**.  
-A ready-to-run Helm command will be generated — simply copy and run it.
+The LLM runs on a separate GPU VM as a systemd service. To make it
+emit Prometheus metrics, wrap `llama_cpp.server` with
+`prometheus-fastapi-instrumentator` + a small custom middleware. A
+ready-to-use wrapper lives at
+[`scripts/llm_server_instrumented.py`](scripts/llm_server_instrumented.py)
+(deployed manually to `/root/llm_server_instrumented.py` on the LLM VM).
 
-```bash
-helm repo add grafana https://grafana.github.io/helm-charts
-helm repo update
+The systemd unit's `ExecStart` should invoke that wrapper instead of
+`python -m llama_cpp.server` directly. The wrapper exposes:
 
-kubectl create namespace monitoring
+- `/metrics` — standard HTTP metrics + `llm_*` token / latency counters
+- All other routes unchanged (`/v1/chat/completions`, `/v1/models`, …)
 
-# Use the command generated in the Grafana Cloud console
-helm install grafana-cloud-metrics grafana/k8s-monitoring \
-  --namespace monitoring \
-  --set ...
-```
+Open inbound TCP/8000 from the LKE node public IPs in the VM's Cloud
+Firewall so Prometheus can scrape it.
 
 ---
 
@@ -287,34 +397,36 @@ kubectl set env deployment/frontend \
   ENV_PLATFORM=akamai \         # Platform badge (akamai / gcp / aws / azure)
   ADMIN_USER=admin \            # Admin panel Basic Auth username
   ADMIN_PASSWORD=akamai-demo \  # Admin panel Basic Auth password
-  ENABLE_ASSISTANT=true         # Enable AI shopping assistant (optional)
+  ENABLE_ASSISTANT=true \       # Enable AI shopping assistant
+  IMAGE_BASE_URL=https://akamai-boutique-img.jp-osa-1.linodeobjects.com
 ```
 
 ---
 
 ## CI/CD Pipeline
 
-A push to `main` triggers three jobs:
+A push to `main` triggers parallel build jobs and a deploy job:
 
 ```
 push to main
     │
-    ▼
-┌──────────────────────────┐
-│  Job 1: Build            │  GitHub-hosted runner (ubuntu-latest)
-│  Frontend Docker Image   │  → ghcr.io/ymori-aka/frontend:sha-XXXXXXX
-└────────────┬─────────────┘
-             │ (runs in parallel after Job 1)
-    ┌────────┴──────────────────────────────────┐
-    │                                           │
-    ▼                                           ▼
-┌────────────────────────┐     ┌────────────────────────────────┐
-│  Job 2: Deploy to LKE  │     │  Job 3: Deploy Spin Apps       │
-│  (self-hosted runner)  │     │  to Akamai Functions           │
-│                        │     │  (self-hosted runner)          │
-│  kubectl set image ... │     │  recommendation-service        │
-│  kubectl rollout ...   │     │  product-intro-service         │
-└────────────────────────┘     └────────────────────────────────┘
+    ├─► Build Frontend Image            (GitHub-hosted)
+    ├─► Build Currency Service Image    (GitHub-hosted)
+    ├─► Build Product Catalog Image     (GitHub-hosted)
+    ├─► Build Checkout Service Image    (GitHub-hosted)
+    │           │  all push to ghcr.io/ymori-aka/<svc>:sha-XXXXXXX
+    │           ▼
+    ├─► Deploy to LKE                   (self-hosted runner)
+    │      ├─ kubectl apply -f kubernetes-manifests/...
+    │      ├─ rollout frontend / checkoutservice / productcatalogservice
+    │      ├─ create Secret orders-db-credentials (from ORDER_DB_DSN)
+    │      ├─ run orders-schema-migrate Job
+    │      ├─ deploy MongoDB StatefulSet (if absent)
+    │      ├─ deploy monitoring stack + aclp-collector (if LINODE_PAT set)
+    │      └─ seed admin-only products (AKMT028, AKMT029)
+    │
+    └─► Deploy Spin Apps to Akamai Functions
+           recommendation / product-intro / shopping-assistant
 ```
 
 ---
@@ -332,8 +444,16 @@ Navigate to `http://<FRONTEND_IP>/admin/inventory` (Basic Auth required).
 | Delete a product | Click 🗑 → confirm in the dialog |
 | Add a new product | Fill in the form at the bottom → upload an image → click "Add" |
 
-> **Note:** Uploaded images are stored on the pod's local filesystem and will be lost if the pod restarts.  
-> For permanent storage, commit the image to `src/frontend/static/img/products/custom/` and redeploy via CI/CD.
+`http://<FRONTEND_IP>/admin/orders` (same Basic Auth) lists the most
+recent 200 orders across all sessions, with shipping address, totals,
+and line-items resolved from `orders` / `order_items`.
+
+> **Image storage:** picture URLs that begin with `/static/img/products/`
+> are rewritten to the `IMAGE_BASE_URL` (Linode Object Storage) at
+> render time. Images uploaded via the admin panel are currently
+> persisted to the pod's local filesystem only — for permanent storage,
+> upload to the bucket (`scripts/upload-product-images.sh`) and commit
+> the corresponding entry.
 
 ---
 
@@ -343,27 +463,45 @@ Navigate to `http://<FRONTEND_IP>/admin/inventory` (Basic Auth required).
 .
 ├── .github/workflows/
 │   └── deploy.yml                    # CI/CD pipeline definition
-├── kubernetes-manifests/             # K8s manifests for all microservices
-│   ├── frontend.yaml
-│   ├── productcatalogservice.yaml
-│   └── ...  (11 services total)
+├── kubernetes-manifests/
+│   ├── frontend.yaml                 # incl. ORDER_DB_DSN, IMAGE_BASE_URL envs
+│   ├── productcatalogservice.yaml    # MongoDB-backed
+│   ├── checkoutservice.yaml          # PG-backed orders
+│   ├── mongodb.yaml                  # StatefulSet + PVC + Secret
+│   ├── orders-schema.sql             # PG schema (applied by Job)
+│   ├── orders-migrate-job.yaml       # One-shot psql migrator
+│   ├── loadgenerator.yaml            # Overlay with custom locustfile
+│   └── monitoring/
+│       ├── prometheus.yaml
+│       ├── grafana.yaml
+│       ├── grafana-dashboards.yaml   # Operations + Infrastructure & LLM
+│       ├── aclp-collector.yaml       # Akamai Cloud Pulse → Prometheus
+│       ├── otel-collector.yaml
+│       └── redis-exporter.yaml
+├── scripts/
+│   ├── upload-product-images.sh      # Sync ./src/.../products/ → Object Storage
+│   └── llm_server_instrumented.py    # llama_cpp.server + Prometheus instrumentation
 ├── src/
 │   ├── frontend/                     # ★ Primary modified service (Go)
 │   │   ├── handlers.go               # Routing, business logic, admin API
-│   │   ├── translations.go           # Japanese translation data (all products)
+│   │   ├── orders_db.go              # PG read for /orders & /admin/orders
+│   │   ├── translations.go           # ja / ko / zh translations
 │   │   ├── main.go                   # Server startup & route definitions
-│   │   ├── templates/                # HTML templates
-│   │   │   ├── header.html           # Akamai logo, language toggle
+│   │   ├── templates/
+│   │   │   ├── header.html           # Akamai logo, lang/currency toggle, /orders icon
 │   │   │   ├── product.html          # AI intro & AI recommendations
+│   │   │   ├── orders.html           # Order history page (used by both views)
 │   │   │   └── inventory.html        # Admin product management UI
-│   │   └── static/
-│   │       ├── icons/akamai_logo.png # Akamai logo
-│   │       └── img/products/         # Product images
-│   ├── spin-functions/               # ★ Akamai Functions (TypeScript)
-│   │   ├── recommendation-service/   # AI recommendations
-│   │   └── product-intro-service/    # AI product description generation
-│   └── productcatalogservice/
-│       └── products.json             # Product catalog data (ConfigMap source)
+│   │   └── static/img/products/      # Source images (mirrored to Object Storage)
+│   ├── checkoutservice/
+│   │   └── orders_db.go              # PG write of placed orders
+│   ├── productcatalogservice/
+│   │   ├── catalog_loader_mongo.go   # MongoDB loader & seeder
+│   │   └── products.json             # Seed data
+│   └── spin-functions/               # ★ Akamai Functions (TypeScript)
+│       ├── recommendation-service/
+│       ├── product-intro-service/
+│       └── shopping-assistant-service/
 └── README.md
 ```
 
@@ -376,10 +514,18 @@ This project is derived from [GoogleCloudPlatform/microservices-demo](https://gi
 **Key modifications made:**
 
 - Rebranded frontend to Akamai (logo, colors, product catalog)
-- Added AI features via Akamai Functions (Fermyon Spin)
-- Added Japanese / English language switching
-- Added admin panel with full CRUD, Basic Auth, and image upload
-- Integrated Grafana Cloud monitoring
-- Added GitHub Actions CI/CD for automated LKE + Akamai Functions deployment
+- 4-language UI (en / ja / ko / zh) and 8-currency pricing with live FX
+- AI features via Akamai Functions (Fermyon Spin): product intros,
+  recommendations, shopping assistant chat
+- Admin panel with full CRUD, Basic Auth, image upload
+- Product catalog migrated to MongoDB (in-cluster StatefulSet, auto-seeded)
+- Order persistence to Linode Managed PostgreSQL with `/orders` &
+  `/admin/orders` pages
+- Product images served from Linode Object Storage
+- In-cluster Prometheus / Loki / Tempo / Grafana stack
+- Akamai Cloud Pulse integration via `aclp-collector` for DBaaS &
+  NodeBalancer metrics
+- LLM server instrumented with HTTP + token / latency Prometheus metrics
+- GitHub Actions CI/CD for automated LKE + Akamai Functions deployment
 
 Copyright 2018 Google LLC (original code) — See [LICENSE](./LICENSE) for details.
