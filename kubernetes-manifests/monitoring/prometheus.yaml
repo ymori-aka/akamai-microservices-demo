@@ -156,6 +156,11 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # PVC is RWO and TSDB takes a file lock; with the default
+  # RollingUpdate strategy the new pod starts before the old one
+  # terminates and crash-loops on the lock. Recreate avoids that.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
