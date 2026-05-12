@@ -158,7 +158,9 @@ data:
             "city": fake.city(),
             "state": fake.state_abbr(),
             "country": "United States",
-            "credit_card_number": "4432-8015-6152-0454",
+            # Faker returns a Luhn-valid Visa number (no dashes), which
+            # the frontend's go-playground validator accepts.
+            "credit_card_number": fake.credit_card_number(card_type="visa"),
             "credit_card_expiration_month": "1",
             "credit_card_expiration_year": str(current_year),
             "credit_card_cvv": "672",

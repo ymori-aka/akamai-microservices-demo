@@ -4,6 +4,97 @@ metadata:
   name: grafana-dashboards
   namespace: monitoring
 data:
+  home.json: |
+    {
+      "title": "Akamai Store - Home",
+      "uid": "akamai-home",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "tags": ["overview"],
+      "links": [
+        { "title": "Operations", "type": "link", "url": "/d/akamai-microservices", "icon": "dashboard", "targetBlank": false },
+        { "title": "Infrastructure & LLM", "type": "link", "url": "/d/akamai-infrastructure", "icon": "dashboard", "targetBlank": false }
+      ],
+      "panels": [
+        { "id": 1, "type": "stat", "title": "Running Pods",
+          "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "count(kube_pod_status_phase{namespace=\"default\",phase=\"Running\"} == 1) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } } },
+
+        { "id": 2, "type": "stat", "title": "Error Logs / min",
+          "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+          "targets": [{ "expr": "sum(rate({namespace=\"default\"} |~ `(?i)\\\"severity\\\":\\\"error\\\"` [1m])) * 60", "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" } }],
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 30 } ] }, "decimals": 1 } } },
+
+        { "id": 3, "type": "stat", "title": "HTTP Req / min",
+          "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(rate(http_server_request_duration_seconds_count[1m])) * 60 OR sum(rate(rpc_server_duration_milliseconds_count[1m])) * 60 OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" } } } },
+
+        { "id": 4, "type": "stat", "title": "LLM Tokens (1h)",
+          "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(increase(llm_total_tokens_total[1h])) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "purple" } } } },
+
+        { "id": 5, "type": "stat", "title": "PG CPU",
+          "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "max(avg_cpu_usage{entity_id=\"470692\"}) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "color": { "mode": "thresholds" }, "thresholds": { "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 85 } ] } } } },
+
+        { "id": 6, "type": "stat", "title": "LB Ingress",
+          "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(avg_nb_ingress_traffic_rate) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "binBps", "color": { "mode": "fixed", "fixedColor": "blue" } } } },
+
+        { "id": 10, "type": "timeseries", "title": "Request rate by service",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum by (service_name) (rate(rpc_server_duration_milliseconds_count[1m])) * 60", "legendFormat": "{{service_name}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }] },
+
+        { "id": 11, "type": "timeseries", "title": "Error logs by app (5m)",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
+          "targets": [{ "expr": "sum by (app) (rate({namespace=\"default\"} |~ `(?i)\\\"severity\\\":\\\"error\\\"` [5m])) * 60", "legendFormat": "{{app}}", "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" } }] },
+
+        { "id": 20, "type": "timeseries", "title": "PG CPU & Memory %",
+          "gridPos": { "x": 0, "y": 12, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "avg_cpu_usage{entity_id=\"470692\"}", "legendFormat": "cpu {{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "avg_memory_usage{entity_id=\"470692\"}", "legendFormat": "mem {{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } } },
+
+        { "id": 21, "type": "timeseries", "title": "NodeBalancer Ingress / Egress",
+          "gridPos": { "x": 8, "y": 12, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(avg_nb_ingress_traffic_rate)", "legendFormat": "ingress", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "sum(avg_nb_egress_traffic_rate)", "legendFormat": "egress", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "binBps" } } },
+
+        { "id": 22, "type": "timeseries", "title": "LLM tokens/sec (prompt + completion)",
+          "gridPos": { "x": 16, "y": 12, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(rate(llm_prompt_tokens_total[1m]))", "legendFormat": "prompt", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "sum(rate(llm_completion_tokens_total[1m]))", "legendFormat": "completion", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ] },
+
+        { "id": 30, "type": "text", "title": "",
+          "gridPos": { "x": 0, "y": 19, "w": 24, "h": 4 },
+          "options": { "mode": "markdown", "content": "### Drill-down dashboards\n\n- **[Operations](/d/akamai-microservices)** — service-by-service request rate, error rate, latency, traces and logs\n- **[Infrastructure & LLM](/d/akamai-infrastructure)** — Linode Managed PostgreSQL, NodeBalancers, LLM token / latency detail\n\nUse the top-of-page **dashboard links** (icons next to the title) for quick navigation." } }
+      ]
+    }
   microservices.json: |
     {
       "title": "Akamai Store - Operations",

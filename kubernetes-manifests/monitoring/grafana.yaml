@@ -111,7 +111,7 @@ spec:
             - name: GF_PATHS_PROVISIONING
               value: /etc/grafana/provisioning
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
-              value: /var/lib/grafana/dashboards/microservices.json
+              value: /var/lib/grafana/dashboards/home.json
           ports:
             - containerPort: 3000
           volumeMounts:
