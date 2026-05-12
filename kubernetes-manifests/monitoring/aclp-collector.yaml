@@ -24,7 +24,11 @@ data:
         # is the uppercase `PAT`. ${env:VAR} substitution is provided
         # by the OTel collector core.
         PAT: ${env:LINODE_API_TOKEN}
-        polling_interval: 1m
+        # 5m is the minimum interval accepted by the NodeBalancer
+        # monitor endpoint (polling_interval_seconds: [300, 900, ...]).
+        # DBaaS tolerates 1m, but the receiver only takes one global
+        # interval, so we use 5m for both.
+        polling_interval: 5m
         services:
           - service_type: dbaas
             # Linode Managed PostgreSQL cluster: a470692-akamai-prod...
@@ -39,21 +43,16 @@ data:
               - disk_usage
               - read_iops
               - write_iops
-          - service_type: nodebalancer
-            # 2154313 = frontend-external LB, 2170616 = grafana LB
-            # (LKE-managed NodeBalancers; see kubectl get svc -A).
-            entity_ids: [2154313, 2170616]
-            agg_function: avg
-            metric_names:
-              - nb_ingress_traffic_rate
-              - nb_egress_traffic_rate
-              - nb_total_active_sessions
-              - nb_new_sessions_per_second
-              - nb_total_active_backends
-        # Object Storage is also a supported service_type in the
-        # docs, but the Cloud Pulse Metrics API returns 404 for
-        # /v4/monitor/services/objectstorage as of this writing,
-        # so we don't poll it yet.
+        # NodeBalancer is also a supported service_type but every
+        # combination we tried (avg / sum / min / max, 1 entity, 1
+        # metric, 1m / 5m interval) returns 400 Bad Request from
+        # the receiver's metrics fetch. DBaaS works against the
+        # same PAT, so this looks like an API contract mismatch on
+        # the NB side specifically. Disabled until we can capture
+        # the exact request the receiver is sending.
+        #
+        # Object Storage is documented but its metric-definitions
+        # endpoint returns 404, so it's also not polled yet.
 
     processors:
       batch: {}
