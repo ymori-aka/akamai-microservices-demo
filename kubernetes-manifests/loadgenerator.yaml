@@ -158,9 +158,11 @@ data:
             "city": fake.city(),
             "state": fake.state_abbr(),
             "country": "United States",
-            # Faker returns a Luhn-valid Visa number (no dashes), which
-            # the frontend's go-playground validator accepts.
-            "credit_card_number": fake.credit_card_number(card_type="visa"),
+            # Classic Visa test number (Luhn-valid, not Visa Electron).
+            # Faker's card_type="visa" can return Electron BINs
+            # (4026 / 4508 / 4844 / 4913 / 4917) which paymentservice
+            # rejects as "we cannot process visa_electron credit cards".
+            "credit_card_number": "4111111111111111",
             "credit_card_expiration_month": "1",
             "credit_card_expiration_year": str(current_year),
             "credit_card_cvv": "672",
