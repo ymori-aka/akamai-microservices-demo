@@ -200,6 +200,10 @@ jobs:
           kubectl set image deployment/recommendationservice server=${REGISTRY}/recommendationservice:${VERSION}
           kubectl set image deployment/shippingservice       server=${REGISTRY}/shippingservice:${VERSION}
           kubectl set image deployment/loadgenerator         server=${REGISTRY}/loadgenerator:${VERSION}
+          # Apply our loadgenerator overlay (mounts a custom locustfile
+          # with AKMT* product IDs and currency list) over the upstream
+          # image. Image is preserved by the `kubectl set image` above.
+          kubectl apply -f kubernetes-manifests/loadgenerator.yaml
           # productcatalogservice: use our custom build (MongoDB-backed catalog)
           # Image is set in the dedicated step below.
 

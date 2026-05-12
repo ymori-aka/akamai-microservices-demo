@@ -85,6 +85,14 @@ spec:
           value: "10"
         - name: RATE
           value: "1"
+        # Replace the image's bundled locustfile (which targets the
+        # upstream Google sample product IDs and 404s against the
+        # Akamai-themed catalog) with one that uses our AKMT* SKUs.
+        volumeMounts:
+        - name: locust
+          mountPath: /loadgen/locustfile.py
+          subPath: locustfile.py
+          readOnly: true
         resources:
           requests:
             cpu: 300m
@@ -92,6 +100,86 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
+      volumes:
+      - name: locust
+        configMap:
+          name: loadgenerator-locust
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadgenerator-locust
+  labels:
+    app: loadgenerator
+data:
+  locustfile.py: |
+    # Akamai-themed locust scenarios. Product IDs are AKMT001..AKMT029
+    # and match the MongoDB-backed productcatalogservice.
+    import datetime
+    import random
+    from locust import HttpUser, TaskSet, between
+    from faker import Faker
+
+    fake = Faker()
+
+    products = [f"AKMT{n:03d}" for n in range(1, 30)]
+    currencies = ["EUR", "USD", "JPY", "CAD", "GBP", "TRY", "KRW", "CNY"]
+
+    def index(l):
+        l.client.get("/")
+
+    def setCurrency(l):
+        l.client.post("/setCurrency", {"currency_code": random.choice(currencies)})
+
+    def browseProduct(l):
+        l.client.get("/product/" + random.choice(products))
+
+    def viewCart(l):
+        l.client.get("/cart")
+
+    def addToCart(l):
+        product = random.choice(products)
+        l.client.get("/product/" + product)
+        l.client.post("/cart", {
+            "product_id": product,
+            "quantity": random.randint(1, 10),
+        })
+
+    def empty_cart(l):
+        l.client.post("/cart/empty")
+
+    def checkout(l):
+        addToCart(l)
+        current_year = datetime.datetime.now().year + 1
+        l.client.post("/cart/checkout", {
+            "email": fake.email(),
+            "street_address": fake.street_address(),
+            "zip_code": fake.zipcode()[:5],
+            "city": fake.city(),
+            "state": fake.state_abbr(),
+            "country": "United States",
+            "credit_card_number": "4432-8015-6152-0454",
+            "credit_card_expiration_month": "1",
+            "credit_card_expiration_year": str(current_year),
+            "credit_card_cvv": "672",
+        })
+
+    class UserBehavior(TaskSet):
+        def on_start(self):
+            index(self)
+
+        tasks = {
+            index: 1,
+            setCurrency: 2,
+            browseProduct: 10,
+            addToCart: 2,
+            viewCart: 3,
+            checkout: 1,
+        }
+
+    class WebsiteUser(HttpUser):
+        tasks = [UserBehavior]
+        wait_time = between(1, 10)
 ---
 apiVersion: v1
 kind: ServiceAccount
