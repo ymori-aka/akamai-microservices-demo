@@ -69,6 +69,14 @@ data:
         static_configs:
           - targets: ['aclp-collector.monitoring.svc.cluster.local:9464']
 
+      # LLM server (llama-cpp-python on Linode VM) — Prometheus metrics
+      # exposed by prometheus-fastapi-instrumentator + custom token
+      # counters. See /root/llm_server_instrumented.py on the VM.
+      - job_name: 'llm-server'
+        scrape_interval: 15s
+        static_configs:
+          - targets: ['172.238.48.187:8000']
+
       # kube-state-metrics (deployed by grafana-k8s-monitoring)
       - job_name: 'kube-state-metrics'
         static_configs:
