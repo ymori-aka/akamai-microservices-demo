@@ -48,14 +48,19 @@ func initOrdersDB() error {
 		db.SetMaxIdleConns(2)
 		db.SetConnMaxIdleTime(5 * time.Minute)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := db.PingContext(ctx); err != nil {
-			initErr = err
-			return
-		}
-		ordersDB = db
-		log.Info("orders DB ready (PostgreSQL)")
+		// Ping in the background so a slow/unreachable DB host cannot
+		// block startup and trip the liveness probe. ordersDB stays
+		// nil until the ping succeeds; persistOrder no-ops in the meantime.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := db.PingContext(ctx); err != nil {
+				log.Warnf("orders DB ping failed (persistence disabled until DB is reachable): %v", err)
+				return
+			}
+			ordersDB = db
+			log.Info("orders DB ready (PostgreSQL)")
+		}()
 	})
 	return initErr
 }

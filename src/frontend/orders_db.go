@@ -72,13 +72,16 @@ func initOrdersDB() error {
 		db.SetMaxIdleConns(2)
 		db.SetConnMaxIdleTime(5 * time.Minute)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := db.PingContext(ctx); err != nil {
-			initErr = err
-			return
-		}
-		ordersDB = db
+		// Ping in background so an unreachable DB host doesn't block
+		// frontend startup. ordersDB stays nil until ping succeeds.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := db.PingContext(ctx); err != nil {
+				return
+			}
+			ordersDB = db
+		}()
 	})
 	return initErr
 }
