@@ -61,6 +61,14 @@ data:
         static_configs:
           - targets: ['redis-exporter.monitoring.svc.cluster.local:9121']
 
+      # Akamai Cloud Pulse — Linode Managed PostgreSQL (DBaaS) metrics
+      - job_name: 'aclp-dbaas'
+        # Cloud Pulse polls upstream every 5 min; no value in scraping
+        # the collector faster than that.
+        scrape_interval: 1m
+        static_configs:
+          - targets: ['aclp-collector.monitoring.svc.cluster.local:9464']
+
       # kube-state-metrics (deployed by grafana-k8s-monitoring)
       - job_name: 'kube-state-metrics'
         static_configs:

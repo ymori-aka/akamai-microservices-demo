@@ -1,0 +1,112 @@
+---
+# Akamai Cloud Pulse Collector (aclp-collector)
+# Pulls metrics from Akamai's monitoring API and re-exposes them as a
+# Prometheus scrape endpoint. Currently used to surface Linode
+# Managed PostgreSQL (`dbaas`) metrics in our in-cluster Grafana.
+#
+# Auth: requires a Linode Personal Access Token with Monitor:Read and
+# Databases:Read, stored in the K8s Secret `linode-pat` (key=TOKEN).
+# CI creates this Secret from the LINODE_PAT GitHub Secret.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aclp-collector-config
+  namespace: monitoring
+data:
+  config.yaml: |
+    # OpenTelemetry Collector config (Akamai distribution adds the
+    # `aclp` receiver). Polls every 5 minutes; export everything as
+    # Prometheus metrics on :9464/metrics.
+    receivers:
+      aclp:
+        polling_interval: 5m
+        services:
+          - service_type: dbaas
+            # Linode Managed PostgreSQL cluster: a470692-akamai-prod...
+            entity_ids: [470692]
+            agg_function: avg
+            # Leaving metric_names unset to pull the default set
+            # (cpu, memory, connections, disk IOPS, etc.).
+
+    processors:
+      batch: {}
+
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:9464
+        # Strip the otel namespace prefix so labels stay readable.
+        resource_to_telemetry_conversion:
+          enabled: true
+
+    service:
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        metrics:
+          receivers: [aclp]
+          processors: [batch]
+          exporters: [prometheus]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aclp-collector
+  namespace: monitoring
+  labels:
+    app: aclp-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aclp-collector
+  template:
+    metadata:
+      labels:
+        app: aclp-collector
+    spec:
+      containers:
+        - name: collector
+          image: linode/aclp-collector:latest
+          args: ["--config=/etc/aclp/config.yaml"]
+          env:
+            - name: LINODE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: linode-pat
+                  key: TOKEN
+          ports:
+            - name: metrics
+              containerPort: 9464
+          volumeMounts:
+            - name: config
+              mountPath: /etc/aclp
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: aclp-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aclp-collector
+  namespace: monitoring
+  labels:
+    app: aclp-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: aclp-collector
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: 9464

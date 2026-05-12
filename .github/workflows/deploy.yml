@@ -271,6 +271,8 @@ jobs:
 
       - name: Deploy monitoring stack
         continue-on-error: true
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
           kubectl apply -f kubernetes-manifests/monitoring/namespace.yaml
           kubectl apply -f kubernetes-manifests/monitoring/otel-collector.yaml
@@ -278,6 +280,17 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+
+          # Akamai Cloud Pulse collector + its PAT Secret (optional — only
+          # deployed when LINODE_PAT is present).
+          if [ -n "${LINODE_PAT}" ]; then
+            kubectl -n monitoring create secret generic linode-pat \
+              --from-literal=TOKEN="${LINODE_PAT}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
+          else
+            echo "LINODE_PAT not set — skipping aclp-collector deployment."
+          fi
 
       - name: Configure OTel for microservices
         continue-on-error: true
