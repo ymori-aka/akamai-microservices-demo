@@ -39,6 +39,21 @@ data:
               - disk_usage
               - read_iops
               - write_iops
+          - service_type: nodebalancer
+            # 2154313 = frontend-external LB, 2170616 = grafana LB
+            # (LKE-managed NodeBalancers; see kubectl get svc -A).
+            entity_ids: [2154313, 2170616]
+            agg_function: avg
+            metric_names:
+              - nb_ingress_traffic_rate
+              - nb_egress_traffic_rate
+              - nb_total_active_sessions
+              - nb_new_sessions_per_second
+              - nb_total_active_backends
+        # Object Storage is also a supported service_type in the
+        # docs, but the Cloud Pulse Metrics API returns 404 for
+        # /v4/monitor/services/objectstorage as of this writing,
+        # so we don't poll it yet.
 
     processors:
       batch: {}

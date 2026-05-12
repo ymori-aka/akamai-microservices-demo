@@ -382,3 +382,132 @@ data:
 
       ]
     }
+  infrastructure.json: |
+    {
+      "title": "Akamai Store - Infrastructure & LLM",
+      "uid": "akamai-infrastructure",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        { "id": 100, "type": "row", "title": "Linode Managed PostgreSQL (Cloud Pulse)", "collapsed": false,
+          "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 } },
+
+        { "id": 101, "type": "timeseries", "title": "CPU Usage",
+          "gridPos": { "x": 0, "y": 1, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_cpu_usage{entity_id=\"470692\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } } },
+
+        { "id": 102, "type": "timeseries", "title": "Memory Usage",
+          "gridPos": { "x": 8, "y": 1, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_memory_usage{entity_id=\"470692\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } } },
+
+        { "id": 103, "type": "timeseries", "title": "Disk Usage",
+          "gridPos": { "x": 16, "y": 1, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_disk_usage{entity_id=\"470692\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } } },
+
+        { "id": 104, "type": "timeseries", "title": "Read IOPS",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_read_iops{entity_id=\"470692\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "iops" } } },
+
+        { "id": 105, "type": "timeseries", "title": "Write IOPS",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_write_iops{entity_id=\"470692\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "iops" } } },
+
+        { "id": 200, "type": "row", "title": "NodeBalancers (Cloud Pulse)", "collapsed": false,
+          "gridPos": { "x": 0, "y": 15, "w": 24, "h": 1 } },
+
+        { "id": 201, "type": "timeseries", "title": "Ingress Traffic Rate",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_nb_ingress_traffic_rate", "legendFormat": "{{entity_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "binBps" } } },
+
+        { "id": 202, "type": "timeseries", "title": "Egress Traffic Rate",
+          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_nb_egress_traffic_rate", "legendFormat": "{{entity_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "binBps" } } },
+
+        { "id": 203, "type": "timeseries", "title": "Active Sessions",
+          "gridPos": { "x": 0, "y": 23, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_nb_total_active_sessions", "legendFormat": "{{entity_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }] },
+
+        { "id": 204, "type": "timeseries", "title": "New Sessions / sec",
+          "gridPos": { "x": 8, "y": 23, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_nb_new_sessions_per_second", "legendFormat": "{{entity_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }] },
+
+        { "id": 205, "type": "timeseries", "title": "Active Backends",
+          "gridPos": { "x": 16, "y": 23, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_nb_total_active_backends", "legendFormat": "{{entity_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }] },
+
+        { "id": 300, "type": "row", "title": "LLM Server (llama-cpp-python, Gemma 26B)", "collapsed": false,
+          "gridPos": { "x": 0, "y": 30, "w": 24, "h": 1 } },
+
+        { "id": 301, "type": "stat", "title": "Total Requests (1h)",
+          "gridPos": { "x": 0, "y": 31, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(increase(llm_requests_total[1h]))", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }] },
+
+        { "id": 302, "type": "stat", "title": "Tokens (1h)",
+          "gridPos": { "x": 6, "y": 31, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(increase(llm_total_tokens_total[1h]))", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "short" } } },
+
+        { "id": 303, "type": "stat", "title": "Avg Latency (5m)",
+          "gridPos": { "x": 12, "y": 31, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(rate(llm_request_duration_seconds_sum[5m])) / sum(rate(llm_request_duration_seconds_count[5m]))", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "s" } } },
+
+        { "id": 304, "type": "stat", "title": "Error Rate (5m)",
+          "gridPos": { "x": 18, "y": 31, "w": 6, "h": 5 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(rate(llm_requests_total{status!=\"200\"}[5m])) / sum(rate(llm_requests_total[5m]))", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 } } },
+
+        { "id": 305, "type": "timeseries", "title": "Request Rate (req/min)",
+          "gridPos": { "x": 0, "y": 36, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum by (status) (rate(llm_requests_total[1m])) * 60", "legendFormat": "status={{status}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }] },
+
+        { "id": 306, "type": "timeseries", "title": "Latency (p50/p95/p99)",
+          "gridPos": { "x": 12, "y": 36, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, sum by (le) (rate(llm_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "histogram_quantile(0.95, sum by (le) (rate(llm_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "histogram_quantile(0.99, sum by (le) (rate(llm_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" } } },
+
+        { "id": 307, "type": "timeseries", "title": "Token Throughput (tokens/sec)",
+          "gridPos": { "x": 0, "y": 43, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(rate(llm_prompt_tokens_total[1m]))", "legendFormat": "prompt", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
+            { "expr": "sum(rate(llm_completion_tokens_total[1m]))", "legendFormat": "completion", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short" } } },
+
+        { "id": 308, "type": "timeseries", "title": "Cumulative Tokens by Model",
+          "gridPos": { "x": 12, "y": 43, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum by (model) (llm_total_tokens_total)", "legendFormat": "{{model}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "short" } } }
+      ]
+    }
