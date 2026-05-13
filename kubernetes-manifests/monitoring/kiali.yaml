@@ -1,0 +1,237 @@
+---
+# Kiali — Istio Service Mesh Observability UI
+#
+# Provides the service topology graph, mTLS status, traffic metrics,
+# and distributed trace drill-down for the Akamai Store demo.
+#
+# Prerequisites:
+#   - Istio installed (minimal profile) via istioctl in CI
+#   - default namespace labeled: istio-injection=enabled
+#   - Prometheus, Tempo, and Grafana running in the monitoring namespace
+#
+# Access: LoadBalancer on port 20001  (anonymous auth — demo mode)
+# Image:  quay.io/kiali/kiali — pin to the minor version matching your
+#         Istio install (e.g. Istio 1.22.x → Kiali v1.84.x).
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kiali
+  namespace: monitoring
+  labels:
+    app: kiali
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kiali
+  labels:
+    app: kiali
+rules:
+  # ── Core Kubernetes (read) ────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - namespaces
+      - nodes
+      - pods
+      - pods/log
+      - replicationcontrollers
+      - serviceaccounts
+      - services
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs: [get, list, watch, patch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+
+  # ── Istio networking CRDs (read + write — Kiali can create/edit them) ────
+  - apiGroups: [networking.istio.io]
+    resources:
+      - destinationrules
+      - envoyfilters
+      - gateways
+      - proxyconfigs
+      - serviceentries
+      - sidecars
+      - virtualservices
+      - workloadentries
+      - workloadgroups
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # ── Istio security CRDs ───────────────────────────────────────────────────
+  - apiGroups: [security.istio.io]
+    resources:
+      - authorizationpolicies
+      - peerauthentications
+      - requestauthentications
+    verbs: [get, list, watch, create, update, patch, delete]
+
+  # ── Istio telemetry / extensions CRDs ────────────────────────────────────
+  - apiGroups: [telemetry.istio.io]
+    resources: [telemetries]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [extensions.istio.io]
+    resources: [wasmplugins]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kiali
+  labels:
+    app: kiali
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kiali
+subjects:
+  - kind: ServiceAccount
+    name: kiali
+    namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kiali-config
+  namespace: monitoring
+  labels:
+    app: kiali
+data:
+  config.yaml: |
+    # ── Authentication ────────────────────────────────────────────────────
+    auth:
+      strategy: anonymous   # demo mode — no login required
+
+    # ── Deployment ────────────────────────────────────────────────────────
+    deployment:
+      namespace: monitoring
+      # "**" means all namespaces (including default and istio-system)
+      accessible_namespaces:
+        - "**"
+
+    # ── Server ────────────────────────────────────────────────────────────
+    server:
+      port: 20001
+      web_root: /kiali
+
+    # ── External service integrations ─────────────────────────────────────
+    external_services:
+
+      prometheus:
+        url: "http://prometheus.monitoring.svc.cluster.local:9090"
+
+      # Tempo native API (v2.x) — Kiali 1.73+ supports provider: tempo
+      tracing:
+        enabled: true
+        provider: tempo
+        in_cluster_url: "http://tempo.monitoring.svc.cluster.local:3200"
+        use_grpc: false
+
+      grafana:
+        enabled: true
+        in_cluster_url: "http://grafana.monitoring.svc.cluster.local:3000"
+        # Deep-link format so Kiali can open the matching Grafana dashboard
+        dashboards:
+          - name: "Akamai Store — Operations"
+            variables:
+              namespace: "var-namespace"
+              service: "var-service"
+              workload: "var-workload"
+
+      istio:
+        root_namespace: istio-system
+        # Tell Kiali which namespace holds its Prometheus scrape target
+        component_namespaces:
+          prometheus: monitoring
+
+    istio_namespace: istio-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kiali
+  namespace: monitoring
+  labels:
+    app: kiali
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kiali
+  template:
+    metadata:
+      labels:
+        app: kiali
+      annotations:
+        # Do NOT inject an Envoy sidecar into Kiali itself —
+        # it causes a circular dependency on startup.
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: kiali
+      containers:
+        - name: kiali
+          image: quay.io/kiali/kiali:v1.84
+          command:
+            - /opt/kiali/kiali
+            - -config
+            - /kiali-configuration/config.yaml
+          ports:
+            - name: api-port
+              containerPort: 20001
+            - name: http-metrics
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /kiali/healthz
+              port: 20001
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /kiali/healthz
+              port: 20001
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - name: kiali-configuration
+              mountPath: /kiali-configuration
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: kiali-configuration
+          configMap:
+            name: kiali-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kiali
+  namespace: monitoring
+  labels:
+    app: kiali
+spec:
+  type: LoadBalancer
+  selector:
+    app: kiali
+  ports:
+    - name: http
+      port: 20001
+      targetPort: 20001

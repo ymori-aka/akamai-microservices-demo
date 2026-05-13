@@ -125,6 +125,49 @@ data:
             target_label: __metrics_path__
             replacement: /api/v1/nodes/$1/proxy/metrics
 
+      # ── Istio control-plane metrics ───────────────────────────────────────
+      # istiod exposes Pilot/XDS metrics on port 15014 (/metrics).
+      # Required by Kiali for control-plane health indicators.
+      - job_name: 'istiod'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [istio-system]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name,
+                            __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: 'istiod;http-monitoring'
+
+      # ── Istio data-plane (Envoy sidecar) metrics ──────────────────────
+      # Each sidecar exposes Envoy stats on port 15090 (/stats/prometheus).
+      # These are the metrics Kiali uses to build the traffic graph
+      # (request rate, error rate, latency percentiles per service pair).
+      - job_name: 'istio-proxies'
+        honor_labels: true
+        metrics_path: /stats/prometheus
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Only scrape pods that have an Envoy sidecar
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            action: keep
+            regex: 'istio-proxy'
+          # Rewrite address to the Envoy stats port
+          - source_labels: [__address__]
+            action: replace
+            regex: '([^:]+)(?::\d+)?'
+            replacement: '$1:15090'
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+
       # Kubernetes pod metrics (for pods with prometheus.io/scrape annotation)
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:

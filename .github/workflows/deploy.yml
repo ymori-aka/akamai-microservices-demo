@@ -185,6 +185,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Istio service mesh (idempotent)
+        run: |
+          ISTIO_VERSION="1.22.3"
+          ISTIOCTL="${HOME}/.local/bin/istioctl"
+          mkdir -p "${HOME}/.local/bin"
+
+          # Download istioctl only when the cached binary is missing or stale.
+          if ! "${ISTIOCTL}" version --remote=false 2>/dev/null | grep -q "${ISTIO_VERSION}"; then
+            echo "Downloading istioctl ${ISTIO_VERSION}..."
+            curl -L https://istio.io/downloadIstio \
+              | ISTIO_VERSION=${ISTIO_VERSION} TARGET_ARCH=x86_64 sh -
+            mv "istio-${ISTIO_VERSION}/bin/istioctl" "${ISTIOCTL}"
+            rm -rf "istio-${ISTIO_VERSION}"
+          fi
+
+          # Install / upgrade Istio — minimal profile = istiod only.
+          # We don't use the Istio ingress gateway; traffic enters via the
+          # existing Kubernetes LoadBalancer on the frontend service.
+          "${ISTIOCTL}" install --set profile=minimal -y
+
+          # Enable automatic Envoy sidecar injection in the app namespace.
+          kubectl label namespace default istio-injection=enabled --overwrite
+
+          # Restart workloads that were already running without a sidecar so
+          # they pick up the injected proxy on this deploy.
+          # (Services updated later in the pipeline restart themselves anyway,
+          # so we only need to cover the ones that CI doesn't otherwise touch.)
+          kubectl rollout restart statefulset/mongodb || true
+          kubectl rollout restart deployment/redis-cart || true
+
       - name: Update microservices to v0.10.5
         continue-on-error: true
         run: |
@@ -288,8 +318,12 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/otel-collector.yaml
           kubectl apply -f kubernetes-manifests/monitoring/redis-exporter.yaml
           kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/loki.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/promtail.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/kiali.yaml
 
           # Akamai Cloud Pulse collector + its PAT Secret (optional — only
           # deployed when LINODE_PAT is present).
