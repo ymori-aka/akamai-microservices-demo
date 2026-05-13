@@ -1,0 +1,29 @@
+---
+# Istio mTLS Policy
+#
+# PeerAuthentication STRICT enforces mutual TLS for all service-to-service
+# traffic in the default namespace.  Every connection shows a padlock icon
+# in Kiali's topology graph — zero extra config per service.
+#
+# The monitoring namespace is left at PERMISSIVE so that Prometheus can
+# scrape plain-HTTP endpoints (OTel Collector, Redis Exporter, etc.)
+# without needing a sidecar on every target.
+
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-mtls
+  namespace: default
+spec:
+  mtls:
+    mode: STRICT
+---
+# Allow plain-text scraping from Prometheus in the monitoring namespace.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: monitoring-permissive
+  namespace: monitoring
+spec:
+  mtls:
+    mode: PERMISSIVE

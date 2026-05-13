@@ -1,0 +1,152 @@
+---
+# Canary Deployment for frontend
+#
+# Architecture:
+#   frontend (Deployment)         version=stable  ← 80 % of traffic
+#   frontend-canary (Deployment)  version=canary  ← 20 % of traffic
+#
+# Both Deployments share the same `app: frontend` label, so the existing
+# frontend Service selects pods from both.  The Istio VirtualService then
+# overrides the default K8s round-robin with an exact 80/20 weight split,
+# independent of replica counts.
+#
+# Demo talking point:
+#   "With pure K8s you'd need 4 stable + 1 canary replicas to get ~20%.
+#    Istio controls this at the proxy layer — change the weight here and
+#    it takes effect in seconds, no pod scaling required."
+#
+# To roll back instantly:
+#   kubectl patch virtualservice frontend --type=json \
+#     -p '[{"op":"replace","path":"/spec/http/0/route/1/weight","value":0},
+#          {"op":"replace","path":"/spec/http/0/route/0/weight","value":100}]'
+#
+# To promote canary to stable:
+#   1. Update the stable Deployment image to the canary image
+#   2. Scale canary Deployment to 0 (or delete it)
+#   3. Remove or reset the VirtualService weights
+
+# ── Canary Deployment ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-canary
+  labels:
+    app: frontend
+    version: canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+      version: canary
+  template:
+    metadata:
+      labels:
+        app: frontend
+        version: canary
+      annotations:
+        sidecar.istio.io/rewriteAppHTTPProbers: "true"
+    spec:
+      serviceAccountName: frontend
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: server
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            privileged: false
+            readOnlyRootFilesystem: true
+          # Uses the same latest image as stable.
+          # Replace with a different tag to test a real new version:
+          #   image: ghcr.io/ymori-aka/frontend:sha-<canary-sha>
+          image: ghcr.io/ymori-aka/frontend:latest
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: "/_healthz"
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          env:
+            - name: PORT
+              value: "8080"
+            - name: PRODUCT_CATALOG_SERVICE_ADDR
+              value: "productcatalogservice:3550"
+            - name: CURRENCY_SERVICE_ADDR
+              value: "currencyservice:7000"
+            - name: CART_SERVICE_ADDR
+              value: "cartservice:7070"
+            - name: RECOMMENDATION_SERVICE_ADDR
+              value: "recommendationservice:8080"
+            - name: SHIPPING_SERVICE_ADDR
+              value: "shippingservice:50051"
+            - name: CHECKOUT_SERVICE_ADDR
+              value: "checkoutservice:5050"
+            - name: AD_SERVICE_ADDR
+              value: "adservice:9555"
+            - name: ENV_PLATFORM
+              value: "local"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.monitoring.svc.cluster.local:4317"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "grpc"
+            - name: OTEL_SERVICE_NAME
+              value: "frontend-canary"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-volume
+      volumes:
+        - name: tmp-volume
+          emptyDir:
+            medium: Memory
+
+# ── DestinationRule — defines stable / canary subsets ───────────────────────
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  host: frontend
+  subsets:
+    - name: stable
+      labels:
+        version: stable
+    - name: canary
+      labels:
+        version: canary
+
+# ── VirtualService — 80 % stable / 20 % canary ──────────────────────────────
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  hosts:
+    - frontend
+  http:
+    - route:
+        - destination:
+            host: frontend
+            subset: stable
+          weight: 80
+        - destination:
+            host: frontend
+            subset: canary
+          weight: 20

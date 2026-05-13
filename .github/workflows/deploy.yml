@@ -309,6 +309,15 @@ jobs:
           kubectl logs -l app=mongodb --tail=20 || true
           exit 1
 
+      - name: Apply Istio policies (mTLS + canary)
+        run: |
+          kubectl apply -f kubernetes-manifests/istio/mtls.yaml
+          kubectl apply -f kubernetes-manifests/istio/canary.yaml
+
+      - name: Apply HPA
+        run: |
+          kubectl apply -f kubernetes-manifests/hpa.yaml
+
       - name: Deploy monitoring stack
         continue-on-error: true
         env:

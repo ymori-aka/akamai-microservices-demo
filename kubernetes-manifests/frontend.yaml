@@ -26,6 +26,7 @@ spec:
     metadata:
       labels:
         app: frontend
+        version: stable   # Istio DestinationRule subset selector
       annotations:
         sidecar.istio.io/rewriteAppHTTPProbers: "true"
     spec:
