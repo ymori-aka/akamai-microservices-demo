@@ -420,8 +420,75 @@ jobs:
               --from-literal=TOKEN="${LINODE_PAT}" \
               --dry-run=client -o yaml | kubectl apply -f -
             kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
+            # Force a fresh aclp-collector pod so it picks up any PAT or
+            # config changes; otherwise "Deployment unchanged" leaves an
+            # old pod running indefinitely.
+            kubectl -n monitoring rollout restart deployment/aclp-collector
           else
             echo "LINODE_PAT not set — skipping aclp-collector deployment."
+          fi
+
+      - name: Diagnostics — Grafana password reset, aclp-collector status, Prometheus targets
+        continue-on-error: true
+        run: |
+          echo "=========================================="
+          echo "1. Reset Grafana admin password to 'admin'"
+          echo "=========================================="
+          # Grafana caches the admin password in the DB after first login,
+          # ignoring the env var. Use grafana-cli to force-reset it so the
+          # demo password from the Secret is always active.
+          kubectl -n monitoring rollout status deployment/grafana --timeout=120s || true
+          GRAFANA_POD=$(kubectl -n monitoring get pod -l app=grafana -o name | head -1)
+          if [ -n "${GRAFANA_POD}" ]; then
+            kubectl -n monitoring exec ${GRAFANA_POD} -- grafana-cli admin reset-admin-password admin || true
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "2. aclp-collector pod status & logs"
+          echo "=========================================="
+          kubectl -n monitoring get pods -l app=aclp-collector -o wide || true
+          kubectl -n monitoring logs -l app=aclp-collector --tail=30 || true
+
+          echo ""
+          echo "=========================================="
+          echo "3. aclp-collector /metrics endpoint check"
+          echo "=========================================="
+          ACLP_POD=$(kubectl -n monitoring get pod -l app=aclp-collector -o name | head -1)
+          if [ -n "${ACLP_POD}" ]; then
+            kubectl -n monitoring exec ${ACLP_POD} -- /bin/sh -c \
+              "wget -qO- http://localhost:9464/metrics 2>/dev/null | grep -E '^avg_(cpu|memory|disk)_usage' | head -10" \
+              || echo "(no avg_* metrics yet — collector may still be polling)"
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "4. Prometheus targets — aclp-dbaas health"
+          echo "=========================================="
+          PROM_POD=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          if [ -n "${PROM_POD}" ]; then
+            kubectl -n monitoring exec ${PROM_POD} -- wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null \
+              | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    for t in data.get('data', {}).get('activeTargets', []):
+        job = t.get('labels', {}).get('job', '')
+        if job in ('aclp-dbaas', 'rabbitmq', 'queuemaster'):
+            print(f\"job={job} health={t.get('health')} lastError={t.get('lastError', '(none)')}\")
+except Exception as e:
+    print(f'parse err: {e}')
+" || true
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "5. Sample query: avg_cpu_usage{entity_id=470692}"
+          echo "=========================================="
+          if [ -n "${PROM_POD}" ]; then
+            kubectl -n monitoring exec ${PROM_POD} -- \
+              wget -qO- "http://localhost:9090/api/v1/query?query=avg_cpu_usage%7Bentity_id%3D%22470692%22%7D" 2>/dev/null \
+              || echo "(query failed)"
           fi
 
       - name: Configure OTel for microservices
