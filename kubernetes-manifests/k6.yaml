@@ -87,10 +87,16 @@ data:
           startTime: '10s',
         },
         chat: {
-          // LLM is the most expensive backend — keep it light.
-          executor: 'constant-vus',
-          vus: 1,
+          // LLM is the most expensive backend. Pin to exactly 5 calls
+          // per minute regardless of LLM response time using a
+          // constant-arrival-rate executor (constant-vus would couple
+          // the rate to call latency).
+          executor: 'constant-arrival-rate',
+          rate: 5,
+          timeUnit: '1m',
           duration: '24h',
+          preAllocatedVUs: 2,
+          maxVUs: 5,
           exec: 'chat',
           tags: { scenario: 'chat' },
           startTime: '20s',
@@ -208,8 +214,8 @@ data:
     }
 
     export function chat() {
-      // /bot expects {"message":"...","history":[...]} JSON. Most LLM calls
-      // take a few seconds so this scenario naturally rate-limits itself.
+      // /bot expects {"message":"...","history":[...]} JSON. The
+      // constant-arrival-rate executor controls pacing; no sleep here.
       const body = JSON.stringify({
         message: randomItem(CHAT_PROMPTS),
         history: [],
@@ -222,7 +228,6 @@ data:
       if (check(r, { 'chat 200': (res) => res.status === 200 })) {
         chats.add(1);
       }
-      sleep(randomIntBetween(5, 15));
     }
 
     export function orders() {
