@@ -11,6 +11,13 @@
     <PackageReference Include="Google.Cloud.Spanner.Data" Version="4.6.0" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="Google.Cloud.SecretManager.V1" Version="2.5.0" />
+    <!-- OpenTelemetry: HTTP server, outgoing gRPC, and Redis client spans. -->
+    <PackageReference Include="OpenTelemetry" Version="1.10.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.10.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.10.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.10.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.GrpcNetClient" Version="1.10.0-beta.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.StackExchangeRedis" Version="1.10.0-beta.1" />
   </ItemGroup>
 
   <ItemGroup>

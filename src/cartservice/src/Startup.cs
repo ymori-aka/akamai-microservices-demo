@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
@@ -10,6 +11,9 @@ using Microsoft.Extensions.Hosting;
 using cartservice.cartstore;
 using cartservice.services;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using StackExchange.Redis;
 
 namespace cartservice
 {
@@ -21,7 +25,7 @@ namespace cartservice
         }
 
         public IConfiguration Configuration { get; }
-        
+
         // This method gets called by the runtime. Use this method to add services to the container.
         // For more information on how to configure your application, visit https://go.microsoft.com/fwlink/?LinkID=398940
         public void ConfigureServices(IServiceCollection services)
@@ -33,9 +37,16 @@ namespace cartservice
 
             if (!string.IsNullOrEmpty(redisAddress))
             {
+                // Register a single IConnectionMultiplexer that BOTH the
+                // distributed cache and OpenTelemetry's Redis instrumentation
+                // can hook into. If we let AddStackExchangeRedisCache create
+                // its own internal multiplexer we'd have no handle to attach
+                // tracing to, so cart HMGET/HSET wouldn't produce spans.
+                var muxer = ConnectionMultiplexer.Connect(redisAddress);
+                services.AddSingleton<IConnectionMultiplexer>(muxer);
                 services.AddStackExchangeRedisCache(options =>
                 {
-                    options.Configuration = redisAddress;
+                    options.ConnectionMultiplexerFactory = () => Task.FromResult<IConnectionMultiplexer>(muxer);
                 });
                 services.AddSingleton<ICartStore, RedisCartStore>();
             }
@@ -55,6 +66,19 @@ namespace cartservice
                 services.AddSingleton<ICartStore, RedisCartStore>();
             }
 
+            // OpenTelemetry — server / outbound-gRPC / Redis client spans
+            // exported via OTLP to the otel-collector (env-driven endpoint
+            // OTEL_EXPORTER_OTLP_ENDPOINT is read by the OTLP exporter).
+            services.AddOpenTelemetry()
+                .ConfigureResource(r => r.AddService("cartservice"))
+                .WithTracing(builder =>
+                {
+                    builder
+                        .AddAspNetCoreInstrumentation()
+                        .AddGrpcClientInstrumentation()
+                        .AddRedisInstrumentation()
+                        .AddOtlpExporter();
+                });
 
             services.AddGrpc();
         }
