@@ -463,22 +463,15 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "4. Prometheus targets — aclp-dbaas health"
+          echo "4. Prometheus targets — aclp-dbaas / rabbitmq / queuemaster"
           echo "=========================================="
           PROM_POD=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
           if [ -n "${PROM_POD}" ]; then
             kubectl -n monitoring exec ${PROM_POD} -- wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null \
-              | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    for t in data.get('data', {}).get('activeTargets', []):
-        job = t.get('labels', {}).get('job', '')
-        if job in ('aclp-dbaas', 'rabbitmq', 'queuemaster'):
-            print(f\"job={job} health={t.get('health')} lastError={t.get('lastError', '(none)')}\")
-except Exception as e:
-    print(f'parse err: {e}')
-" || true
+              | tr ',' '\n' \
+              | grep -E '"job":"(aclp-dbaas|rabbitmq|queuemaster)"|"health":|"lastError":' \
+              | head -30 \
+              || echo "(no targets matched)"
           fi
 
           echo ""
