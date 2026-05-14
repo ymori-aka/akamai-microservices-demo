@@ -75,6 +75,18 @@ data:
         allowUiUpdates: false
         options:
           path: /var/lib/grafana/dashboards
+      # Istio Service Mesh dashboards — official Istio addons.
+      # Populated by kubernetes-manifests/monitoring/grafana-istio-dashboards.yaml
+      # (downloaded from istio/istio release-1.22/manifests/addons/dashboards/).
+      - name: istio
+        orgId: 1
+        folder: Istio Service Mesh
+        type: file
+        disableDeletion: true
+        updateIntervalSeconds: 10
+        allowUiUpdates: false
+        options:
+          path: /var/lib/grafana/dashboards/istio
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -121,6 +133,8 @@ spec:
               mountPath: /etc/grafana/provisioning/dashboards
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
+            - name: istio-dashboards
+              mountPath: /var/lib/grafana/dashboards/istio
             - name: data
               mountPath: /var/lib/grafana
           resources:
@@ -140,6 +154,10 @@ spec:
         - name: dashboards
           configMap:
             name: grafana-dashboards
+        - name: istio-dashboards
+          configMap:
+            name: grafana-istio-dashboards
+            optional: true
         - name: data
           persistentVolumeClaim:
             claimName: grafana-data

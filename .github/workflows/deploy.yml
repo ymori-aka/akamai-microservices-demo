@@ -334,6 +334,21 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           kubectl apply -f kubernetes-manifests/monitoring/kiali.yaml
 
+          # Istio service mesh Grafana dashboards (official ones from
+          # istio/istio release-1.22). Created as a separate ConfigMap so
+          # the main grafana-dashboards ConfigMap stays under the 256 KiB
+          # K8s limit. Grafana picks them up via the `istio` dashboard
+          # provider configured in grafana.yaml.
+          mkdir -p /tmp/istio-dashboards
+          ISTIO_DB_BASE='https://raw.githubusercontent.com/istio/istio/release-1.22/manifests/addons/dashboards'
+          for db in istio-mesh-dashboard istio-service-dashboard pilot-dashboard; do
+            curl -fsSL "${ISTIO_DB_BASE}/${db}.json" \
+              -o "/tmp/istio-dashboards/${db}.json"
+          done
+          kubectl -n monitoring create configmap grafana-istio-dashboards \
+            --from-file=/tmp/istio-dashboards/ \
+            --dry-run=client -o yaml | kubectl apply --server-side=true -f -
+
           # Akamai Cloud Pulse collector + its PAT Secret (optional — only
           # deployed when LINODE_PAT is present).
           if [ -n "${LINODE_PAT}" ]; then
