@@ -21,6 +21,17 @@ metadata:
 data:
   datasources.yaml: |
     apiVersion: 1
+    # Force re-create on every provisioning pass so the UID stays pinned
+    # to the value our dashboards hardcode. Without this, an existing
+    # entry in Grafana's PVC database (with a different auto-generated
+    # UID) shadows the provisioned config and dashboard queries fail.
+    deleteDatasources:
+      - name: Prometheus
+        orgId: 1
+      - name: Loki
+        orgId: 1
+      - name: Tempo
+        orgId: 1
     datasources:
       - name: Prometheus
         type: prometheus
@@ -125,6 +136,14 @@ spec:
               value: /etc/grafana/provisioning
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /var/lib/grafana/dashboards/home.json
+            # Anonymous read-only access for demo viewing (no login).
+            # Admins still log in normally to edit dashboards/users.
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_NAME
+              value: "Main Org."
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Viewer"
           ports:
             - containerPort: 3000
           volumeMounts:
