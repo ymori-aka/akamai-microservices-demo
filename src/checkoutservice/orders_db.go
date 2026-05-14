@@ -18,7 +18,9 @@ import (
 	"time"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice/genproto"
+	"github.com/XSAM/otelsql"
 	_ "github.com/lib/pq"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 var (
@@ -38,7 +40,16 @@ func initOrdersDB() error {
 
 	var initErr error
 	ordersDBOnce.Do(func() {
-		db, err := sql.Open("postgres", dsn)
+		// otelsql.Open instead of sql.Open wraps every Exec/Query call
+		// with a span (db.system=postgresql, db.statement=<SQL>) so the
+		// orders INSERTs show up as children of the gRPC PlaceOrder span
+		// in Tempo.
+		db, err := otelsql.Open("postgres", dsn,
+			otelsql.WithAttributes(semconv.DBSystemPostgreSQL),
+			otelsql.WithSpanOptions(otelsql.SpanOptions{
+				DisableErrSkip: true, // sql.ErrNoRows is not an error
+			}),
+		)
 		if err != nil {
 			initErr = err
 			return
@@ -47,6 +58,13 @@ func initOrdersDB() error {
 		db.SetMaxOpenConns(8)
 		db.SetMaxIdleConns(2)
 		db.SetConnMaxIdleTime(5 * time.Minute)
+
+		// Connection-pool metrics (db_sql_connection_*) exported alongside
+		// the spans so we can plot active/idle connections in Grafana.
+		if _, err := otelsql.RegisterDBStatsMetrics(db,
+			otelsql.WithAttributes(semconv.DBSystemPostgreSQL)); err != nil {
+			log.Warnf("otelsql pool metrics: %v", err)
+		}
 
 		// Ping in the background so a slow/unreachable DB host cannot
 		// block startup and trip the liveness probe. ordersDB stays

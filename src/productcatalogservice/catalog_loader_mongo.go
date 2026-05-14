@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/mongo/otelmongo"
 )
 
 // productDoc represents the MongoDB document layout for a product.
@@ -51,7 +52,12 @@ func loadCatalogFromMongoDB(catalog *pb.ListProductsResponse) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	// otelmongo command monitor emits a span per MongoDB command
+	// (find / insertOne / countDocuments / ...) with attributes
+	// db.system=mongodb, db.statement, db.mongodb.collection.
+	client, err := mongo.Connect(ctx,
+		options.Client().ApplyURI(uri).SetMonitor(otelmongo.NewMonitor()),
+	)
 	if err != nil {
 		log.Warnf("failed to connect MongoDB: %v", err)
 		return err
