@@ -142,7 +142,7 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
           "fieldConfig": { "defaults": { "unit": "s", "decimals": 2, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
-        { "id": 90, "type": "row", "title": "Load Generation (k6 + Locust)", "collapsed": false,
+        { "id": 90, "type": "row", "title": "Load Generation (k6)", "collapsed": false,
           "gridPos": { "x": 0, "y": 33, "w": 24, "h": 1 } },
 
         { "id": 91, "type": "stat", "title": "k6 active VUs",

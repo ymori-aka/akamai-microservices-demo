@@ -1,14 +1,18 @@
 # k6 — continuous load generator with Prometheus remote_write output.
 #
+# This is the ONLY load source actively running in the cluster.
+# (loadgenerator.yaml deploys a Locust pod but it has not been kept
+# healthy on this LKE setup; k6 replaces it.)
+#
 # Architecture:
-#   k6 (10 VUs constant) -> frontend:80 -> microservices -> RabbitMQ
-#                       \-> remote_write -> prometheus:9090
+#   k6 (10 VUs constant, 3 scenarios) -> frontend:80
+#                                         |
+#                                         v
+#                                  microservices -> RabbitMQ
+#       \-> remote_write -> prometheus:9090 -> Grafana (k6_* metrics)
 #
-# Coexists with Locust (Locust runs higher baseline, k6 runs detailed
-# scenario with per-endpoint timing landing in Prometheus as native
-# histograms). Grafana queries metrics with k6_* prefix.
-#
-# Sidecar injection disabled — LKE webhook unreachable.
+# Sidecar injection disabled — LKE managed control plane cannot reach
+# the Istio admission webhook for ClusterIP services.
 ---
 apiVersion: v1
 kind: ConfigMap
