@@ -2,3 +2,15 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: monitoring
+  labels:
+    # Pod Security Standards (Kubernetes >= 1.25).
+    # baseline: blocks known privilege escalations (hostPath / hostNetwork
+    #           / privileged containers / capabilities adds). Every pod we
+    #           deploy here (Prometheus, Grafana, Loki, Tempo, OTel
+    #           collector, Kiali, aclp-collector) already complies.
+    # warn / audit = restricted: surfaces stricter violations (e.g. missing
+    #           seccompProfile=RuntimeDefault) as warnings + audit log
+    #           entries without blocking, so we can tighten gradually.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

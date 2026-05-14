@@ -264,6 +264,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Apply Pod Security Standards namespace labels
+        continue-on-error: true
+        run: |
+          # Silences the Linode Cloud Manager "namespace without PSS
+          # policy" warning by labeling default / istio-system here and
+          # monitoring via its own namespace.yaml (applied later in the
+          # monitoring stack step).
+          kubectl apply -f kubernetes-manifests/namespaces.yaml
+
       - name: Install Istio service mesh (idempotent)
         continue-on-error: true
         run: |

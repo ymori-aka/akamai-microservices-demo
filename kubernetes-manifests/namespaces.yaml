@@ -1,0 +1,43 @@
+# Pod Security Standards (PSS) labels for the namespaces this demo uses.
+#
+# Linode Cloud Manager flags clusters that contain namespaces without
+# PSS labels. Labeling each namespace silences that warning AND makes
+# the enforced security posture explicit.
+#
+# Levels:
+#   privileged  — unrestricted (system / control-plane components only)
+#   baseline    — blocks known privilege escalations (hostPath, hostNetwork,
+#                 privileged containers, dangerous capability adds). Every
+#                 app pod in this demo already passes this bar.
+#   restricted  — adds requirements like seccompProfile=RuntimeDefault and
+#                 explicit runAsNonRoot on the container itself. Used here
+#                 only as the warn/audit target so we see violations
+#                 without blocking pod creation.
+#
+# `kubectl apply -f` on these is idempotent: it just sets the labels on
+# existing namespaces. Re-applies in CI keep them in sync if anything
+# strips them.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  # Default namespace can't be deleted but kubectl apply will update
+  # its labels in place.
+  name: default
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  # istiod and the istio-system control plane needs more privileges
+  # (it runs admission webhooks, mounts ServiceAccount tokens at
+  # specific paths, etc.). Keep it permissive — the application
+  # workloads do NOT run here.
+  name: istio-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/audit: privileged
