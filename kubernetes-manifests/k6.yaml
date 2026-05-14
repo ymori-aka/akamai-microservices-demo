@@ -21,15 +21,22 @@ metadata:
   namespace: default
 data:
   scenario.js: |
-    // k6 scenario for Akamai Store continuous load.
+    // k6 scenarios for Akamai Store continuous load.
     //
-    // Three weighted scenarios run in parallel as constant VUs:
-    //   browse:   light traffic, hits / and /product/* — catches MongoDB
-    //   shop:     adds items to cart — exercises Redis writes
-    //   checkout: full checkout flow — drives payment, shipping, RabbitMQ
+    // Exercises every "demo-worthy" path in the app so all Grafana
+    // panels stay populated:
     //
-    // Random AKMT product IDs match the Akamai-themed catalog seeded
-    // by productcatalogservice (productcatalog/products.json).
+    //   browse    — / + /product/:id          (MongoDB reads, frontend RPS)
+    //   shop      — /setCurrency + /cart      (currency svc, Redis writes)
+    //   checkout  — full order placement      (payment, shipping, RabbitMQ,
+    //                                          Postgres orders insert)
+    //   chat      — /bot LLM chat             (Akamai Functions + LLM VM)
+    //   orders    — /orders, /assistant       (light page traffic, Postgres reads)
+    //
+    // Product IDs AKMT001–AKMT027 are public; AKMT028/AKMT029 are admin-only
+    // (seeded after deploy) and produce 404 on /product/:id for normal users
+    // so we exclude them. The 8 currencies match the supported-currency
+    // list compiled into currencyservice.
     import http from 'k6/http';
     import { check, sleep, group } from 'k6';
     import { Counter } from 'k6/metrics';
@@ -37,13 +44,22 @@ data:
 
     const FRONTEND = __ENV.FRONTEND_URL || 'http://frontend:80';
 
-    const PRODUCTS = Array.from({ length: 29 }, (_, i) => `AKMT${String(i + 1).padStart(3, '0')}`);
-    const CURRENCIES = ['USD', 'EUR', 'JPY', 'GBP', 'KRW', 'CNY'];
-    const COUNTRIES = ['United States', 'Japan', 'United Kingdom', 'Germany'];
+    const PRODUCTS = Array.from({ length: 27 }, (_, i) => `AKMT${String(i + 1).padStart(3, '0')}`);
+    const CURRENCIES = ['USD', 'EUR', 'JPY', 'GBP', 'CAD', 'TRY', 'KRW', 'CNY'];
+    const COUNTRIES = ['United States', 'Japan', 'United Kingdom', 'Germany', 'Canada'];
+    const CHAT_PROMPTS = [
+      'What gadgets do you have for hiking?',
+      'I need a gift under $50 for a coffee lover.',
+      'Show me electronics in stock.',
+      'Recommend something for an outdoor camping trip.',
+      'What headphones do you sell?',
+      'I want to buy a watch — what do you recommend?',
+    ];
 
     // Custom counter for end-to-end checkout success — easy to plot
     // alongside RabbitMQ queue depth.
     export const checkouts = new Counter('akamai_checkouts_total');
+    export const chats = new Counter('akamai_chats_total');
 
     export const options = {
       scenarios: {
@@ -70,16 +86,33 @@ data:
           tags: { scenario: 'checkout' },
           startTime: '10s',
         },
+        chat: {
+          // LLM is the most expensive backend — keep it light.
+          executor: 'constant-vus',
+          vus: 1,
+          duration: '24h',
+          exec: 'chat',
+          tags: { scenario: 'chat' },
+          startTime: '20s',
+        },
+        orders: {
+          executor: 'constant-vus',
+          vus: 1,
+          duration: '24h',
+          exec: 'orders',
+          tags: { scenario: 'orders' },
+          startTime: '15s',
+        },
       },
-      // Don't fail the run on a few transient errors; this is a demo
-      // generator, not a smoke test.
       thresholds: {
-        'http_req_failed': ['rate<0.10'],
+        // Demo generator, not a smoke test — tolerate transient errors.
+        'http_req_failed': ['rate<0.15'],
       },
-      // Send results to Prometheus via remote_write. The K6_PROMETHEUS_*
-      // env vars on the pod activate this output mode.
       summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
     };
+
+    // Per-VU session cookie jar so each user looks like a distinct browser.
+    // (k6 maintains the cookie jar automatically per VU.)
 
     // ---- Scenarios -----------------------------------------------------
 
@@ -99,7 +132,8 @@ data:
     }
 
     export function shop() {
-      // Browse first to set up session cookie.
+      // Visit home first so the session-id cookie is established and
+      // cart writes attach to a stable user.
       http.get(`${FRONTEND}/`, { tags: { name: 'GET /' } });
       sleep(1);
 
@@ -130,15 +164,22 @@ data:
     }
 
     export function checkout() {
-      // Build up a small cart, then checkout. Each checkout publishes
-      // a RabbitMQ event consumed by queuemaster.
+      // Build a small cart then place an order. Each successful checkout:
+      //   - charges via paymentservice
+      //   - books shipping via shippingservice
+      //   - writes a row to orders DB (Linode Managed PG)
+      //   - publishes an "order.placed" event to RabbitMQ (drained by queuemaster)
       http.get(`${FRONTEND}/`);
-      const p = randomItem(PRODUCTS);
-      http.get(`${FRONTEND}/product/${p}`);
-      http.post(`${FRONTEND}/cart`, {
-        product_id: p,
-        quantity: String(randomIntBetween(1, 3)),
-      });
+
+      const itemCount = randomIntBetween(1, 3);
+      for (let i = 0; i < itemCount; i++) {
+        const p = randomItem(PRODUCTS);
+        http.get(`${FRONTEND}/product/${p}`);
+        http.post(`${FRONTEND}/cart`, {
+          product_id: p,
+          quantity: String(randomIntBetween(1, 3)),
+        });
+      }
 
       const year = new Date().getFullYear() + 1;
       const r = http.post(
@@ -150,8 +191,8 @@ data:
           city: 'San Francisco',
           state: 'CA',
           country: randomItem(COUNTRIES),
-          // Classic Visa test number — paymentservice accepts this
-          // and rejects Visa Electron BINs.
+          // Classic Visa test number — paymentservice rejects Visa Electron
+          // BINs (4026/4508/4844/4913/4917) so we hardcode this safe one.
           credit_card_number: '4111111111111111',
           credit_card_expiration_month: '1',
           credit_card_expiration_year: String(year),
@@ -164,6 +205,33 @@ data:
         checkouts.add(1);
       }
       sleep(randomIntBetween(2, 5));
+    }
+
+    export function chat() {
+      // /bot expects {"message":"...","history":[...]} JSON. Most LLM calls
+      // take a few seconds so this scenario naturally rate-limits itself.
+      const body = JSON.stringify({
+        message: randomItem(CHAT_PROMPTS),
+        history: [],
+      });
+      const r = http.post(`${FRONTEND}/bot`, body, {
+        headers: { 'Content-Type': 'application/json' },
+        tags: { name: 'POST /bot' },
+        timeout: '60s',
+      });
+      if (check(r, { 'chat 200': (res) => res.status === 200 })) {
+        chats.add(1);
+      }
+      sleep(randomIntBetween(5, 15));
+    }
+
+    export function orders() {
+      // Light traffic on read-only pages: assistant landing + order history.
+      // Touches the Postgres orders table on /orders.
+      http.get(`${FRONTEND}/assistant`, { tags: { name: 'GET /assistant' } });
+      sleep(randomIntBetween(2, 5));
+      http.get(`${FRONTEND}/orders`, { tags: { name: 'GET /orders' } });
+      sleep(randomIntBetween(5, 10));
     }
 ---
 apiVersion: v1
