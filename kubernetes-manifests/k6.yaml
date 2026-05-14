@@ -1,0 +1,260 @@
+# k6 — continuous load generator with Prometheus remote_write output.
+#
+# Architecture:
+#   k6 (10 VUs constant) -> frontend:80 -> microservices -> RabbitMQ
+#                       \-> remote_write -> prometheus:9090
+#
+# Coexists with Locust (Locust runs higher baseline, k6 runs detailed
+# scenario with per-endpoint timing landing in Prometheus as native
+# histograms). Grafana queries metrics with k6_* prefix.
+#
+# Sidecar injection disabled — LKE webhook unreachable.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-script
+  namespace: default
+data:
+  scenario.js: |
+    // k6 scenario for Akamai Store continuous load.
+    //
+    // Three weighted scenarios run in parallel as constant VUs:
+    //   browse:   light traffic, hits / and /product/* — catches MongoDB
+    //   shop:     adds items to cart — exercises Redis writes
+    //   checkout: full checkout flow — drives payment, shipping, RabbitMQ
+    //
+    // Random AKMT product IDs match the Akamai-themed catalog seeded
+    // by productcatalogservice (productcatalog/products.json).
+    import http from 'k6/http';
+    import { check, sleep, group } from 'k6';
+    import { Counter } from 'k6/metrics';
+    import { randomIntBetween, randomItem } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
+
+    const FRONTEND = __ENV.FRONTEND_URL || 'http://frontend:80';
+
+    const PRODUCTS = Array.from({ length: 29 }, (_, i) => `AKMT${String(i + 1).padStart(3, '0')}`);
+    const CURRENCIES = ['USD', 'EUR', 'JPY', 'GBP', 'KRW', 'CNY'];
+    const COUNTRIES = ['United States', 'Japan', 'United Kingdom', 'Germany'];
+
+    // Custom counter for end-to-end checkout success — easy to plot
+    // alongside RabbitMQ queue depth.
+    export const checkouts = new Counter('akamai_checkouts_total');
+
+    export const options = {
+      scenarios: {
+        browse: {
+          executor: 'constant-vus',
+          vus: 4,
+          duration: '24h',
+          exec: 'browse',
+          tags: { scenario: 'browse' },
+        },
+        shop: {
+          executor: 'constant-vus',
+          vus: 3,
+          duration: '24h',
+          exec: 'shop',
+          tags: { scenario: 'shop' },
+          startTime: '5s',
+        },
+        checkout: {
+          executor: 'constant-vus',
+          vus: 3,
+          duration: '24h',
+          exec: 'checkout',
+          tags: { scenario: 'checkout' },
+          startTime: '10s',
+        },
+      },
+      // Don't fail the run on a few transient errors; this is a demo
+      // generator, not a smoke test.
+      thresholds: {
+        'http_req_failed': ['rate<0.10'],
+      },
+      // Send results to Prometheus via remote_write. The K6_PROMETHEUS_*
+      // env vars on the pod activate this output mode.
+      summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
+    };
+
+    // ---- Scenarios -----------------------------------------------------
+
+    export function browse() {
+      group('home', () => {
+        const r = http.get(`${FRONTEND}/`, { tags: { name: 'GET /' } });
+        check(r, { 'home 200': (res) => res.status === 200 });
+      });
+      sleep(randomIntBetween(1, 3));
+
+      group('product', () => {
+        const p = randomItem(PRODUCTS);
+        const r = http.get(`${FRONTEND}/product/${p}`, { tags: { name: 'GET /product/:id' } });
+        check(r, { 'product 200': (res) => res.status === 200 });
+      });
+      sleep(randomIntBetween(1, 2));
+    }
+
+    export function shop() {
+      // Browse first to set up session cookie.
+      http.get(`${FRONTEND}/`, { tags: { name: 'GET /' } });
+      sleep(1);
+
+      group('setCurrency', () => {
+        http.post(
+          `${FRONTEND}/setCurrency`,
+          { currency_code: randomItem(CURRENCIES) },
+          { tags: { name: 'POST /setCurrency' } },
+        );
+      });
+
+      group('addToCart', () => {
+        const p = randomItem(PRODUCTS);
+        http.get(`${FRONTEND}/product/${p}`);
+        const r = http.post(
+          `${FRONTEND}/cart`,
+          { product_id: p, quantity: String(randomIntBetween(1, 5)) },
+          { tags: { name: 'POST /cart' } },
+        );
+        check(r, { 'addToCart ok': (res) => res.status === 200 || res.status === 302 });
+      });
+
+      group('viewCart', () => {
+        const r = http.get(`${FRONTEND}/cart`, { tags: { name: 'GET /cart' } });
+        check(r, { 'cart 200': (res) => res.status === 200 });
+      });
+      sleep(randomIntBetween(1, 3));
+    }
+
+    export function checkout() {
+      // Build up a small cart, then checkout. Each checkout publishes
+      // a RabbitMQ event consumed by queuemaster.
+      http.get(`${FRONTEND}/`);
+      const p = randomItem(PRODUCTS);
+      http.get(`${FRONTEND}/product/${p}`);
+      http.post(`${FRONTEND}/cart`, {
+        product_id: p,
+        quantity: String(randomIntBetween(1, 3)),
+      });
+
+      const year = new Date().getFullYear() + 1;
+      const r = http.post(
+        `${FRONTEND}/cart/checkout`,
+        {
+          email: `k6-${__VU}-${__ITER}@example.com`,
+          street_address: '123 Demo Street',
+          zip_code: '94105',
+          city: 'San Francisco',
+          state: 'CA',
+          country: randomItem(COUNTRIES),
+          // Classic Visa test number — paymentservice accepts this
+          // and rejects Visa Electron BINs.
+          credit_card_number: '4111111111111111',
+          credit_card_expiration_month: '1',
+          credit_card_expiration_year: String(year),
+          credit_card_cvv: '672',
+        },
+        { tags: { name: 'POST /cart/checkout' } },
+      );
+
+      if (check(r, { 'checkout 200': (res) => res.status === 200 })) {
+        checkouts.add(1);
+      }
+      sleep(randomIntBetween(2, 5));
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k6
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k6
+  labels:
+    app: k6
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k6
+  template:
+    metadata:
+      labels:
+        app: k6
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: k6
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 5
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      initContainers:
+        # Wait for frontend so k6 doesn't start hammering 5xx errors
+        # while microservices are still rolling.
+        - name: wait-frontend
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -exc
+            - |
+              for i in $(seq 1 30); do
+                wget -q --timeout=3 -O - http://frontend:80/_healthz >/dev/null && exit 0
+                sleep 5
+              done
+              echo "frontend never came up"; exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+      containers:
+        - name: k6
+          image: grafana/k6:0.51.0
+          # `k6 run` blocks on duration: 24h in scenarios, so the pod
+          # stays alive for the full day; Kubernetes will replace it
+          # daily on its own via the rolling restart annotation below
+          # (or whenever the ConfigMap changes).
+          args:
+            - run
+            - --out
+            - experimental-prometheus-rw
+            - --tag
+            - testid=akamai-store-continuous
+            - /scripts/scenario.js
+          env:
+            - name: FRONTEND_URL
+              value: "http://frontend:80"
+            # remote_write endpoint exposed by Prometheus when started
+            # with --web.enable-remote-write-receiver.
+            - name: K6_PROMETHEUS_RW_SERVER_URL
+              value: "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
+            - name: K6_PROMETHEUS_RW_TREND_STATS
+              value: "p(95),p(99),min,max,avg"
+            # Optionally export trend metrics as native histograms for
+            # higher-resolution latency queries in Grafana.
+            - name: K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM
+              value: "true"
+            - name: K6_NO_SUMMARY
+              value: "true"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+      volumes:
+        - name: script
+          configMap:
+            name: k6-script

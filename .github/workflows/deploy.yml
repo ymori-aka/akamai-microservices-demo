@@ -274,6 +274,20 @@ jobs:
             server=${{ env.QUEUEMASTER_IMAGE }}:sha-${{ github.sha }}
           kubectl rollout status deployment/queuemaster --timeout=120s || true
 
+      - name: Deploy k6 continuous load generator
+        continue-on-error: true
+        run: |
+          # k6 streams HTTP metrics via remote_write into the existing
+          # Prometheus (which now has --web.enable-remote-write-receiver
+          # in the monitoring step). Runs constantly with 10 VUs across
+          # browse / shop / checkout scenarios.
+          kubectl apply -f kubernetes-manifests/k6.yaml
+          # Force a restart so script ConfigMap changes land immediately;
+          # without this kubectl apply on the ConfigMap is "configured"
+          # but the running pod keeps the cached script.
+          kubectl rollout restart deployment/k6 || true
+          kubectl rollout status deployment/k6 --timeout=120s || true
+
       - name: Update microservices to v0.10.5
         continue-on-error: true
         run: |

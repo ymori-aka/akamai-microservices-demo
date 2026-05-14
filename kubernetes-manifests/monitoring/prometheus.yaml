@@ -239,6 +239,13 @@ spec:
             - "--storage.tsdb.path=/prometheus"
             - "--storage.tsdb.retention.time=15d"
             - "--web.enable-lifecycle"
+            # Accept remote_write traffic from k6 (load generator) so its
+            # built-in HTTP metrics (k6_http_*) land in our existing TSDB
+            # without needing a separate Prometheus instance for k6.
+            - "--web.enable-remote-write-receiver"
+            # Native histograms support — k6 exports HTTP duration as
+            # native histograms (much better resolution than buckets).
+            - "--enable-feature=native-histograms"
           ports:
             - containerPort: 9090
           volumeMounts:
