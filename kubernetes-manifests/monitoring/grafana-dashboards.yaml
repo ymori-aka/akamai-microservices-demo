@@ -39,17 +39,17 @@ data:
           "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "decimals": 0, "unit": "rpm", "color": { "mode": "fixed", "fixedColor": "blue" } } } },
 
-        { "id": 2, "type": "stat", "title": "Errors / min",
+        { "id": 2, "type": "stat", "title": "Revenue 24h (USD)",
           "gridPos": { "x": 8, "y": 3, "w": 4, "h": 4 },
-          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
-          "targets": [{ "expr": "sum(rate({namespace=\"default\"} |~ `(?i)\\\"severity\\\":\\\"error\\\"` [1m])) * 60", "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" } }],
-          "options": { "colorMode": "background", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "fieldConfig": { "defaults": { "decimals": 1, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 30 } ] } } } },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(increase(checkout_revenue_usd_total[24h])) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "decimals": 0, "unit": "currencyUSD", "color": { "mode": "fixed", "fixedColor": "green" } } } },
 
-        { "id": 7, "type": "stat", "title": "Orders / hour",
+        { "id": 7, "type": "stat", "title": "Orders 24h",
           "gridPos": { "x": 12, "y": 3, "w": 4, "h": 4 },
-          "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
-          "targets": [{ "expr": "sum(count_over_time({app=\"checkoutservice\"} |~ `payment went through` [1h]))", "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" } }],
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "sum(increase(queuemaster_orders_processed_total[24h])) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "orange" } } } },
 
@@ -67,49 +67,88 @@ data:
           "options": { "colorMode": "background", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "unit": "s", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 15 } ] } } } },
 
-        { "id": 50, "type": "row", "title": "Application", "collapsed": false,
+        { "id": 110, "type": "row", "title": "Business KPIs (Sales)", "collapsed": false,
           "gridPos": { "x": 0, "y": 7, "w": 24, "h": 1 } },
 
+        { "id": 111, "type": "timeseries", "title": "Revenue rate by currency (per minute)",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum by (currency) (rate(checkout_revenue_total[1m])) * 60", "legendFormat": "{{currency}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"] }, "tooltip": { "mode": "multi" } },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
+
+        { "id": 112, "type": "timeseries", "title": "Orders per minute",
+          "gridPos": { "x": 12, "y": 8, "w": 6, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(rate(queuemaster_orders_processed_total[1m])) * 60 OR vector(0)", "legendFormat": "orders/min", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 30, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "fixed", "fixedColor": "orange" } } } },
+
+        { "id": 113, "type": "stat", "title": "Avg order value (USD, 1h)",
+          "gridPos": { "x": 18, "y": 8, "w": 6, "h": 3 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(increase(checkout_revenue_usd_total[1h])) / clamp_min(sum(increase(queuemaster_orders_processed_total[1h])), 1)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } } } },
+
+        { "id": 114, "type": "stat", "title": "Items / order (avg)",
+          "gridPos": { "x": 18, "y": 11, "w": 6, "h": 4 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(rate(checkout_items_per_order_sum[1h])) / clamp_min(sum(rate(checkout_items_per_order_count[1h])), 0.0001)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "blue" } } } },
+
+        { "id": 50, "type": "row", "title": "Application", "collapsed": false,
+          "gridPos": { "x": 0, "y": 15, "w": 24, "h": 1 } },
+
         { "id": 10, "type": "timeseries", "title": "Request rate by service",
-          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [{ "expr": "sum by (service_name) (rate(rpc_server_duration_milliseconds_count[1m])) * 60", "legendFormat": "{{service_name}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "fieldConfig": { "defaults": { "unit": "rpm", "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 1, "fillOpacity": 18, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never", "stacking": { "mode": "normal", "group": "A" } } } } },
 
         { "id": 11, "type": "timeseries", "title": "Error rate by app",
-          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
           "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
           "targets": [{ "expr": "sum by (app) (rate({namespace=\"default\"} |~ `(?i)\\\"severity\\\":\\\"error\\\"` [5m])) * 60", "legendFormat": "{{app}}", "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" } }],
           "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "fieldConfig": { "defaults": { "unit": "cpm", "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 1, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" } } } },
 
         { "id": 60, "type": "row", "title": "Infrastructure", "collapsed": false,
-          "gridPos": { "x": 0, "y": 16, "w": 24, "h": 1 } },
+          "gridPos": { "x": 0, "y": 24, "w": 24, "h": 1 } },
 
         { "id": 40, "type": "gauge", "title": "PostgreSQL CPU",
-          "gridPos": { "x": 0, "y": 17, "w": 6, "h": 7 },
+          "gridPos": { "x": 0, "y": 25, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [{ "expr": "max(avg_cpu_usage{entity_id=\"470692\"}) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "orientation": "auto", "showThresholdLabels": false, "showThresholdMarkers": true },
           "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 85 } ] } } } },
 
         { "id": 41, "type": "gauge", "title": "PostgreSQL Memory",
-          "gridPos": { "x": 6, "y": 17, "w": 6, "h": 7 },
+          "gridPos": { "x": 6, "y": 25, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [{ "expr": "max(avg_memory_usage{entity_id=\"470692\"}) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "orientation": "auto", "showThresholdLabels": false, "showThresholdMarkers": true },
           "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 75 }, { "color": "red", "value": 90 } ] } } } },
 
         { "id": 42, "type": "gauge", "title": "PostgreSQL Disk",
-          "gridPos": { "x": 12, "y": 17, "w": 6, "h": 7 },
+          "gridPos": { "x": 12, "y": 25, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [{ "expr": "max(avg_disk_usage{entity_id=\"470692\"}) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "orientation": "auto", "showThresholdLabels": false, "showThresholdMarkers": true },
           "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 85 } ] } } } },
 
         { "id": 43, "type": "bargauge", "title": "PostgreSQL IOPS",
-          "gridPos": { "x": 18, "y": 17, "w": 6, "h": 7 },
+          "gridPos": { "x": 18, "y": 25, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "max(avg_read_iops{entity_id=\"470692\"})", "legendFormat": "read", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
@@ -119,10 +158,10 @@ data:
           "fieldConfig": { "defaults": { "unit": "iops", "color": { "mode": "continuous-BlPu" }, "decimals": 0 } } },
 
         { "id": 70, "type": "row", "title": "AI / LLM", "collapsed": false,
-          "gridPos": { "x": 0, "y": 24, "w": 24, "h": 1 } },
+          "gridPos": { "x": 0, "y": 32, "w": 24, "h": 1 } },
 
         { "id": 22, "type": "timeseries", "title": "Token throughput",
-          "gridPos": { "x": 0, "y": 25, "w": 12, "h": 8 },
+          "gridPos": { "x": 0, "y": 33, "w": 12, "h": 8 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "sum(rate(llm_prompt_tokens_total[1m]))", "legendFormat": "prompt", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
@@ -132,7 +171,7 @@ data:
           "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 30, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 23, "type": "timeseries", "title": "Request latency (p50 / p95 / p99)",
-          "gridPos": { "x": 12, "y": 25, "w": 12, "h": 8 },
+          "gridPos": { "x": 12, "y": 33, "w": 12, "h": 8 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "histogram_quantile(0.50, sum by (le) (rate(llm_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
@@ -143,10 +182,10 @@ data:
           "fieldConfig": { "defaults": { "unit": "s", "decimals": 2, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 90, "type": "row", "title": "Load Generation (k6)", "collapsed": false,
-          "gridPos": { "x": 0, "y": 33, "w": 24, "h": 1 } },
+          "gridPos": { "x": 0, "y": 41, "w": 24, "h": 1 } },
 
         { "id": 91, "type": "stat", "title": "k6 active VUs",
-          "gridPos": { "x": 0, "y": 34, "w": 6, "h": 7 },
+          "gridPos": { "x": 0, "y": 42, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "sum(k6_vus) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
@@ -155,7 +194,7 @@ data:
           "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } } } },
 
         { "id": 92, "type": "timeseries", "title": "k6 HTTP request rate by scenario",
-          "gridPos": { "x": 6, "y": 34, "w": 12, "h": 7 },
+          "gridPos": { "x": 6, "y": 42, "w": 12, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "sum by (scenario) (rate(k6_http_reqs_total[1m]))", "legendFormat": "{{scenario}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
@@ -164,7 +203,7 @@ data:
           "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never", "stacking": { "mode": "normal" } }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 93, "type": "timeseries", "title": "k6 HTTP duration p95",
-          "gridPos": { "x": 18, "y": 34, "w": 6, "h": 7 },
+          "gridPos": { "x": 18, "y": 42, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "histogram_quantile(0.95, sum by (le, scenario) (rate(k6_http_req_duration_seconds_bucket[1m])))", "legendFormat": "{{scenario}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
@@ -173,10 +212,10 @@ data:
           "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 80, "type": "row", "title": "Message Queue (RabbitMQ / queuemaster)", "collapsed": false,
-          "gridPos": { "x": 0, "y": 41, "w": 24, "h": 1 } },
+          "gridPos": { "x": 0, "y": 49, "w": 24, "h": 1 } },
 
         { "id": 81, "type": "stat", "title": "Queue depth — order.placed",
-          "gridPos": { "x": 0, "y": 42, "w": 6, "h": 7 },
+          "gridPos": { "x": 0, "y": 50, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "sum(rabbitmq_queue_messages{queue=\"order.placed\"}) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
@@ -185,7 +224,7 @@ data:
           "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 200 } ] } } } },
 
         { "id": 82, "type": "timeseries", "title": "Message rate (published vs processed)",
-          "gridPos": { "x": 6, "y": 42, "w": 12, "h": 7 },
+          "gridPos": { "x": 6, "y": 50, "w": 12, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "sum(rate(queuemaster_orders_received_total[1m])) * 60", "legendFormat": "published/min", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
@@ -195,7 +234,7 @@ data:
           "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 83, "type": "timeseries", "title": "Processing latency (queuemaster)",
-          "gridPos": { "x": 18, "y": 42, "w": 6, "h": 7 },
+          "gridPos": { "x": 18, "y": 50, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "histogram_quantile(0.50, sum by (le) (rate(queuemaster_processing_duration_seconds_bucket[5m])))", "legendFormat": "p50", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
@@ -205,7 +244,7 @@ data:
           "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 30, "type": "text", "title": "",
-          "gridPos": { "x": 0, "y": 49, "w": 24, "h": 3 },
+          "gridPos": { "x": 0, "y": 57, "w": 24, "h": 3 },
           "options": { "mode": "html", "content": "<div style=\"display:flex;gap:12px;font-family:-apple-system,'Inter',sans-serif;\"><a href=\"/d/akamai-microservices\" style=\"flex:1;text-decoration:none;\"><div style=\"padding:14px 18px;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#e5e7eb;transition:background 0.2s;\"><div style=\"font-size:14px;font-weight:600;color:#60a5fa;\">→ Operations</div><div style=\"font-size:12px;opacity:0.7;margin-top:4px;\">Per-service request rate, latency, errors, traces, logs</div></div></a><a href=\"/d/akamai-infrastructure\" style=\"flex:1;text-decoration:none;\"><div style=\"padding:14px 18px;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#e5e7eb;\"><div style=\"font-size:14px;font-weight:600;color:#a78bfa;\">→ Infrastructure &amp; LLM</div><div style=\"font-size:12px;opacity:0.7;margin-top:4px;\">PostgreSQL, NodeBalancer, LLM token / latency drill-down</div></div></a><a href=\"http://172.233.68.25/\" target=\"_blank\" style=\"flex:1;text-decoration:none;\"><div style=\"padding:14px 18px;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#e5e7eb;\"><div style=\"font-size:14px;font-weight:600;color:#fb923c;\">↗ Live Storefront</div><div style=\"font-size:12px;opacity:0.7;margin-top:4px;\">Open the public e-commerce site in a new tab</div></div></a></div>" } }
       ]
     }

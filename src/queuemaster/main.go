@@ -59,21 +59,52 @@ var (
 		Buckets: []float64{0.05, 0.1, 0.2, 0.5, 1.0},
 	})
 
+	// Business KPI counters — fed from the event JSON each order carries.
+	revenueUSDTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "checkout_revenue_usd_total",
+		Help: "Total checkout revenue in USD (converted by checkoutservice).",
+	})
+	revenueByCurrency = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "checkout_revenue_total",
+		Help: "Total checkout revenue in the user's local currency.",
+	}, []string{"currency"})
+	ordersByCurrency = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "checkout_orders_total",
+		Help: "Total number of placed orders, labelled by user currency.",
+	}, []string{"currency"})
+	orderValueUSD = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "checkout_order_value_usd",
+		Help:    "Distribution of checkout order values in USD.",
+		Buckets: []float64{10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
+	})
+	itemsPerOrder = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "checkout_items_per_order",
+		Help:    "Distribution of item counts per checkout.",
+		Buckets: []float64{1, 2, 3, 5, 8, 12, 20},
+	})
+
 	// connected: 1 when AMQP connection is healthy, 0 otherwise.
 	// atomic for lock-free read from the /healthz handler.
 	connected atomic.Int32
 )
 
 func init() {
-	prometheus.MustRegister(ordersReceived, ordersProcessed, processingDuration)
+	prometheus.MustRegister(
+		ordersReceived, ordersProcessed, processingDuration,
+		revenueUSDTotal, revenueByCurrency, ordersByCurrency,
+		orderValueUSD, itemsPerOrder,
+	)
 	log.SetFormatter(&log.JSONFormatter{})
 }
 
 type orderEvent struct {
-	OrderID    string `json:"order_id"`
-	UserID     string `json:"user_id"`
-	TrackingID string `json:"tracking_id"`
-	ItemCount  int    `json:"item_count"`
+	OrderID        string  `json:"order_id"`
+	UserID         string  `json:"user_id"`
+	TrackingID     string  `json:"tracking_id"`
+	ItemCount      int     `json:"item_count"`
+	TotalAmount    float64 `json:"total_amount"`
+	Currency       string  `json:"currency"`
+	TotalAmountUSD float64 `json:"total_amount_usd"`
 }
 
 func main() {
@@ -242,9 +273,28 @@ func processDelivery(ch *amqp.Channel, d amqp.Delivery) {
 	dur := time.Since(start)
 	processingDuration.Observe(dur.Seconds())
 	ordersProcessed.Inc()
+
+	// Business KPI metrics. Guard each in case checkoutservice pre-dates
+	// the new event schema (older events lack TotalAmount/Currency).
+	if evt.Currency != "" {
+		ordersByCurrency.WithLabelValues(evt.Currency).Inc()
+		if evt.TotalAmount > 0 {
+			revenueByCurrency.WithLabelValues(evt.Currency).Add(evt.TotalAmount)
+		}
+	}
+	if evt.TotalAmountUSD > 0 {
+		revenueUSDTotal.Add(evt.TotalAmountUSD)
+		orderValueUSD.Observe(evt.TotalAmountUSD)
+	}
+	if evt.ItemCount > 0 {
+		itemsPerOrder.Observe(float64(evt.ItemCount))
+	}
+
 	log.WithFields(log.Fields{
 		"order_id":    evt.OrderID,
 		"tracking_id": evt.TrackingID,
+		"currency":    evt.Currency,
+		"amount_usd":  evt.TotalAmountUSD,
 		"duration_ms": dur.Milliseconds(),
 	}).Info("processed order")
 }

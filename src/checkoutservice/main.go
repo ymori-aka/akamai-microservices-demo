@@ -125,11 +125,21 @@ func (cs *checkoutService) initRabbitMQ() {
 	log.Infof("RabbitMQ connected at %s", cs.rabbitMQAddr)
 }
 
+// moneyToFloat converts a protobuf Money (units + nanos) to a float64.
+// Used only for analytics on the published event — the actual on-wire
+// money math elsewhere still uses the integer Money type.
+func moneyToFloat(m *pb.Money) float64 {
+	if m == nil {
+		return 0
+	}
+	return float64(m.Units) + float64(m.Nanos)/1e9
+}
+
 // publishOrderEvent publishes a JSON order event to the "orders"
 // exchange with routing key "order.placed". Designed to be called
 // from a goroutine — never returns an error and never blocks the
 // caller. If the channel is gone, attempts a single reconnect.
-func (cs *checkoutService) publishOrderEvent(order *pb.OrderResult, userID string) {
+func (cs *checkoutService) publishOrderEvent(order *pb.OrderResult, userID string, total *pb.Money) {
 	cs.rabbitMQMu.Lock()
 	ch := cs.rabbitMQCh
 	cs.rabbitMQMu.Unlock()
@@ -144,19 +154,42 @@ func (cs *checkoutService) publishOrderEvent(order *pb.OrderResult, userID strin
 		}
 	}
 
+	// Convert the user-currency total back to USD for dashboard KPIs.
+	// Use a short timeout — this is best-effort analytics; if the
+	// currency service is slow we publish without the USD amount.
+	convCtx, convCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer convCancel()
+	var totalUSD float64
+	if total != nil {
+		if usd, err := cs.convertCurrency(convCtx, total, usdCurrency); err == nil {
+			totalUSD = moneyToFloat(usd)
+		}
+	}
+
 	type evt struct {
-		OrderID    string `json:"order_id"`
-		UserID     string `json:"user_id"`
-		TrackingID string `json:"tracking_id"`
-		ItemCount  int    `json:"item_count"`
-		Timestamp  string `json:"timestamp"`
+		OrderID         string  `json:"order_id"`
+		UserID          string  `json:"user_id"`
+		TrackingID      string  `json:"tracking_id"`
+		ItemCount       int     `json:"item_count"`
+		Timestamp       string  `json:"timestamp"`
+		TotalAmount     float64 `json:"total_amount"`     // in user currency
+		Currency        string  `json:"currency"`         // user currency code
+		TotalAmountUSD  float64 `json:"total_amount_usd"` // 0 if conversion failed
+	}
+	totalAmount := moneyToFloat(total)
+	currency := ""
+	if total != nil {
+		currency = total.CurrencyCode
 	}
 	body, err := json.Marshal(evt{
-		OrderID:    order.OrderId,
-		UserID:     userID,
-		TrackingID: order.ShippingTrackingId,
-		ItemCount:  len(order.Items),
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		OrderID:        order.OrderId,
+		UserID:         userID,
+		TrackingID:     order.ShippingTrackingId,
+		ItemCount:      len(order.Items),
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		TotalAmount:    totalAmount,
+		Currency:       currency,
+		TotalAmountUSD: totalUSD,
 	})
 	if err != nil {
 		log.Warnf("marshal order event failed: %v", err)
@@ -389,7 +422,10 @@ func (cs *checkoutService) PlaceOrder(ctx context.Context, req *pb.PlaceOrderReq
 
 	// Fire-and-forget async event for downstream consumers (queuemaster).
 	// Failures are logged inside publishOrderEvent; never block the response.
-	go cs.publishOrderEvent(orderResult, req.UserId)
+	// `total` is the order grand total in the user's currency — queuemaster
+	// re-emits it as Prometheus counters for the KPI dashboard.
+	totalCopy := total
+	go cs.publishOrderEvent(orderResult, req.UserId, &totalCopy)
 
 	resp := &pb.PlaceOrderResponse{Order: orderResult}
 	return resp, nil
