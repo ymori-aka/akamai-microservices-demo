@@ -35,6 +35,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/frontend/genproto"
 	"github.com/GoogleCloudPlatform/microservices-demo/src/frontend/money"
@@ -672,10 +673,14 @@ Never invent products that are not in the catalog.
 	}
 	spinReq.Header.Set("Content-Type", "application/json")
 
+	// Wrap the transport with otelhttp so the outgoing call to the
+	// Akamai Functions assistant inherits the inbound /bot span and
+	// injects the W3C traceparent header. Without this the trace chain
+	// breaks at the frontend → assistant hop and Tempo shows no LLM span.
 	spinClient := &http.Client{
-		Transport: &http.Transport{
+		Transport: otelhttp.NewTransport(&http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // Spin function uses self-signed cert
-		},
+		}),
 		Timeout: 60 * time.Second,
 	}
 	spinResp, err := spinClient.Do(spinReq)
