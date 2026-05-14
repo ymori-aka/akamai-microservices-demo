@@ -505,8 +505,12 @@ jobs:
               OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
               OTEL_SERVICE_NAME=${svc} 2>/dev/null || true
           done
-          # Python services (recommendation, email) require these to actually emit OTLP traces
-          for svc in recommendationservice emailservice; do
+          # Services that still gate tracing on the legacy ENABLE_TRACING=1
+          # + COLLECTOR_SERVICE_ADDR pair (frontend & checkoutservice are
+          # our custom Go forks; recommendation & email are upstream Python).
+          # Without these env vars they ignore OTEL_EXPORTER_OTLP_ENDPOINT
+          # and emit no spans — that's why Tempo was missing their traces.
+          for svc in frontend checkoutservice recommendationservice emailservice; do
             kubectl set env deployment/${svc} \
               ENABLE_TRACING=1 \
               COLLECTOR_SERVICE_ADDR=${OTEL_HOST_PORT} 2>/dev/null || true
