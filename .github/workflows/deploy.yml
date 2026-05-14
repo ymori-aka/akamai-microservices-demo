@@ -478,9 +478,24 @@ jobs:
           # Akamai Cloud Pulse collector + its PAT Secret (optional — only
           # deployed when LINODE_PAT is present).
           if [ -n "${LINODE_PAT}" ]; then
+            # Delete the existing Secret first to guarantee a fresh value
+            # lands. `kubectl apply` with the same TOKEN content prints
+            # "unchanged" and leaves the old (possibly stale) Secret in
+            # place, even after a PAT rotation in GitHub Secrets.
+            kubectl -n monitoring delete secret linode-pat --ignore-not-found
             kubectl -n monitoring create secret generic linode-pat \
-              --from-literal=TOKEN="${LINODE_PAT}" \
-              --dry-run=client -o yaml | kubectl apply -f -
+              --from-literal=TOKEN="${LINODE_PAT}"
+
+            # Sanity-check that the PAT actually works against the Cloud
+            # Pulse JWT endpoint (this is the exact call aclp-collector
+            # makes first). Logs HTTP code, never fails the step.
+            echo -n "PAT JWT check: "
+            curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+              -X POST -H "Authorization: Bearer ${LINODE_PAT}" \
+              -H "Content-Type: application/json" \
+              "https://api.linode.com/v4/monitor/services/dbaas/token" \
+              -d '{"entity_ids":[470692]}'
+
             kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
             # Force a fresh aclp-collector pod so it picks up any PAT or
             # config changes; otherwise "Deployment unchanged" leaves an
