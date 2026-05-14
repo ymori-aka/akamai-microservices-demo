@@ -341,6 +341,11 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           kubectl apply -f kubernetes-manifests/monitoring/kiali.yaml
 
+          # Restart Grafana so it picks up any datasource ConfigMap changes
+          # (datasource provisioning is only loaded at pod startup).
+          kubectl -n monitoring rollout restart deployment/grafana
+          kubectl -n monitoring rollout status deployment/grafana --timeout=120s || true
+
           # Istio service mesh Grafana dashboards (official ones from
           # istio/istio release-1.22). Created as a separate ConfigMap so
           # the main grafana-dashboards ConfigMap stays under the 256 KiB
@@ -350,11 +355,11 @@ jobs:
           ISTIO_DB_BASE='https://raw.githubusercontent.com/istio/istio/release-1.22/manifests/addons/dashboards'
           for db in istio-mesh-dashboard istio-service-dashboard pilot-dashboard; do
             curl -fsSL "${ISTIO_DB_BASE}/${db}.json" \
-              -o "/tmp/istio-dashboards/${db}.json"
+              -o "/tmp/istio-dashboards/${db}.json" || true
           done
           kubectl -n monitoring create configmap grafana-istio-dashboards \
             --from-file=/tmp/istio-dashboards/ \
-            --dry-run=client -o yaml | kubectl apply --server-side=true -f -
+            --dry-run=client -o yaml | kubectl apply --server-side=true -f - || true
 
           # Akamai Cloud Pulse collector + its PAT Secret (optional — only
           # deployed when LINODE_PAT is present).
