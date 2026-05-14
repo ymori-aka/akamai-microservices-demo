@@ -24,6 +24,7 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: PBFA97CFB590B2093
         url: http://prometheus.monitoring.svc.cluster.local:9090
         access: proxy
         isDefault: true
