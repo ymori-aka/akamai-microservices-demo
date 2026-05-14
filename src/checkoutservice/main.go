@@ -16,14 +16,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/profiler"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -81,6 +84,98 @@ type checkoutService struct {
 
 	paymentSvcAddr string
 	paymentSvcConn *grpc.ClientConn
+
+	// RabbitMQ is optional — used for fire-and-forget async order events
+	// downstream consumers (queuemaster) can subscribe to. If the broker
+	// is unavailable we log and continue; PlaceOrder never fails on this.
+	rabbitMQAddr string
+	rabbitMQMu   sync.Mutex
+	rabbitMQConn *amqp.Connection
+	rabbitMQCh   *amqp.Channel
+}
+
+// initRabbitMQ best-effort connects to RabbitMQ and declares the orders
+// exchange. Any error here is logged but non-fatal.
+func (cs *checkoutService) initRabbitMQ() {
+	if cs.rabbitMQAddr == "" {
+		log.Info("RABBITMQ_ADDR not set; order events disabled")
+		return
+	}
+	conn, err := amqp.Dial("amqp://" + cs.rabbitMQAddr)
+	if err != nil {
+		log.Warnf("RabbitMQ dial failed (%s); order events disabled: %v", cs.rabbitMQAddr, err)
+		return
+	}
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Warnf("RabbitMQ channel failed; order events disabled: %v", err)
+		_ = conn.Close()
+		return
+	}
+	if err := ch.ExchangeDeclare("orders", "direct", true, false, false, false, nil); err != nil {
+		log.Warnf("RabbitMQ exchange declare failed: %v", err)
+		_ = ch.Close()
+		_ = conn.Close()
+		return
+	}
+	cs.rabbitMQMu.Lock()
+	cs.rabbitMQConn = conn
+	cs.rabbitMQCh = ch
+	cs.rabbitMQMu.Unlock()
+	log.Infof("RabbitMQ connected at %s", cs.rabbitMQAddr)
+}
+
+// publishOrderEvent publishes a JSON order event to the "orders"
+// exchange with routing key "order.placed". Designed to be called
+// from a goroutine — never returns an error and never blocks the
+// caller. If the channel is gone, attempts a single reconnect.
+func (cs *checkoutService) publishOrderEvent(order *pb.OrderResult, userID string) {
+	cs.rabbitMQMu.Lock()
+	ch := cs.rabbitMQCh
+	cs.rabbitMQMu.Unlock()
+	if ch == nil {
+		// Lazy reconnect attempt.
+		cs.initRabbitMQ()
+		cs.rabbitMQMu.Lock()
+		ch = cs.rabbitMQCh
+		cs.rabbitMQMu.Unlock()
+		if ch == nil {
+			return
+		}
+	}
+
+	type evt struct {
+		OrderID    string `json:"order_id"`
+		UserID     string `json:"user_id"`
+		TrackingID string `json:"tracking_id"`
+		ItemCount  int    `json:"item_count"`
+		Timestamp  string `json:"timestamp"`
+	}
+	body, err := json.Marshal(evt{
+		OrderID:    order.OrderId,
+		UserID:     userID,
+		TrackingID: order.ShippingTrackingId,
+		ItemCount:  len(order.Items),
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		log.Warnf("marshal order event failed: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := ch.PublishWithContext(ctx, "orders", "order.placed", false, false, amqp.Publishing{
+		ContentType: "application/json",
+		Body:        body,
+		Timestamp:   time.Now(),
+	}); err != nil {
+		log.Warnf("publish order event failed: %v", err)
+		// Mark channel dead so next call attempts reconnect.
+		cs.rabbitMQMu.Lock()
+		cs.rabbitMQCh = nil
+		cs.rabbitMQMu.Unlock()
+	}
 }
 
 func main() {
@@ -119,6 +214,11 @@ func main() {
 	mustConnGRPC(ctx, &svc.currencySvcConn, svc.currencySvcAddr)
 	mustConnGRPC(ctx, &svc.emailSvcConn, svc.emailSvcAddr)
 	mustConnGRPC(ctx, &svc.paymentSvcConn, svc.paymentSvcAddr)
+
+	// Optional: RabbitMQ for async order events. Failure here is
+	// non-fatal — the checkout flow keeps working without it.
+	svc.rabbitMQAddr = os.Getenv("RABBITMQ_ADDR")
+	svc.initRabbitMQ()
 
 	// Optional: connect to PostgreSQL for order persistence. Failure
 	// here is non-fatal — orders simply won't be persisted and the
@@ -286,6 +386,11 @@ func (cs *checkoutService) PlaceOrder(ctx context.Context, req *pb.PlaceOrderReq
 	} else {
 		log.Infof("order confirmation email sent to %q", req.Email)
 	}
+
+	// Fire-and-forget async event for downstream consumers (queuemaster).
+	// Failures are logged inside publishOrderEvent; never block the response.
+	go cs.publishOrderEvent(orderResult, req.UserId)
+
 	resp := &pb.PlaceOrderResponse{Order: orderResult}
 	return resp, nil
 }

@@ -5,7 +5,9 @@ go 1.23
 require (
 	cloud.google.com/go/profiler v0.4.2
 	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.12.3
 	github.com/pkg/errors v0.9.1
+	github.com/rabbitmq/amqp091-go v1.11.0
 	github.com/sirupsen/logrus v1.9.3
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.60.0
 	go.opentelemetry.io/otel v1.35.0
@@ -29,7 +31,6 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.1 // indirect
-	github.com/lib/pq v1.12.3 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.35.0 // indirect

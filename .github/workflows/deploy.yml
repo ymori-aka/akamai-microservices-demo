@@ -11,6 +11,7 @@ env:
   CURRENCY_IMAGE: ghcr.io/ymori-aka/currencyservice
   PRODUCTCATALOG_IMAGE: ghcr.io/ymori-aka/productcatalogservice
   CHECKOUT_IMAGE: ghcr.io/ymori-aka/checkoutservice
+  QUEUEMASTER_IMAGE: ghcr.io/ymori-aka/queuemaster
 
 jobs:
   # -------------------------------------------------------
@@ -169,12 +170,49 @@ jobs:
           cache-to: type=gha,mode=max
 
   # -------------------------------------------------------
+  # Job 1e: Build and push queuemaster Docker image
+  # (async order event consumer — RabbitMQ -> Prometheus metrics)
+  # -------------------------------------------------------
+  build-queuemaster:
+    name: Build Queue Master Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push queuemaster image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/queuemaster
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.QUEUEMASTER_IMAGE }}:sha-${{ github.sha }}
+            ${{ env.QUEUEMASTER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------
   # Job 2: Deploy to LKE
   # -------------------------------------------------------
   deploy:
     name: Deploy to LKE
     runs-on: self-hosted
-    needs: [build-frontend, build-currencyservice, build-productcatalogservice, build-checkoutservice]
+    needs: [build-frontend, build-currencyservice, build-productcatalogservice, build-checkoutservice, build-queuemaster]
     permissions:
       contents: read
       packages: read
@@ -221,6 +259,20 @@ jobs:
           kubectl apply -f kubernetes-manifests/cartservice.yaml
           kubectl apply -f kubernetes-manifests/mongodb.yaml
           kubectl rollout status deployment/redis-cart --timeout=120s || true
+
+      - name: Deploy RabbitMQ and queuemaster (async order events)
+        continue-on-error: true
+        run: |
+          # RabbitMQ broker for async order events from checkoutservice.
+          # Both pods opt out of sidecar injection — LKE webhook is unreachable.
+          kubectl apply -f kubernetes-manifests/rabbitmq.yaml
+          kubectl rollout status statefulset/rabbitmq --timeout=180s || true
+
+          # queue-master consumer + Prometheus metrics endpoint.
+          kubectl apply -f kubernetes-manifests/queuemaster.yaml
+          kubectl set image deployment/queuemaster \
+            server=${{ env.QUEUEMASTER_IMAGE }}:sha-${{ github.sha }}
+          kubectl rollout status deployment/queuemaster --timeout=120s || true
 
       - name: Update microservices to v0.10.5
         continue-on-error: true
