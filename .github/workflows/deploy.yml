@@ -302,17 +302,12 @@ jobs:
           kubectl set image deployment/paymentservice        server=${REGISTRY}/paymentservice:${VERSION}
           kubectl set image deployment/recommendationservice server=${REGISTRY}/recommendationservice:${VERSION}
           kubectl set image deployment/shippingservice       server=${REGISTRY}/shippingservice:${VERSION}
-          # Apply our loadgenerator overlay first (mounts a ConfigMap-
-          # backed locustfile with AKMT* product IDs), then pin the
-          # container image. The loadgenerator container is named
-          # `main`, not `server` like the other deployments.
-          # subPath-mounted ConfigMaps are not auto-refreshed in-place
-          # by the kubelet, so a content change in the ConfigMap will
-          # not reach the running pod until it's recreated — force a
-          # restart unconditionally so locustfile updates land.
-          kubectl apply -f kubernetes-manifests/loadgenerator.yaml
-          kubectl set image deployment/loadgenerator main=${REGISTRY}/loadgenerator:${VERSION}
-          kubectl rollout restart deployment/loadgenerator
+          # Locust loadgenerator is retired — k6 (kubernetes-manifests/k6.yaml)
+          # is the sole load generator now. Tear down any leftover resources
+          # from a previous deploy.
+          kubectl delete deployment loadgenerator --ignore-not-found
+          kubectl delete configmap loadgenerator-locust --ignore-not-found
+          kubectl delete serviceaccount loadgenerator --ignore-not-found
           # productcatalogservice: use our custom build (MongoDB-backed catalog)
           # Image is set in the dedicated step below.
 
