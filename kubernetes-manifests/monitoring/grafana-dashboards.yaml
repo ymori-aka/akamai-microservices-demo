@@ -629,9 +629,9 @@ data:
 
         {
           "id": 50, "type": "table", "title": "Slow Postgres Queries (> 100 ms)",
-          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 91 },
+          "gridPos": { "h": 10, "w": 12, "x": 0, "y": 91 },
           "datasource": { "type": "tempo", "uid": "tempo-uid" },
-          "description": "Spans where db.system=postgresql AND duration>100ms. Use to spot slow ORDER inserts / queries on the Linode Managed Postgres. Click a row to open the full trace in Explore.",
+          "description": "Spans where db.system=postgresql AND duration>100ms. Linode Managed Postgres (orders table). Click a row to open the full trace in Explore.",
           "targets": [{
             "refId": "A",
             "queryType": "traceql",
@@ -661,6 +661,82 @@ data:
                                             "steps": [ { "color": "yellow", "value": null },
                                                        { "color": "orange", "value": 250 },
                                                        { "color": "red",    "value": 500 } ] } } ] }
+            ]
+          }
+        },
+
+        {
+          "id": 51, "type": "table", "title": "Slow MongoDB Queries (> 100 ms)",
+          "gridPos": { "h": 10, "w": 12, "x": 12, "y": 91 },
+          "datasource": { "type": "tempo", "uid": "tempo-uid" },
+          "description": "Spans where db.system=mongodb AND duration>100ms. Product catalog DB on cluster. Includes find, insert, countDocuments and other commands.",
+          "targets": [{
+            "refId": "A",
+            "queryType": "traceql",
+            "query": "{ span.db.system = \"mongodb\" && duration > 100ms } | select(span.db.statement, span.db.operation, span.db.mongodb.collection)",
+            "limit": 100,
+            "tableType": "spans",
+            "spss": 5,
+            "datasource": { "type": "tempo", "uid": "tempo-uid" }
+          }],
+          "options": { "showHeader": true, "cellHeight": "sm" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "align": "auto" },
+              "links": [{
+                "title": "Open trace in Explore",
+                "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo-uid%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields.\"Trace ID\"}%22,%22queryType%22:%22traceql%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                "targetBlank": false
+              }]
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Duration" },
+                "properties": [{ "id": "unit", "value": "ms" },
+                               { "id": "custom.cellOptions",
+                                 "value": { "type": "color-background", "mode": "gradient" } },
+                               { "id": "thresholds",
+                                 "value": { "mode": "absolute",
+                                            "steps": [ { "color": "yellow", "value": null },
+                                                       { "color": "orange", "value": 250 },
+                                                       { "color": "red",    "value": 500 } ] } } ] }
+            ]
+          }
+        },
+
+        {
+          "id": 52, "type": "table", "title": "Slow Redis Commands (> 25 ms)",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 101 },
+          "datasource": { "type": "tempo", "uid": "tempo-uid" },
+          "description": "Spans where db.system=redis AND duration>25ms. Redis is normally sub-millisecond so anything over 25ms is suspicious (network blip, evict storm, big-key access).",
+          "targets": [{
+            "refId": "A",
+            "queryType": "traceql",
+            "query": "{ span.db.system = \"redis\" && duration > 25ms } | select(span.db.statement, span.db.operation)",
+            "limit": 100,
+            "tableType": "spans",
+            "spss": 5,
+            "datasource": { "type": "tempo", "uid": "tempo-uid" }
+          }],
+          "options": { "showHeader": true, "cellHeight": "sm" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "align": "auto" },
+              "links": [{
+                "title": "Open trace in Explore",
+                "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo-uid%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields.\"Trace ID\"}%22,%22queryType%22:%22traceql%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                "targetBlank": false
+              }]
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Duration" },
+                "properties": [{ "id": "unit", "value": "ms" },
+                               { "id": "custom.cellOptions",
+                                 "value": { "type": "color-background", "mode": "gradient" } },
+                               { "id": "thresholds",
+                                 "value": { "mode": "absolute",
+                                            "steps": [ { "color": "yellow", "value": null },
+                                                       { "color": "orange", "value": 100 },
+                                                       { "color": "red",    "value": 250 } ] } } ] }
             ]
           }
         }
