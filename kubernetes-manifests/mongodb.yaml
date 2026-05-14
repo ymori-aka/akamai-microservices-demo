@@ -44,6 +44,8 @@ spec:
     metadata:
       labels:
         app: mongodb
+      annotations:
+        sidecar.istio.io/inject: "false"
     spec:
       terminationGracePeriodSeconds: 30
       securityContext:

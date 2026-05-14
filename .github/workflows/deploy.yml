@@ -207,14 +207,20 @@ jobs:
           "${ISTIOCTL}" install --set profile=minimal -y
 
           # Enable automatic Envoy sidecar injection in the app namespace.
+          # Note: redis-cart and mongodb have sidecar.istio.io/inject: "false"
+          # in their pod template annotations because LKE's managed API server
+          # cannot reach the admission webhook (ClusterIP unreachable). Those
+          # workloads are re-applied from YAML in subsequent steps instead.
           kubectl label namespace default istio-injection=enabled --overwrite
 
-          # Restart workloads that were already running without a sidecar so
-          # they pick up the injected proxy on this deploy.
-          # (Services updated later in the pipeline restart themselves anyway,
-          # so we only need to cover the ones that CI doesn't otherwise touch.)
-          kubectl rollout restart statefulset/mongodb || true
-          kubectl rollout restart deployment/redis-cart || true
+      - name: Apply redis-cart and MongoDB (no sidecar injection)
+        continue-on-error: true
+        run: |
+          # Re-apply from YAML to pick up the sidecar.istio.io/inject: "false"
+          # annotation added to prevent LKE webhook failures.
+          kubectl apply -f kubernetes-manifests/cartservice.yaml
+          kubectl apply -f kubernetes-manifests/mongodb.yaml
+          kubectl rollout status deployment/redis-cart --timeout=120s || true
 
       - name: Update microservices to v0.10.5
         continue-on-error: true
