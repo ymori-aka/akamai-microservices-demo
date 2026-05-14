@@ -622,6 +622,47 @@ data:
                 "properties": [{ "id": "unit", "value": "ms" }] }
             ]
           }
+        },
+
+        { "id": 49, "type": "row", "title": "Slow Database Queries", "collapsed": false,
+          "gridPos": { "x": 0, "y": 90, "w": 24, "h": 1 } },
+
+        {
+          "id": 50, "type": "table", "title": "Slow Postgres Queries (> 100 ms)",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 91 },
+          "datasource": { "type": "tempo", "uid": "tempo-uid" },
+          "description": "Spans where db.system=postgresql AND duration>100ms. Use to spot slow ORDER inserts / queries on the Linode Managed Postgres. Click a row to open the full trace in Explore.",
+          "targets": [{
+            "refId": "A",
+            "queryType": "traceql",
+            "query": "{ span.db.system = \"postgresql\" && duration > 100ms } | select(span.db.statement, span.db.operation)",
+            "limit": 100,
+            "tableType": "spans",
+            "spss": 5,
+            "datasource": { "type": "tempo", "uid": "tempo-uid" }
+          }],
+          "options": { "showHeader": true, "cellHeight": "sm" },
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "align": "auto" },
+              "links": [{
+                "title": "Open trace in Explore",
+                "url": "/explore?orgId=1&left=%7B%22datasource%22:%22tempo-uid%22,%22queries%22:%5B%7B%22query%22:%22${__data.fields.\"Trace ID\"}%22,%22queryType%22:%22traceql%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D",
+                "targetBlank": false
+              }]
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "Duration" },
+                "properties": [{ "id": "unit", "value": "ms" },
+                               { "id": "custom.cellOptions",
+                                 "value": { "type": "color-background", "mode": "gradient" } },
+                               { "id": "thresholds",
+                                 "value": { "mode": "absolute",
+                                            "steps": [ { "color": "yellow", "value": null },
+                                                       { "color": "orange", "value": 250 },
+                                                       { "color": "red",    "value": 500 } ] } } ] }
+            ]
+          }
         }
 
       ]
