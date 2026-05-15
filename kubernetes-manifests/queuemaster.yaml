@@ -61,7 +61,7 @@ spec:
               name: http
           env:
             - name: RABBITMQ_ADDR
-              value: "rabbitmq:5672"
+              value: "user:pass@rabbitmq:5672"
             - name: OTEL_SERVICE_NAME
               value: "queuemaster"
           readinessProbe:

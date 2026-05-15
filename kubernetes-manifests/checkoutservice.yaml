@@ -67,7 +67,7 @@ spec:
           - name: CART_SERVICE_ADDR
             value: "cartservice:7070"
           - name: RABBITMQ_ADDR
-            value: "rabbitmq:5672"
+            value: "user:pass@rabbitmq:5672"
           - name: ORDER_DB_DSN
             valueFrom:
               secretKeyRef:

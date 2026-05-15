@@ -43,6 +43,11 @@ spec:
               containerPort: 15672
             - name: prometheus
               containerPort: 15692
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: "user"
+            - name: RABBITMQ_DEFAULT_PASS
+              value: "pass"
           volumeMounts:
             - name: plugins
               mountPath: /etc/rabbitmq/enabled_plugins
