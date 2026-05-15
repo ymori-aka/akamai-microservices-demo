@@ -30,7 +30,6 @@ data:
             # Linode Managed PostgreSQL cluster: a470692-akamai-prod...
             entity_ids: [470692]
             agg_function: avg
-            group_by: ["entity_id"]
             metric_names:
               - cpu_usage
               - memory_usage
@@ -45,7 +44,6 @@ data:
           #   # All traffic-rate metrics only support agg_function=sum.
           #   entity_ids: [2001057, 2154174, 2154313, 2170616, 2187125]
           #   agg_function: sum
-          #   group_by: ["entity_id"]
           #   metric_names:
           #     - nb_ingress_traffic_rate
           #     - nb_egress_traffic_rate
@@ -56,11 +54,10 @@ data:
           - service_type: objectstorage
             # Buckets in jp-osa (akamai-boutique-img, akamai-handson1, bm-test1)
             # and jp-tyo-3 (loki, thanos, velero, tokyo-test1).
-            # Object Storage uses entity_regions instead of entity_ids.
+            # Object Storage uses regions instead of entity_ids.
             # Akamai support enabled this 2026-05-14.
-            entity_regions: ["jp-osa", "jp-tyo-3"]
+            regions: ["jp-osa", "jp-tyo-3"]
             agg_function: sum
-            group_by: ["entity_id"]
             metric_names:
               - obj_bucket_size
               - obj_bucket_num_objects
