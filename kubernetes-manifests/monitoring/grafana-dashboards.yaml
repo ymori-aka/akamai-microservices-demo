@@ -43,7 +43,7 @@ data:
           "description": "USD-denominated orders placed yesterday (UTC). Source: PostgreSQL orders table via postgres_exporter.",
           "gridPos": { "x": 6, "y": 3, "w": 3, "h": 4 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [{ "expr": "orders_daily_revenue_usd OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "targets": [{ "expr": "sum(orders_daily_revenue_usd)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "colorMode": "value", "graphMode": "none", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "decimals": 2, "unit": "currencyUSD", "color": { "mode": "fixed", "fixedColor": "green" } } } },
 
@@ -51,7 +51,7 @@ data:
           "description": "Total orders placed yesterday (UTC), all currencies. Source: PostgreSQL orders table via postgres_exporter.",
           "gridPos": { "x": 9, "y": 3, "w": 3, "h": 4 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [{ "expr": "orders_daily_order_count OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "targets": [{ "expr": "sum(orders_daily_order_count)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "colorMode": "value", "graphMode": "none", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "orange" } } } },
 
@@ -59,7 +59,7 @@ data:
           "description": "USD-denominated orders placed today so far (UTC). Source: PostgreSQL orders table via postgres_exporter.",
           "gridPos": { "x": 12, "y": 3, "w": 3, "h": 4 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [{ "expr": "orders_today_revenue_usd OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "targets": [{ "expr": "sum(orders_today_revenue_usd)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "colorMode": "value", "graphMode": "none", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "decimals": 2, "unit": "currencyUSD", "color": { "mode": "fixed", "fixedColor": "semi-dark-green" } } } },
 
@@ -67,7 +67,7 @@ data:
           "description": "Total orders placed today so far (UTC), all currencies. Source: PostgreSQL orders table via postgres_exporter.",
           "gridPos": { "x": 15, "y": 3, "w": 3, "h": 4 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [{ "expr": "orders_today_order_count OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "targets": [{ "expr": "sum(orders_today_order_count)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
           "options": { "colorMode": "value", "graphMode": "none", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "fixed", "fixedColor": "semi-dark-orange" } } } },
 
