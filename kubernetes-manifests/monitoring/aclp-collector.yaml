@@ -51,17 +51,19 @@ data:
           #     - nb_new_sessions_per_second
           #     - nb_total_active_backends
 
-          - service_type: objectstorage
-            # Akamai support enabled 2026-05-14. Requires 1.6.0+ image.
-            entity_regions: ["jp-osa", "jp-tyo-3"]
-            agg_function: sum
-            group_by: ["entity_id"]
-            metric_names:
-              - obj_bucket_size
-              - obj_bucket_num_objects
-              - obj_egress_throughput
-              - obj_ingress_throughput
-              - obj_responses_5xx
+          # objectstorage: NOT supported in latest (v1.0.0).
+          # 1.6.0 Docker tag is broken (2KB image). Pending a stable image
+          # version that supports objectstorage service_type.
+          # - service_type: objectstorage
+          #   entity_regions: ["jp-osa", "jp-tyo-3"]
+          #   agg_function: sum
+          #   group_by: ["entity_id"]
+          #   metric_names:
+          #     - obj_bucket_size
+          #     - obj_bucket_num_objects
+          #     - obj_egress_throughput
+          #     - obj_ingress_throughput
+          #     - obj_responses_5xx
 
     processors:
       batch: {}
@@ -102,7 +104,7 @@ spec:
     spec:
       containers:
         - name: collector
-          image: linode/aclp-collector:1.6.0
+          image: linode/aclp-collector:latest
           imagePullPolicy: Always
           args: ["--config=/etc/aclp/config.yaml"]
           env:
