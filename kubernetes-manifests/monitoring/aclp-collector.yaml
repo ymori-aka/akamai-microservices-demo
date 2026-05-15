@@ -51,19 +51,20 @@ data:
           #     - nb_new_sessions_per_second
           #     - nb_total_active_backends
 
-          - service_type: objectstorage
-            # Buckets in jp-osa (akamai-boutique-img, akamai-handson1, bm-test1)
-            # and jp-tyo-3 (loki, thanos, velero, tokyo-test1).
-            # Object Storage uses entity_regions instead of entity_ids.
-            # Akamai support enabled this 2026-05-14.
-            entity_regions: ["jp-osa", "jp-tyo-3"]
-            agg_function: sum
-            metric_names:
-              - obj_bucket_size
-              - obj_bucket_num_objects
-              - obj_egress_throughput
-              - obj_ingress_throughput
-              - obj_responses_5xx
+          # objectstorage: correct key syntax TBD.
+          # entity_regions → invalid key in latest image
+          # regions        → "unsupported service_type" error
+          # group_by       → invalid key in latest image
+          # Commented out until correct syntax is confirmed.
+          # - service_type: objectstorage
+          #   entity_regions: ["jp-osa", "jp-tyo-3"]
+          #   agg_function: sum
+          #   metric_names:
+          #     - obj_bucket_size
+          #     - obj_bucket_num_objects
+          #     - obj_egress_throughput
+          #     - obj_ingress_throughput
+          #     - obj_responses_5xx
 
     processors:
       batch: {}
