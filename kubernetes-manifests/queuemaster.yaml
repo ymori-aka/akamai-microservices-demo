@@ -39,6 +39,8 @@ spec:
     spec:
       serviceAccountName: queuemaster
       terminationGracePeriodSeconds: 10
+      imagePullSecrets:
+        - name: ghcr-secret
       securityContext:
         fsGroup: 1000
         runAsGroup: 1000

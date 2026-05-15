@@ -264,6 +264,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Create ghcr.io imagePullSecret
+        continue-on-error: true
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=ghcr.io \
+            --docker-username=ymori-aka \
+            --docker-password=${{ secrets.GHCR_TOKEN }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply Pod Security Standards namespace labels
         continue-on-error: true
         run: |

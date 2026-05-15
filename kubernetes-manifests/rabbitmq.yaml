@@ -54,11 +54,13 @@ spec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
             initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 15
           livenessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
             initialDelaySeconds: 30
             periodSeconds: 30
+            timeoutSeconds: 15
           resources:
             requests:
               cpu: 100m
