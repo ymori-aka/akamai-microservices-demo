@@ -83,10 +83,8 @@ spec:
             value: "adservice:9555"
           - name: SHOPPING_ASSISTANT_SERVICE_ADDR
             value: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
-          # # ENV_PLATFORM: One of: local, gcp, aws, azure, onprem, alibaba
-          # # When not set, defaults to "local" unless running in GKE, otherwies auto-sets to gcp
-          # - name: ENV_PLATFORM
-          #   value: "aws"
+          - name: ENV_PLATFORM
+            value: "akamai"
           - name: ENABLE_PROFILER
             value: "0"
           - name: ORDER_DB_DSN

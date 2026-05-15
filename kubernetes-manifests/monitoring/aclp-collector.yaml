@@ -47,9 +47,19 @@ data:
           #   metric_names:
           #     - nb_ingress_traffic_rate
           #     - nb_egress_traffic_rate
+          #     - nb_ingress_tcp_traffic_rate
+          #     - nb_egress_tcp_traffic_rate
+          #     - nb_ingress_udp_traffic_rate
+          #     - nb_egress_udp_traffic_rate
           #     - nb_total_active_sessions
+          #     - nb_active_tcp_sessions
+          #     - nb_active_udp_sessions
           #     - nb_new_sessions_per_second
+          #     - nb_new_tcp_sessions_per_second
+          #     - nb_new_udp_sessions_per_second
           #     - nb_total_active_backends
+          #     - nb_active_tcp_backends
+          #     - nb_active_udp_backends
 
           # objectstorage: NOT supported in latest (v1.0.0).
           # 1.6.0 Docker tag is broken (2KB image). Pending a stable image
@@ -61,9 +71,19 @@ data:
           #   metric_names:
           #     - obj_bucket_size
           #     - obj_bucket_num_objects
+          #     - obj_bytes_uploaded
+          #     - obj_bytes_downloaded
           #     - obj_egress_throughput
           #     - obj_ingress_throughput
+          #     - obj_ttfb_average
+          #     - obj_requests_num
+          #     - obj_requests_get
+          #     - obj_requests_put
+          #     - obj_requests_delete
+          #     - obj_responses_2xx
+          #     - obj_responses_4xx
           #     - obj_responses_5xx
+          #     - obj_responses_rate_limited
 
     processors:
       batch: {}
