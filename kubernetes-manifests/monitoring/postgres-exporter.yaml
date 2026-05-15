@@ -17,10 +17,7 @@ data:
             CASE WHEN total_currency = 'USD'
                  THEN total_units + total_nanos::float / 1000000000.0
                  ELSE 0 END
-          ), 0)                                                   AS revenue_usd,
-          COALESCE(SUM(
-            total_units + total_nanos::float / 1000000000.0
-          ), 0)                                                   AS revenue_all_currencies
+          ), 0)                                                   AS revenue_usd
         FROM orders
         WHERE created_at >= date_trunc('day', now() - interval '1 day')
           AND created_at <  date_trunc('day', now())
@@ -33,9 +30,27 @@ data:
         - revenue_usd:
             usage: "GAUGE"
             description: "Revenue in USD from USD-denominated orders placed yesterday"
-        - revenue_all_currencies:
+
+    orders_today:
+      query: |
+        SELECT
+          COUNT(*)::float                                          AS order_count,
+          COALESCE(SUM(
+            CASE WHEN total_currency = 'USD'
+                 THEN total_units + total_nanos::float / 1000000000.0
+                 ELSE 0 END
+          ), 0)                                                   AS revenue_usd
+        FROM orders
+        WHERE created_at >= date_trunc('day', now())
+      master: true
+      cache_seconds: 60
+      metrics:
+        - order_count:
             usage: "GAUGE"
-            description: "Total revenue (native units summed, all currencies) placed yesterday"
+            description: "Number of orders placed today so far (UTC)"
+        - revenue_usd:
+            usage: "GAUGE"
+            description: "Revenue in USD from USD-denominated orders placed today so far"
 ---
 apiVersion: apps/v1
 kind: Deployment
