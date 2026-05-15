@@ -83,8 +83,6 @@ spec:
               drop: ["ALL"]
           args:
             - --extend.query-path=/etc/queries/queries.yaml
-            - --collector.stat_statements=false
-            - --collector.postmaster=false
           env:
             - name: DATA_SOURCE_NAME
               valueFrom:
