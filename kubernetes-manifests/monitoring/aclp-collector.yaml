@@ -1,12 +1,15 @@
 ---
 # Akamai Cloud Pulse Collector (aclp-collector)
 # Pulls metrics from Akamai's monitoring API and re-exposes them as a
-# Prometheus scrape endpoint. Currently used to surface Linode
-# Managed PostgreSQL (`dbaas`) metrics in our in-cluster Grafana.
+# Prometheus scrape endpoint. Currently collecting: dbaas, objectstorage.
 #
 # Auth: requires a Linode Personal Access Token with Monitor:Read and
-# Databases:Read, stored in the K8s Secret `linode-pat` (key=TOKEN).
-# CI creates this Secret from the LINODE_PAT GitHub Secret.
+# Databases:Read permissions, stored in the K8s Secret `linode-pat`
+# (key=TOKEN). CI creates this Secret from the LINODE_PAT GitHub Secret.
+#
+# NodeBalancer metrics: still pending account-level enablement (support
+# ticket opened 2026-05-15). Uncomment the nodebalancer block below once
+# Akamai confirms access.
 
 apiVersion: v1
 kind: ConfigMap
@@ -20,39 +23,50 @@ data:
     # Prometheus metrics on :9464/metrics.
     receivers:
       akamaicloudpulsereceiver:
-        # NOTE: the receiver schema is case-sensitive; the auth field
-        # is the uppercase `PAT`. ${env:VAR} substitution is provided
-        # by the OTel collector core.
         PAT: ${env:LINODE_API_TOKEN}
-        # 5m is the minimum interval accepted by the NodeBalancer
-        # monitor endpoint (polling_interval_seconds: [300, 900, ...]).
-        # DBaaS tolerates 1m, but the receiver only takes one global
-        # interval, so we use 5m for both.
         polling_interval: 5m
         services:
           - service_type: dbaas
             # Linode Managed PostgreSQL cluster: a470692-akamai-prod...
             entity_ids: [470692]
             agg_function: avg
-            # Receiver caps `metric_names` at 5 per service_type.
-            # Pulled by querying
-            # GET /v4/monitor/services/dbaas/metric-definitions.
+            group_by: ["entity_id"]
             metric_names:
               - cpu_usage
               - memory_usage
               - disk_usage
               - read_iops
               - write_iops
-        # NodeBalancer is also a supported service_type but every
-        # combination we tried (avg / sum / min / max, 1 entity, 1
-        # metric, 1m / 5m interval) returns 400 Bad Request from
-        # the receiver's metrics fetch. DBaaS works against the
-        # same PAT, so this looks like an API contract mismatch on
-        # the NB side specifically. Disabled until we can capture
-        # the exact request the receiver is sending.
-        #
-        # Object Storage is documented but its metric-definitions
-        # endpoint returns 404, so it's also not polled yet.
+
+          # - service_type: nodebalancer
+          #   # Uncomment when Akamai enables NB metrics for this account.
+          #   # NLBs: jp-osa: 2154313, 2170616, 2187125; jp-tyo-3: 2154174;
+          #   # standalone WP-OSA1: 2001057.
+          #   # All traffic-rate metrics only support agg_function=sum.
+          #   entity_ids: [2001057, 2154174, 2154313, 2170616, 2187125]
+          #   agg_function: sum
+          #   group_by: ["entity_id"]
+          #   metric_names:
+          #     - nb_ingress_traffic_rate
+          #     - nb_egress_traffic_rate
+          #     - nb_total_active_sessions
+          #     - nb_new_sessions_per_second
+          #     - nb_total_active_backends
+
+          - service_type: objectstorage
+            # Buckets in jp-osa (akamai-boutique-img, akamai-handson1, bm-test1)
+            # and jp-tyo-3 (loki, thanos, velero, tokyo-test1).
+            # Object Storage uses entity_regions instead of entity_ids.
+            # Akamai support enabled this 2026-05-14.
+            entity_regions: ["jp-osa", "jp-tyo-3"]
+            agg_function: sum
+            group_by: ["entity_id"]
+            metric_names:
+              - obj_bucket_size
+              - obj_bucket_num_objects
+              - obj_egress_throughput
+              - obj_ingress_throughput
+              - obj_responses_5xx
 
     processors:
       batch: {}
