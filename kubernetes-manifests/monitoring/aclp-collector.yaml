@@ -51,20 +51,17 @@ data:
           #     - nb_new_sessions_per_second
           #     - nb_total_active_backends
 
-          # objectstorage: correct key syntax TBD.
-          # entity_regions → invalid key in latest image
-          # regions        → "unsupported service_type" error
-          # group_by       → invalid key in latest image
-          # Commented out until correct syntax is confirmed.
-          # - service_type: objectstorage
-          #   entity_regions: ["jp-osa", "jp-tyo-3"]
-          #   agg_function: sum
-          #   metric_names:
-          #     - obj_bucket_size
-          #     - obj_bucket_num_objects
-          #     - obj_egress_throughput
-          #     - obj_ingress_throughput
-          #     - obj_responses_5xx
+          - service_type: objectstorage
+            # Akamai support enabled 2026-05-14. Requires 1.6.0+ image.
+            entity_regions: ["jp-osa", "jp-tyo-3"]
+            agg_function: sum
+            group_by: ["entity_id"]
+            metric_names:
+              - obj_bucket_size
+              - obj_bucket_num_objects
+              - obj_egress_throughput
+              - obj_ingress_throughput
+              - obj_responses_5xx
 
     processors:
       batch: {}
@@ -105,7 +102,7 @@ spec:
     spec:
       containers:
         - name: collector
-          image: linode/aclp-collector:latest
+          image: linode/aclp-collector:1.6.0
           imagePullPolicy: Always
           args: ["--config=/etc/aclp/config.yaml"]
           env:
