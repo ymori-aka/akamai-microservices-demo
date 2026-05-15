@@ -75,6 +75,13 @@ data:
         static_configs:
           - targets: ['queuemaster.default.svc.cluster.local:8080']
 
+      # postgres_exporter — queries orders table for yesterday's order count
+      # and revenue. Values are GAUGE (not counters), so no increase() needed.
+      - job_name: 'postgres-exporter'
+        scrape_interval: 1m
+        static_configs:
+          - targets: ['postgres-exporter.monitoring.svc.cluster.local:9187']
+
       # Akamai Cloud Pulse — Linode Managed PostgreSQL (DBaaS) metrics
       - job_name: 'aclp-dbaas'
         # Cloud Pulse polls upstream every 5 min; no value in scraping

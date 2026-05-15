@@ -1,0 +1,103 @@
+---
+# postgres_exporter — exposes yesterday's order count and revenue as
+# Prometheus gauges by querying the Linode Managed PostgreSQL orders table.
+# Scrape interval: 1 min (values only change once a day, but gauges are cheap).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-exporter-queries
+  namespace: monitoring
+data:
+  queries.yaml: |
+    orders_daily:
+      query: |
+        SELECT
+          COUNT(*)::float                                          AS order_count,
+          COALESCE(SUM(
+            CASE WHEN total_currency = 'USD'
+                 THEN total_units + total_nanos::float / 1000000000.0
+                 ELSE 0 END
+          ), 0)                                                   AS revenue_usd,
+          COALESCE(SUM(
+            total_units + total_nanos::float / 1000000000.0
+          ), 0)                                                   AS revenue_all_currencies
+        FROM orders
+        WHERE created_at >= date_trunc('day', now() - interval '1 day')
+          AND created_at <  date_trunc('day', now())
+      master: true
+      cache_seconds: 60
+      metrics:
+        - order_count:
+            usage: "GAUGE"
+            description: "Number of orders placed yesterday (UTC day boundary)"
+        - revenue_usd:
+            usage: "GAUGE"
+            description: "Revenue in USD from USD-denominated orders placed yesterday"
+        - revenue_all_currencies:
+            usage: "GAUGE"
+            description: "Total revenue (native units summed, all currencies) placed yesterday"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  namespace: monitoring
+  labels:
+    app: postgres-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-exporter
+  template:
+    metadata:
+      labels:
+        app: postgres-exporter
+    spec:
+      containers:
+        - name: postgres-exporter
+          image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+          args:
+            - --extend.query-path=/etc/queries/queries.yaml
+            - --collector.stat_statements=false
+            - --collector.postmaster=false
+          env:
+            - name: DATA_SOURCE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: orders-db-credentials
+                  key: DSN
+          ports:
+            - name: metrics
+              containerPort: 9187
+          volumeMounts:
+            - name: queries
+              mountPath: /etc/queries
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: queries
+          configMap:
+            name: postgres-exporter-queries
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  namespace: monitoring
+  labels:
+    app: postgres-exporter
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres-exporter
+  ports:
+    - name: metrics
+      port: 9187
+      targetPort: 9187
