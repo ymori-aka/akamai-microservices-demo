@@ -454,6 +454,7 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           kubectl apply -f kubernetes-manifests/monitoring/kiali.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/postgres-exporter.yaml
 
           # Restart Grafana so it picks up any datasource ConfigMap changes
           # (datasource provisioning is only loaded at pod startup).

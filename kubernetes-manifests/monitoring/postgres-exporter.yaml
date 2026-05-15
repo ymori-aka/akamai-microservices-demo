@@ -69,9 +69,18 @@ spec:
       labels:
         app: postgres-exporter
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres-exporter
           image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           args:
             - --extend.query-path=/etc/queries/queries.yaml
             - --collector.stat_statements=false
