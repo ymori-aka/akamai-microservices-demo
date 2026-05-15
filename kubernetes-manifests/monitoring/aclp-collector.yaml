@@ -54,9 +54,9 @@ data:
           - service_type: objectstorage
             # Buckets in jp-osa (akamai-boutique-img, akamai-handson1, bm-test1)
             # and jp-tyo-3 (loki, thanos, velero, tokyo-test1).
-            # Object Storage uses regions instead of entity_ids.
+            # Object Storage uses entity_regions instead of entity_ids.
             # Akamai support enabled this 2026-05-14.
-            regions: ["jp-osa", "jp-tyo-3"]
+            entity_regions: ["jp-osa", "jp-tyo-3"]
             agg_function: sum
             metric_names:
               - obj_bucket_size
@@ -105,6 +105,7 @@ spec:
       containers:
         - name: collector
           image: linode/aclp-collector:latest
+          imagePullPolicy: Always
           args: ["--config=/etc/aclp/config.yaml"]
           env:
             - name: LINODE_API_TOKEN
