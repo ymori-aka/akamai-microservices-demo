@@ -41,7 +41,7 @@
 | 7 | **注文履歴の永続化** | Linode Managed PostgreSQL に注文を保存、`/orders` / `/admin/orders` で閲覧 |
 | 8 | **MongoDB ベースの商品カタログ** | StatefulSet + PVC、初回起動時に自動シード、管理画面から CRUD |
 | 9 | **商品画像を Linode Object Storage で配信** | `*.linodeobjects.com` から画像を提供（クラスタ内配信ではなく） |
-| 10 | **クラスタ内 Grafana + Cloud Pulse** | DB / LB / LLM のメトリクスを 1 つのダッシュボードで表示 |
+| 10 | **クラスタ内 Grafana + Cloud Pulse** | DB / LB / LLM のメトリクスを 1 つのダッシュボードで表示。前日・当日の注文数と売上を PostgreSQL から直接クエリして表示 |
 | 11 | **LLM のエンドツーエンド計装** | モデル別の token 使用量、レイテンシ p50/p95/p99、エラー率 |
 | 12 | **GitHub Actions による自動デプロイ** | push → build → LKE デプロイ → Akamai Functions デプロイを完全自動化 |
 | 13 | **認証付き商品管理画面** | 商品の追加・編集・削除・在庫管理をブラウザから実施 |
@@ -94,6 +94,7 @@ graph TB
         TEMPO["Tempo"]
         GRAF["Grafana"]
         ACLP["aclp-collector<br/>(Cloud Pulse ブリッジ)"]
+        PGEXP["postgres_exporter<br/>(注文 KPI クエリ)"]
     end
 
     USER -->|HTTP| FE
@@ -111,7 +112,8 @@ graph TB
     PC --> MONGO
     CART --> REDIS
     ACLP -->|Linode API| PG
-    PROM -->|scrape| OTEL & ACLP & GEMMA
+    PGEXP -->|SQL クエリ| PG
+    PROM -->|scrape| OTEL & ACLP & GEMMA & PGEXP
     GRAF --> PROM & LOKI & TEMPO
 ```
 
@@ -132,6 +134,7 @@ graph TB
 | **画像ストア** | Linode Object Storage | public-read バケットから `/static/img/products/*` を配信 |
 | **可観測性** | Prometheus / Loki / Tempo / Grafana / Grafana Alloy / Beyla / OTel Collector | メトリクス、ログ、トレース、eBPF |
 | **マネージド系メトリクス** | Akamai Cloud Pulse (`aclp-collector`) | DBaaS + NodeBalancer のメトリクスを Prometheus に橋渡し |
+| **ビジネス KPI メトリクス** | `postgres_exporter`（カスタムクエリ） | 前日・当日の注文数と売上を PostgreSQL から直接クエリし Prometheus ゲージとして公開 |
 | **LLM メトリクス** | prometheus-fastapi-instrumentator + カスタム middleware | モデル別 token / レイテンシ / エラー率 |
 | **CI/CD** | GitHub Actions + セルフホスト Runner | push → build → デプロイの自動化 |
 | **コンテナレジストリ** | GitHub Container Registry (ghcr.io) | Docker イメージの保管先 |
@@ -166,17 +169,25 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 
 | コンポーネント | 役割 |
 |---------------|------|
-| **Prometheus** | OTel Collector / `aclp-collector` / LLM `/metrics` を scrape |
+| **Prometheus** | OTel Collector / `aclp-collector` / `postgres_exporter` / LLM `/metrics` を scrape |
 | **Loki** | コンテナログ（Grafana Alloy 経由） |
 | **Tempo** | マイクロサービスと Spin Function の分散トレース |
 | **Grafana** | 2 ダッシュボード：*Akamai Store — Operations* と *Akamai Store — Infrastructure & LLM* |
 | **`aclp-collector`** | Akamai 配布の OTel ディストリビューション。Cloud Pulse → Prometheus へ `dbaas` / `nodebalancer` メトリクスを橋渡し |
+| **`postgres_exporter`** | `orders` テーブルに SQL で直接クエリ。`orders_daily_*`（前日）と `orders_today_*`（当日）ゲージを Grafana のビジネス KPI パネルに提供 |
 | **LLM 計装** | llama-cpp-python サーバー内に `prometheus-fastapi-instrumentator` + カスタム token カウント middleware |
 
 **Cloud Pulse から取得するメトリクス：**
 
 - *DBaaS (PostgreSQL)*: `avg_cpu_usage`, `avg_memory_usage`, `avg_disk_usage`, `avg_read_iops`, `avg_write_iops`
-- *NodeBalancer*: ingress / egress traffic rate、active sessions、new sessions/s、active backends
+- *NodeBalancer*: アカウント有効化待ち（サポートチケット 2026-05-15 申請済み）。設定は `aclp-collector.yaml` に準備済み。有効化後はコメントアウトを外すだけで動作。
+
+**ビジネス KPI メトリクス（PostgreSQL から直接取得）：**
+
+- `orders_daily_order_count` — 前日（UTC）の注文数
+- `orders_daily_revenue_usd` — 前日の USD 売上
+- `orders_today_order_count` — 当日（UTC）の注文数（累計）
+- `orders_today_revenue_usd` — 当日の USD 売上（累計）
 
 **LLM 側で取得するメトリクス：**
 
@@ -184,8 +195,9 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 - `llm_request_duration_seconds_bucket`（latency histogram → p50 / p95 / p99）
 - `llm_prompt_tokens_total`, `llm_completion_tokens_total`, `llm_total_tokens_total`
 
-> Object Storage も Cloud Pulse の `service_type` として文書化されていますが、
-> API エンドポイントが現状 404 を返すため、まだ scrape はしていません。
+> **Object Storage（Cloud Pulse）：** `service_type` としてドキュメントに記載されているが、
+> collector v1.0.0 では未実装。安定版イメージのリリース待ち。設定は `aclp-collector.yaml`
+> にコメントアウト済みで準備完了。
 
 ---
 
@@ -473,6 +485,7 @@ push to main
 │       ├── grafana.yaml
 │       ├── grafana-dashboards.yaml   # Operations + Infrastructure & LLM
 │       ├── aclp-collector.yaml       # Akamai Cloud Pulse → Prometheus
+│       ├── postgres-exporter.yaml    # 注文 KPI クエリ → Prometheus ゲージ
 │       ├── otel-collector.yaml
 │       └── redis-exporter.yaml
 ├── scripts/
@@ -522,6 +535,8 @@ push to main
 - クラスタ内 Prometheus / Loki / Tempo / Grafana スタック
 - `aclp-collector` 経由で Akamai Cloud Pulse 統合（DBaaS と
   NodeBalancer のメトリクス）
+- `postgres_exporter` カスタム SQL クエリによるビジネス KPI メトリクス
+  （前日・当日の注文数と売上を Grafana ダッシュボードにリアルタイム表示）
 - LLM サーバーを HTTP + token / latency の Prometheus メトリクスで計装
 - GitHub Actions による LKE + Akamai Functions への自動デプロイ
 

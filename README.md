@@ -41,7 +41,7 @@
 | 7 | **Persistent order history** | Orders written to Linode Managed PostgreSQL; viewable at `/orders` & `/admin/orders` |
 | 8 | **MongoDB-backed product catalog** | StatefulSet PVC with seed-on-first-start, full admin CRUD |
 | 9 | **Product images on Linode Object Storage** | Images served from `*.linodeobjects.com` instead of in-cluster |
-| 10 | **In-cluster Grafana + Cloud Pulse** | DB / LB / LLM metrics in a single dashboard |
+| 10 | **In-cluster Grafana + Cloud Pulse** | DB / LB / LLM metrics in a single dashboard; yesterday's and today's order count & revenue queried directly from PostgreSQL |
 | 11 | **End-to-end LLM telemetry** | Token usage, latency p50/p95/p99, error rate per model |
 | 12 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
 | 13 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
@@ -94,6 +94,7 @@ graph TB
         TEMPO["Tempo"]
         GRAF["Grafana"]
         ACLP["aclp-collector<br/>(Cloud Pulse bridge)"]
+        PGEXP["postgres_exporter<br/>(orders KPI queries)"]
     end
 
     USER -->|HTTP| FE
@@ -111,7 +112,8 @@ graph TB
     PC --> MONGO
     CART --> REDIS
     ACLP -->|Linode API| PG
-    PROM -->|scrape| OTEL & ACLP & GEMMA
+    PGEXP -->|SQL queries| PG
+    PROM -->|scrape| OTEL & ACLP & GEMMA & PGEXP
     GRAF --> PROM & LOKI & TEMPO
 ```
 
@@ -132,6 +134,7 @@ graph TB
 | **Image Store** | Linode Object Storage | Public-read bucket serving `/static/img/products/*` |
 | **Observability** | Prometheus / Loki / Tempo / Grafana / Grafana Alloy / Beyla / OTel Collector | Metrics, logs, traces, eBPF |
 | **Managed-svc Metrics** | Akamai Cloud Pulse (`aclp-collector`) | DBaaS + NodeBalancer metrics scraped by Prometheus |
+| **Business KPI Metrics** | `postgres_exporter` (custom queries) | Yesterday's & today's order count and revenue queried directly from PostgreSQL; exposed as Prometheus gauges |
 | **LLM Metrics** | prometheus-fastapi-instrumentator + custom middleware | Token / latency / error rate per model |
 | **CI/CD** | GitHub Actions + self-hosted runner | Automated build & deploy on push |
 | **Container Registry** | GitHub Container Registry (ghcr.io) | Docker image storage |
@@ -167,17 +170,25 @@ services.
 
 | Component | What it provides |
 |-----------|------------------|
-| **Prometheus** | Scrapes microservices via OTel Collector + `aclp-collector` + LLM `/metrics` |
+| **Prometheus** | Scrapes microservices via OTel Collector + `aclp-collector` + `postgres_exporter` + LLM `/metrics` |
 | **Loki** | Container logs (via Grafana Alloy) |
 | **Tempo** | Distributed traces from microservices and Spin functions |
 | **Grafana** | Two dashboards: *Akamai Store — Operations* and *Akamai Store — Infrastructure & LLM* |
 | **`aclp-collector`** | OTel distribution maintained by Akamai; bridges Cloud Pulse → Prometheus for `dbaas` & `nodebalancer` metrics |
+| **`postgres_exporter`** | Queries the `orders` table directly; exposes `orders_daily_*` (yesterday) and `orders_today_*` (current day) gauges for the Grafana business KPI panels |
 | **LLM instrumentation** | `prometheus-fastapi-instrumentator` + custom token-counting middleware running inside the llama-cpp-python server |
 
 **Cloud Pulse metrics surfaced:**
 
 - *DBaaS (PostgreSQL)*: `avg_cpu_usage`, `avg_memory_usage`, `avg_disk_usage`, `avg_read_iops`, `avg_write_iops`
-- *NodeBalancer*: ingress / egress traffic rate, active sessions, new sessions/s, active backends
+- *NodeBalancer*: pending account-level enablement (support ticket filed 2026-05-15). Config is ready in `aclp-collector.yaml`; uncomment once Akamai confirms access.
+
+**Business KPI metrics (from PostgreSQL):**
+
+- `orders_daily_order_count` — number of orders placed yesterday (UTC)
+- `orders_daily_revenue_usd` — USD revenue from yesterday's orders
+- `orders_today_order_count` — orders placed today so far (UTC)
+- `orders_today_revenue_usd` — USD revenue from today's orders so far
 
 **LLM metrics surfaced:**
 
@@ -185,8 +196,9 @@ services.
 - `llm_request_duration_seconds_bucket` (latency histogram → p50 / p95 / p99)
 - `llm_prompt_tokens_total`, `llm_completion_tokens_total`, `llm_total_tokens_total`
 
-> Object Storage metrics are documented as a Cloud Pulse `service_type`
-> but the API endpoint currently returns 404, so they are not yet scraped.
+> **Object Storage (Cloud Pulse):** documented as a supported `service_type` but
+> collector v1.0.0 does not implement it yet. Config is commented out in
+> `aclp-collector.yaml` pending a stable image release.
 
 ---
 
@@ -476,6 +488,7 @@ and line-items resolved from `orders` / `order_items`.
 │       ├── grafana.yaml
 │       ├── grafana-dashboards.yaml   # Operations + Infrastructure & LLM
 │       ├── aclp-collector.yaml       # Akamai Cloud Pulse → Prometheus
+│       ├── postgres-exporter.yaml    # Orders KPI queries → Prometheus gauges
 │       ├── otel-collector.yaml
 │       └── redis-exporter.yaml
 ├── scripts/
@@ -525,6 +538,8 @@ This project is derived from [GoogleCloudPlatform/microservices-demo](https://gi
 - In-cluster Prometheus / Loki / Tempo / Grafana stack
 - Akamai Cloud Pulse integration via `aclp-collector` for DBaaS &
   NodeBalancer metrics
+- `postgres_exporter` with custom SQL queries for real-time business KPIs
+  (yesterday's and today's order count & revenue) surfaced in Grafana
 - LLM server instrumented with HTTP + token / latency Prometheus metrics
 - GitHub Actions CI/CD for automated LKE + Akamai Functions deployment
 
