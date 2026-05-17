@@ -11,7 +11,6 @@ env:
   CURRENCY_IMAGE: ghcr.io/ymori-aka/currencyservice
   PRODUCTCATALOG_IMAGE: ghcr.io/ymori-aka/productcatalogservice
   CHECKOUT_IMAGE: ghcr.io/ymori-aka/checkoutservice
-  QUEUEMASTER_IMAGE: ghcr.io/ymori-aka/queuemaster
   CART_IMAGE: ghcr.io/ymori-aka/cartservice
 
 jobs:
@@ -171,44 +170,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   # -------------------------------------------------------
-  # Job 1e: Build and push queuemaster Docker image
-  # (async order event consumer — RabbitMQ -> Prometheus metrics)
-  # -------------------------------------------------------
-  build-queuemaster:
-    name: Build Queue Master Image
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Build and push queuemaster image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./src/queuemaster
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.QUEUEMASTER_IMAGE }}:sha-${{ github.sha }}
-            ${{ env.QUEUEMASTER_IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # -------------------------------------------------------
-  # Job 1f: Build and push cartservice Docker image
+  # Job 1e: Build and push cartservice Docker image
   # (custom build — adds OpenTelemetry.Instrumentation.StackExchangeRedis
   # so cart Redis ops show up as spans in Tempo.)
   # -------------------------------------------------------
@@ -253,7 +215,7 @@ jobs:
   deploy:
     name: Deploy to LKE
     runs-on: self-hosted
-    needs: [build-frontend, build-currencyservice, build-productcatalogservice, build-checkoutservice, build-queuemaster, build-cartservice]
+    needs: [build-frontend, build-currencyservice, build-productcatalogservice, build-checkoutservice, build-cartservice]
     permissions:
       contents: read
       packages: read
@@ -326,45 +288,18 @@ jobs:
           kubectl apply -f kubernetes-manifests/mongodb.yaml
           kubectl rollout status deployment/redis-cart --timeout=120s || true
 
-      - name: Deploy RabbitMQ and queuemaster (async order events)
+      - name: Remove obsolete RabbitMQ and queuemaster resources
         continue-on-error: true
         run: |
-          set +e  # Don't exit on errors — we want the diagnostics to always run
-          # RabbitMQ broker for async order events from checkoutservice.
-          # Both pods opt out of sidecar injection — LKE webhook is unreachable.
-          kubectl apply -f kubernetes-manifests/rabbitmq.yaml
-          # Force restart to pick up credential env var changes (RABBITMQ_DEFAULT_USER/PASS).
-          kubectl rollout restart statefulset/rabbitmq
-          kubectl rollout status statefulset/rabbitmq --timeout=300s
-
-          # queue-master consumer + Prometheus metrics endpoint.
-          kubectl apply -f kubernetes-manifests/queuemaster.yaml
-          kubectl set image deployment/queuemaster \
-            server=${{ env.QUEUEMASTER_IMAGE }}:sha-${{ github.sha }}
-          kubectl rollout status deployment/queuemaster --timeout=120s
-
-          # Diagnostics: ALWAYS print pod status + logs, even if rollouts above timed out
-          echo ""
-          echo "===== RabbitMQ pod status ====="
-          kubectl get pod -l app=rabbitmq -o wide
-          echo ""
-          echo "===== RabbitMQ pod describe (last 40 lines) ====="
-          RMQ_POD=$(kubectl get pod -l app=rabbitmq -o name | head -1)
-          if [ -n "${RMQ_POD}" ]; then
-            kubectl describe ${RMQ_POD} | tail -40
-            echo ""
-            echo "===== RabbitMQ logs (last 50 lines) ====="
-            kubectl logs ${RMQ_POD} --tail=50
-            echo ""
-            echo "===== RabbitMQ logs (previous container, if any) ====="
-            kubectl logs ${RMQ_POD} --previous --tail=30 2>/dev/null || echo "(no previous container)"
-          fi
-          echo ""
-          echo "===== queuemaster pod status ====="
-          kubectl get pod -l app=queuemaster
-          echo ""
-          echo "===== queuemaster logs (last 30 lines) ====="
-          kubectl logs deployment/queuemaster --tail=30 2>/dev/null || true
+          # RabbitMQ + queuemaster were removed from the architecture
+          # (Business KPIs come from postgres-exporter directly).
+          # Clean up any leftover resources from previous deploys.
+          kubectl delete statefulset rabbitmq -n default --ignore-not-found
+          kubectl delete service rabbitmq -n default --ignore-not-found
+          kubectl delete configmap rabbitmq-plugins -n default --ignore-not-found
+          kubectl delete deployment queuemaster -n default --ignore-not-found
+          kubectl delete service queuemaster -n default --ignore-not-found
+          kubectl delete serviceaccount queuemaster -n default --ignore-not-found
 
       - name: Deploy k6 continuous load generator
         continue-on-error: true
@@ -579,13 +514,13 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "2. Prometheus targets — aclp-dbaas / rabbitmq / queuemaster"
+          echo "2. Prometheus targets — aclp-dbaas / postgres-exporter"
           echo "=========================================="
           PROM_POD=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
           if [ -n "${PROM_POD}" ]; then
             kubectl -n monitoring exec ${PROM_POD} -- wget -qO- http://localhost:9090/api/v1/targets 2>/dev/null \
               | tr ',' '\n' \
-              | grep -E '"job":"(aclp-dbaas|rabbitmq|queuemaster)"|"health":|"lastError":' \
+              | grep -E '"job":"(aclp-dbaas|postgres-exporter)"|"health":|"lastError":' \
               | head -30 \
               || echo "(no targets matched)"
           fi

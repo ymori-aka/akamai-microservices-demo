@@ -85,47 +85,8 @@ data:
           "options": { "colorMode": "background", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
           "fieldConfig": { "defaults": { "unit": "s", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 15 } ] } } } },
 
-        { "id": 110, "type": "row", "title": "Business KPIs (Sales)", "collapsed": false,
-          "gridPos": { "x": 0, "y": 7, "w": 24, "h": 1 } },
-
-        { "id": 111, "type": "timeseries", "title": "Revenue rate by currency (per minute)",
-          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 7 },
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [
-            { "expr": "sum by (currency) (rate(checkout_revenue_total[1m])) * 60", "legendFormat": "{{currency}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
-          ],
-          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"] }, "tooltip": { "mode": "multi" } },
-          "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
-
-        { "id": 112, "type": "timeseries", "title": "Orders per minute",
-          "gridPos": { "x": 12, "y": 8, "w": 6, "h": 7 },
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [
-            { "expr": "sum(rate(queuemaster_orders_processed_total[1m])) * 60 OR vector(0)", "legendFormat": "orders/min", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
-          ],
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
-          "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 30, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "fixed", "fixedColor": "orange" } } } },
-
-        { "id": 113, "type": "stat", "title": "Avg order value (USD, 1h)",
-          "gridPos": { "x": 18, "y": 8, "w": 6, "h": 3 },
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [
-            { "expr": "sum(increase(checkout_revenue_usd_total[1h])) / clamp_min(sum(increase(queuemaster_orders_processed_total[1h])), 1)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
-          ],
-          "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } } } },
-
-        { "id": 114, "type": "stat", "title": "Items / order (avg)",
-          "gridPos": { "x": 18, "y": 11, "w": 6, "h": 4 },
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [
-            { "expr": "sum(rate(checkout_items_per_order_sum[1h])) / clamp_min(sum(rate(checkout_items_per_order_count[1h])), 0.0001)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
-          ],
-          "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
-          "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "blue" } } } },
-
         { "id": 50, "type": "row", "title": "Application", "collapsed": false,
-          "gridPos": { "x": 0, "y": 15, "w": 24, "h": 1 } },
+          "gridPos": { "x": 0, "y": 7, "w": 24, "h": 1 } },
 
         { "id": 10, "type": "timeseries", "title": "Request rate by service",
           "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
@@ -225,38 +186,6 @@ data:
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
             { "expr": "histogram_quantile(0.95, sum by (scenario) (rate(k6_http_req_duration[1m])))", "legendFormat": "{{scenario}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
-          ],
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
-          "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
-
-        { "id": 80, "type": "row", "title": "Message Queue (RabbitMQ / queuemaster)", "collapsed": false,
-          "gridPos": { "x": 0, "y": 49, "w": 24, "h": 1 } },
-
-        { "id": 81, "type": "stat", "title": "Queue depth — order.placed",
-          "gridPos": { "x": 0, "y": 50, "w": 6, "h": 7 },
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [
-            { "expr": "sum(rabbitmq_queue_messages{queue=\"order.placed\"}) OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
-          ],
-          "options": { "graphMode": "area", "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
-          "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 200 } ] } } } },
-
-        { "id": 82, "type": "timeseries", "title": "Message rate (published vs processed)",
-          "gridPos": { "x": 6, "y": 50, "w": 12, "h": 7 },
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [
-            { "expr": "sum(rate(queuemaster_orders_received_total[1m])) * 60", "legendFormat": "published/min", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
-            { "expr": "sum(rate(queuemaster_orders_processed_total[1m])) * 60", "legendFormat": "processed/min", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
-          ],
-          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
-          "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
-
-        { "id": 83, "type": "timeseries", "title": "Processing latency (queuemaster)",
-          "gridPos": { "x": 18, "y": 50, "w": 6, "h": 7 },
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "targets": [
-            { "expr": "histogram_quantile(0.50, sum by (le) (rate(queuemaster_processing_duration_seconds_bucket[5m])))", "legendFormat": "p50", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } },
-            { "expr": "histogram_quantile(0.95, sum by (le) (rate(queuemaster_processing_duration_seconds_bucket[5m])))", "legendFormat": "p95", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
           ],
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
           "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },

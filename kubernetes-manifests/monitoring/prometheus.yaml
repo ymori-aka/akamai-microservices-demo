@@ -61,20 +61,6 @@ data:
         static_configs:
           - targets: ['redis-exporter.monitoring.svc.cluster.local:9121']
 
-      # RabbitMQ — async order events. rabbitmq_prometheus plugin exposes
-      # queue depth, message rates, connection counts on port 15692.
-      - job_name: 'rabbitmq'
-        scrape_interval: 30s
-        static_configs:
-          - targets: ['rabbitmq.default.svc.cluster.local:15692']
-
-      # queuemaster — async order consumer. Custom metrics:
-      # queuemaster_orders_{received,processed}_total, processing_duration_seconds.
-      - job_name: 'queuemaster'
-        scrape_interval: 15s
-        static_configs:
-          - targets: ['queuemaster.default.svc.cluster.local:8080']
-
       # postgres_exporter — queries orders table for yesterday's order count
       # and revenue. Values are GAUGE (not counters), so no increase() needed.
       - job_name: 'postgres-exporter'
