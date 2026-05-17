@@ -468,6 +468,9 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           kubectl apply -f kubernetes-manifests/monitoring/kiali.yaml
           kubectl apply -f kubernetes-manifests/monitoring/postgres-exporter.yaml
+          # Always restart postgres-exporter to recover from any crash/connection loss
+          kubectl -n monitoring rollout restart deployment/postgres-exporter
+          kubectl -n monitoring rollout status deployment/postgres-exporter --timeout=60s || true
 
           # Restart Grafana so it picks up any datasource ConfigMap changes
           # (datasource provisioning is only loaded at pod startup).
@@ -519,24 +522,11 @@ jobs:
             echo "LINODE_PAT not set — skipping aclp-collector deployment."
           fi
 
-      - name: Diagnostics — Grafana password reset, aclp-collector status, Prometheus targets
+      - name: Diagnostics — aclp-collector status, Prometheus targets
         continue-on-error: true
         run: |
           echo "=========================================="
-          echo "1. Reset Grafana admin password to 'admin'"
-          echo "=========================================="
-          # Grafana caches the admin password in the DB after first login,
-          # ignoring the env var. Use grafana-cli to force-reset it so the
-          # demo password from the Secret is always active.
-          kubectl -n monitoring rollout status deployment/grafana --timeout=120s || true
-          GRAFANA_POD=$(kubectl -n monitoring get pod -l app=grafana -o name | head -1)
-          if [ -n "${GRAFANA_POD}" ]; then
-            kubectl -n monitoring exec ${GRAFANA_POD} -- grafana-cli admin reset-admin-password admin || true
-          fi
-
-          echo ""
-          echo "=========================================="
-          echo "2. aclp-collector pod status & logs"
+          echo "1. aclp-collector pod status & logs"
           echo "=========================================="
           kubectl -n monitoring get pods -l app=aclp-collector -o wide || true
           kubectl -n monitoring logs -l app=aclp-collector --tail=30 || true
@@ -554,7 +544,7 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "4. Prometheus targets — aclp-dbaas / rabbitmq / queuemaster"
+          echo "2. Prometheus targets — aclp-dbaas / rabbitmq / queuemaster"
           echo "=========================================="
           PROM_POD=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
           if [ -n "${PROM_POD}" ]; then
@@ -567,7 +557,7 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "5. Sample query: avg_cpu_usage{entity_id=470692}"
+          echo "3. Sample query: avg_cpu_usage{entity_id=470692}"
           echo "=========================================="
           if [ -n "${PROM_POD}" ]; then
             kubectl -n monitoring exec ${PROM_POD} -- \
