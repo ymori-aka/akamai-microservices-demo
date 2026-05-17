@@ -325,13 +325,23 @@ jobs:
           # RabbitMQ broker for async order events from checkoutservice.
           # Both pods opt out of sidecar injection — LKE webhook is unreachable.
           kubectl apply -f kubernetes-manifests/rabbitmq.yaml
-          kubectl rollout status statefulset/rabbitmq --timeout=180s || true
+          # Force restart to pick up credential env var changes (RABBITMQ_DEFAULT_USER/PASS).
+          kubectl rollout restart statefulset/rabbitmq
+          kubectl rollout status statefulset/rabbitmq --timeout=180s
 
           # queue-master consumer + Prometheus metrics endpoint.
           kubectl apply -f kubernetes-manifests/queuemaster.yaml
           kubectl set image deployment/queuemaster \
             server=${{ env.QUEUEMASTER_IMAGE }}:sha-${{ github.sha }}
-          kubectl rollout status deployment/queuemaster --timeout=120s || true
+          kubectl rollout status deployment/queuemaster --timeout=120s
+
+          # Diagnostics: confirm RabbitMQ is up and queuemaster connected
+          echo "--- RabbitMQ pod status ---"
+          kubectl get pod -l app=rabbitmq
+          echo "--- queuemaster pod status ---"
+          kubectl get pod -l app=queuemaster
+          echo "--- queuemaster logs (last 30 lines) ---"
+          kubectl logs deployment/queuemaster --tail=30 || true
 
       - name: Deploy k6 continuous load generator
         continue-on-error: true
@@ -425,6 +435,8 @@ jobs:
           kubectl apply -f kubernetes-manifests/checkoutservice.yaml
           kubectl set image deployment/checkoutservice server=${IMAGE_TAG}
           kubectl rollout status deployment/checkoutservice --timeout=240s
+          echo "--- checkoutservice logs (last 20 lines) ---"
+          kubectl logs deployment/checkoutservice --tail=20 || true
 
       - name: Debug productcatalogservice if rollout failed
         if: steps.pcs_rollout.outcome == 'failure'
