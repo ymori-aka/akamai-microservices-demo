@@ -329,12 +329,13 @@ jobs:
       - name: Deploy RabbitMQ and queuemaster (async order events)
         continue-on-error: true
         run: |
+          set +e  # Don't exit on errors — we want the diagnostics to always run
           # RabbitMQ broker for async order events from checkoutservice.
           # Both pods opt out of sidecar injection — LKE webhook is unreachable.
           kubectl apply -f kubernetes-manifests/rabbitmq.yaml
           # Force restart to pick up credential env var changes (RABBITMQ_DEFAULT_USER/PASS).
           kubectl rollout restart statefulset/rabbitmq
-          kubectl rollout status statefulset/rabbitmq --timeout=180s
+          kubectl rollout status statefulset/rabbitmq --timeout=300s
 
           # queue-master consumer + Prometheus metrics endpoint.
           kubectl apply -f kubernetes-manifests/queuemaster.yaml
@@ -342,13 +343,28 @@ jobs:
             server=${{ env.QUEUEMASTER_IMAGE }}:sha-${{ github.sha }}
           kubectl rollout status deployment/queuemaster --timeout=120s
 
-          # Diagnostics: confirm RabbitMQ is up and queuemaster connected
-          echo "--- RabbitMQ pod status ---"
-          kubectl get pod -l app=rabbitmq
-          echo "--- queuemaster pod status ---"
+          # Diagnostics: ALWAYS print pod status + logs, even if rollouts above timed out
+          echo ""
+          echo "===== RabbitMQ pod status ====="
+          kubectl get pod -l app=rabbitmq -o wide
+          echo ""
+          echo "===== RabbitMQ pod describe (last 40 lines) ====="
+          RMQ_POD=$(kubectl get pod -l app=rabbitmq -o name | head -1)
+          if [ -n "${RMQ_POD}" ]; then
+            kubectl describe ${RMQ_POD} | tail -40
+            echo ""
+            echo "===== RabbitMQ logs (last 50 lines) ====="
+            kubectl logs ${RMQ_POD} --tail=50
+            echo ""
+            echo "===== RabbitMQ logs (previous container, if any) ====="
+            kubectl logs ${RMQ_POD} --previous --tail=30 2>/dev/null || echo "(no previous container)"
+          fi
+          echo ""
+          echo "===== queuemaster pod status ====="
           kubectl get pod -l app=queuemaster
-          echo "--- queuemaster logs (last 30 lines) ---"
-          kubectl logs deployment/queuemaster --tail=30 || true
+          echo ""
+          echo "===== queuemaster logs (last 30 lines) ====="
+          kubectl logs deployment/queuemaster --tail=30 2>/dev/null || true
 
       - name: Deploy k6 continuous load generator
         continue-on-error: true
