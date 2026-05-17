@@ -36,6 +36,12 @@ spec:
       containers:
         - name: rabbitmq
           image: rabbitmq:3.13-management-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - name: amqp
               containerPort: 5672
@@ -54,25 +60,35 @@ spec:
               subPath: enabled_plugins
             - name: data
               mountPath: /var/lib/rabbitmq
+          # Erlang VM + management plugin + prometheus plugin can take
+          # 60-120s to be ping-able. startupProbe gives up to 5 min before
+          # liveness takes over, so slow cold-start doesn't trigger restart.
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 20
-            periodSeconds: 10
+            periodSeconds: 15
             timeoutSeconds: 15
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 15
+            failureThreshold: 3
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
+              cpu: 200m
               memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
       volumes:
         - name: plugins
           configMap:
