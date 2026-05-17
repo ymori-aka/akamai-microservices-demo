@@ -96,6 +96,24 @@ spec:
             - name: queries
               mountPath: /etc/queries
               readOnly: true
+          # Liveness: if /metrics returns non-200 (DB connection lost,
+          # custom-query mode doesn't auto-recover in v0.15.0), restart pod.
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9187
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9187
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           resources:
             requests:
               cpu: 10m
@@ -123,3 +141,71 @@ spec:
     - name: metrics
       port: 9187
       targetPort: 9187
+---
+# Defensive daily restart in case liveness probe misses a stuck connection.
+# Runs at 16:00 UTC = 01:00 JST (after Linode maintenance window typically ends).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-exporter-restarter
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-exporter-restarter
+  namespace: monitoring
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-exporter-restarter
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-exporter-restarter
+subjects:
+  - kind: ServiceAccount
+    name: postgres-exporter-restarter
+    namespace: monitoring
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-exporter-daily-restart
+  namespace: monitoring
+spec:
+  schedule: "0 16 * * *"  # 16:00 UTC = 01:00 JST
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: postgres-exporter-restarter
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:1.30
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  kubectl -n monitoring rollout restart deployment/postgres-exporter
+                  kubectl -n monitoring rollout status deployment/postgres-exporter --timeout=120s
