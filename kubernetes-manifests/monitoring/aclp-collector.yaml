@@ -1,15 +1,13 @@
 ---
 # Akamai Cloud Pulse Collector (aclp-collector)
 # Pulls metrics from Akamai's monitoring API and re-exposes them as a
-# Prometheus scrape endpoint. Currently collecting: dbaas, objectstorage.
+# Prometheus scrape endpoint. Currently collecting: dbaas, nodebalancer.
 #
 # Auth: requires a Linode Personal Access Token with Monitor:Read and
 # Databases:Read permissions, stored in the K8s Secret `linode-pat`
 # (key=TOKEN). CI creates this Secret from the LINODE_PAT GitHub Secret.
 #
-# NodeBalancer metrics: still pending account-level enablement (support
-# ticket opened 2026-05-15). Uncomment the nodebalancer block below once
-# Akamai confirms access.
+# NodeBalancer metrics: ENABLED (Akamai confirmed access 2026-05-17).
 
 apiVersion: v1
 kind: ConfigMap
@@ -37,29 +35,28 @@ data:
               - read_iops
               - write_iops
 
-          # - service_type: nodebalancer
-          #   # Uncomment when Akamai enables NB metrics for this account.
-          #   # NLBs: jp-osa: 2154313, 2170616, 2187125; jp-tyo-3: 2154174;
-          #   # standalone WP-OSA1: 2001057.
-          #   # All traffic-rate metrics only support agg_function=sum.
-          #   entity_ids: [2001057, 2154174, 2154313, 2170616, 2187125]
-          #   agg_function: sum
-          #   metric_names:
-          #     - nb_ingress_traffic_rate
-          #     - nb_egress_traffic_rate
-          #     - nb_ingress_tcp_traffic_rate
-          #     - nb_egress_tcp_traffic_rate
-          #     - nb_ingress_udp_traffic_rate
-          #     - nb_egress_udp_traffic_rate
-          #     - nb_total_active_sessions
-          #     - nb_active_tcp_sessions
-          #     - nb_active_udp_sessions
-          #     - nb_new_sessions_per_second
-          #     - nb_new_tcp_sessions_per_second
-          #     - nb_new_udp_sessions_per_second
-          #     - nb_total_active_backends
-          #     - nb_active_tcp_backends
-          #     - nb_active_udp_backends
+          - service_type: nodebalancer
+            # NLBs: jp-osa: 2154313, 2170616, 2187125; jp-tyo-3: 2154174;
+            # standalone WP-OSA1: 2001057.
+            # All traffic-rate metrics only support agg_function=sum.
+            entity_ids: [2001057, 2154174, 2154313, 2170616, 2187125]
+            agg_function: sum
+            metric_names:
+              - nb_ingress_traffic_rate
+              - nb_egress_traffic_rate
+              - nb_ingress_tcp_traffic_rate
+              - nb_egress_tcp_traffic_rate
+              - nb_ingress_udp_traffic_rate
+              - nb_egress_udp_traffic_rate
+              - nb_total_active_sessions
+              - nb_active_tcp_sessions
+              - nb_active_udp_sessions
+              - nb_new_sessions_per_second
+              - nb_new_tcp_sessions_per_second
+              - nb_new_udp_sessions_per_second
+              - nb_total_active_backends
+              - nb_active_tcp_backends
+              - nb_active_udp_backends
 
           # objectstorage: NOT supported in latest (v1.0.0).
           # 1.6.0 Docker tag is broken (2KB image). Pending a stable image
