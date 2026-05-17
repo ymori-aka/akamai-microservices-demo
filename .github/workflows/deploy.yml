@@ -273,6 +273,13 @@ jobs:
             --docker-password=${{ secrets.GHCR_TOKEN }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Create frontend admin credentials Secret
+        run: |
+          kubectl create secret generic frontend-admin-secret \
+            --from-literal=username=admin \
+            --from-literal=password=${{ secrets.FRONTEND_ADMIN_PASSWORD }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply Pod Security Standards namespace labels
         continue-on-error: true
         run: |

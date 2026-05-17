@@ -85,6 +85,16 @@ spec:
             value: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
           - name: ENV_PLATFORM
             value: "akamai"
+          - name: ADMIN_USER
+            valueFrom:
+              secretKeyRef:
+                name: frontend-admin-secret
+                key: username
+          - name: ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: frontend-admin-secret
+                key: password
           - name: ENABLE_PROFILER
             value: "0"
           - name: ORDER_DB_DSN
