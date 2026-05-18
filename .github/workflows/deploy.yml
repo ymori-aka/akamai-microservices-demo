@@ -267,11 +267,13 @@ jobs:
             rm -rf "istio-${ISTIO_VERSION}"
           fi
 
-          # Clean up any stale/broken ValidatingWebhookConfiguration from a
-          # previous failed install. istioctl's server-side apply fails if
-          # one exists with an invalid clientConfig (LKE has hit this).
+          # Clean up any stale/broken Validating + MutatingWebhookConfiguration
+          # from a previous failed install. istioctl's server-side apply fails
+          # if one exists with an invalid clientConfig (LKE has hit this).
           kubectl delete validatingwebhookconfiguration istio-validator-istio-system --ignore-not-found
           kubectl delete validatingwebhookconfiguration istiod-default-validator --ignore-not-found
+          kubectl delete mutatingwebhookconfiguration istio-sidecar-injector --ignore-not-found
+          kubectl delete mutatingwebhookconfiguration istio-revision-tag-default --ignore-not-found
 
           # Install / upgrade Istio — minimal profile = istiod only.
           # We don't use the Istio ingress gateway; traffic enters via the
@@ -464,10 +466,10 @@ jobs:
           if [ -n "${PG_EXP_POD}" ]; then
             for i in 1 2 3 4 5; do
               if kubectl -n monitoring exec ${PG_EXP_POD} -- \
-                 sh -c "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"; then
+                 sh -c "wget -qO- http://localhost:9187/metrics | grep -qE '^orders_daily_order_count[ {]'"; then
                 echo "✓ orders_daily_order_count metric present (attempt ${i})"
                 kubectl -n monitoring exec ${PG_EXP_POD} -- \
-                  sh -c "wget -qO- http://localhost:9187/metrics | grep '^orders_'" | head -10
+                  sh -c "wget -qO- http://localhost:9187/metrics | grep -E '^orders_'" | head -10
                 break
               fi
               echo "Attempt ${i}: metric not yet present, retrying in 10s..."

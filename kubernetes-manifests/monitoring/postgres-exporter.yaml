@@ -106,7 +106,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"
+                - "wget -qO- http://localhost:9187/metrics | grep -qE '^orders_daily_order_count[ {]'"
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 10
@@ -116,7 +116,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"
+                - "wget -qO- http://localhost:9187/metrics | grep -qE '^orders_daily_order_count[ {]'"
             periodSeconds: 60
             timeoutSeconds: 15
             failureThreshold: 3
@@ -125,7 +125,7 @@ spec:
               command:
                 - sh
                 - -c
-                - "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"
+                - "wget -qO- http://localhost:9187/metrics | grep -qE '^orders_daily_order_count[ {]'"
             periodSeconds: 30
             timeoutSeconds: 15
             failureThreshold: 2
