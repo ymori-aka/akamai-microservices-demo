@@ -185,13 +185,14 @@ data:
           "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never", "stacking": { "mode": "normal" } }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 93, "type": "timeseries", "title": "k6 HTTP duration p95",
+          "description": "95th-percentile HTTP response time, broken down by k6 scenario. Value in milliseconds (k6 reports trend stats in ms).",
           "gridPos": { "x": 18, "y": 42, "w": 6, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [
-            { "expr": "histogram_quantile(0.95, sum by (scenario) (rate(k6_http_req_duration[1m])))", "legendFormat": "{{scenario}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+            { "expr": "max by (scenario) (k6_http_req_duration_p95)", "legendFormat": "{{scenario}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
           ],
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
-          "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
+          "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
         { "id": 30, "type": "text", "title": "",
           "gridPos": { "x": 0, "y": 57, "w": 24, "h": 3 },
