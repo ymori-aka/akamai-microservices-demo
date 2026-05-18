@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  # Allow manual triggering from the GitHub Actions UI (always deploys).
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -216,6 +218,14 @@ jobs:
     name: Deploy to LKE
     runs-on: self-hosted
     needs: [build-frontend, build-currencyservice, build-productcatalogservice, build-checkoutservice, build-cartservice]
+    # Only deploy when:
+    #   - commit message contains [deploy]   (e.g. "fix something [deploy]")
+    #   - OR the workflow is triggered manually from the Actions UI
+    # On regular pushes without [deploy], the build jobs run but deploy
+    # is skipped — saving 10-15 min per push.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[deploy]')
     permissions:
       contents: read
       packages: read
@@ -650,6 +660,10 @@ jobs:
     name: Deploy Spin Apps to Akamai Functions
     runs-on: ubuntu-latest
     needs: build-frontend
+    # Same gating as the LKE deploy: only on [deploy] in commit or manual trigger.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[deploy]')
 
     steps:
       - name: Checkout repository
