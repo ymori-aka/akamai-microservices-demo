@@ -267,10 +267,21 @@ jobs:
             rm -rf "istio-${ISTIO_VERSION}"
           fi
 
+          # Clean up any stale/broken ValidatingWebhookConfiguration from a
+          # previous failed install. istioctl's server-side apply fails if
+          # one exists with an invalid clientConfig (LKE has hit this).
+          kubectl delete validatingwebhookconfiguration istio-validator-istio-system --ignore-not-found
+          kubectl delete validatingwebhookconfiguration istiod-default-validator --ignore-not-found
+
           # Install / upgrade Istio — minimal profile = istiod only.
           # We don't use the Istio ingress gateway; traffic enters via the
           # existing Kubernetes LoadBalancer on the frontend service.
           "${ISTIOCTL}" install --set profile=minimal -y
+
+          # Verify istiod actually came up; warn (don't fail) if not.
+          kubectl -n istio-system rollout status deployment/istiod --timeout=180s || \
+            echo "WARNING: istiod rollout did not complete in 180s"
+          kubectl -n istio-system get pods -l app=istiod -o wide || true
 
           # Enable automatic Envoy sidecar injection in the app namespace.
           # Note: redis-cart and mongodb have sidecar.istio.io/inject: "false"
