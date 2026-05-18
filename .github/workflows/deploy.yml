@@ -440,7 +440,34 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/postgres-exporter.yaml
           # Always restart postgres-exporter to recover from any crash/connection loss
           kubectl -n monitoring rollout restart deployment/postgres-exporter
-          kubectl -n monitoring rollout status deployment/postgres-exporter --timeout=60s || true
+          kubectl -n monitoring rollout status deployment/postgres-exporter --timeout=180s || true
+
+          # VERIFY that the custom metrics are actually flowing. The /metrics
+          # endpoint returns 200 OK even when DB queries fail in v0.15.0, so
+          # only grepping for our metric proves the SQL pipeline works.
+          echo "===== postgres-exporter pod status ====="
+          kubectl -n monitoring get pod -l app=postgres-exporter -o wide
+          echo ""
+          echo "===== Verifying orders_daily_order_count is being emitted ====="
+          PG_EXP_POD=$(kubectl -n monitoring get pod -l app=postgres-exporter -o name | head -1)
+          if [ -n "${PG_EXP_POD}" ]; then
+            for i in 1 2 3 4 5; do
+              if kubectl -n monitoring exec ${PG_EXP_POD} -- \
+                 sh -c "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"; then
+                echo "✓ orders_daily_order_count metric present (attempt ${i})"
+                kubectl -n monitoring exec ${PG_EXP_POD} -- \
+                  sh -c "wget -qO- http://localhost:9187/metrics | grep '^orders_'" | head -10
+                break
+              fi
+              echo "Attempt ${i}: metric not yet present, retrying in 10s..."
+              sleep 10
+              if [ ${i} -eq 5 ]; then
+                echo "✗ FAILED: orders_daily_order_count missing after 50s"
+                echo "===== postgres-exporter logs ====="
+                kubectl -n monitoring logs ${PG_EXP_POD} --tail=50
+              fi
+            done
+          fi
 
           # Restart Grafana so it picks up any datasource ConfigMap changes
           # (datasource provisioning is only loaded at pod startup).

@@ -96,24 +96,39 @@ spec:
             - name: queries
               mountPath: /etc/queries
               readOnly: true
-          # Liveness: if /metrics returns non-200 (DB connection lost,
-          # custom-query mode doesn't auto-recover in v0.15.0), restart pod.
-          livenessProbe:
-            httpGet:
-              path: /metrics
-              port: 9187
-            initialDelaySeconds: 30
-            periodSeconds: 60
+          # CRITICAL: /metrics always returns 200 OK in v0.15.0, even when
+          # the DB connection is dead — the custom-query metric just goes
+          # missing from the output. HTTP-only probes therefore DO NOT
+          # detect connection loss. We must grep the output for our custom
+          # metric to know the SQL pipeline is actually working.
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"
+            initialDelaySeconds: 10
+            periodSeconds: 10
             timeoutSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"
+            periodSeconds: 60
+            timeoutSeconds: 15
             failureThreshold: 3
           readinessProbe:
-            httpGet:
-              path: /metrics
-              port: 9187
-            initialDelaySeconds: 10
+            exec:
+              command:
+                - sh
+                - -c
+                - "wget -qO- http://localhost:9187/metrics | grep -q '^orders_daily_order_count '"
             periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 3
+            timeoutSeconds: 15
+            failureThreshold: 2
           resources:
             requests:
               cpu: 10m
@@ -142,8 +157,9 @@ spec:
       port: 9187
       targetPort: 9187
 ---
-# Defensive daily restart in case liveness probe misses a stuck connection.
-# Runs at 16:00 UTC = 01:00 JST (after Linode maintenance window typically ends).
+# Defensive hourly restart — belt-and-suspenders alongside the liveness probe.
+# Even if some edge-case keeps the probe passing, the pod is forcibly cycled
+# every hour so connection-related staleness can never persist.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -177,10 +193,10 @@ subjects:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: postgres-exporter-daily-restart
+  name: postgres-exporter-hourly-restart
   namespace: monitoring
 spec:
-  schedule: "0 16 * * *"  # 16:00 UTC = 01:00 JST
+  schedule: "0 * * * *"  # every hour, top of the hour
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
