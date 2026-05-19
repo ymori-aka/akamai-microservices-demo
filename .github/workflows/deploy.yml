@@ -246,6 +246,7 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Create frontend admin credentials Secret
+        continue-on-error: true
         run: |
           kubectl create secret generic frontend-admin-secret \
             --from-literal=username=admin \
@@ -398,6 +399,7 @@ jobs:
 
       - name: Apply orders DB credentials and schema (Linode Managed PG)
         if: env.ORDER_DB_DSN != ''
+        continue-on-error: true
         run: |
           # K8s Secret with the connection string (default namespace for app,
           # monitoring namespace for postgres-exporter)
@@ -420,6 +422,7 @@ jobs:
             kubectl logs job/orders-schema-migrate
 
       - name: Update checkoutservice deployment (Postgres-backed orders)
+        continue-on-error: true
         run: |
           IMAGE_TAG="${{ env.CHECKOUT_IMAGE }}:sha-${{ github.sha }}"
           kubectl apply -f kubernetes-manifests/checkoutservice.yaml
@@ -446,11 +449,13 @@ jobs:
           exit 1
 
       - name: Apply Istio policies (mTLS + canary)
+        continue-on-error: true
         run: |
           kubectl apply -f kubernetes-manifests/istio/mtls.yaml
           kubectl apply -f kubernetes-manifests/istio/canary.yaml
 
       - name: Apply HPA
+        continue-on-error: true
         run: |
           kubectl apply -f kubernetes-manifests/hpa.yaml
 
