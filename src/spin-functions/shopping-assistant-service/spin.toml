@@ -13,7 +13,7 @@ component = "shopping-assistant-service"
 [component.shopping-assistant-service]
 source = "dist/shopping-assistant-service.wasm"
 exclude_files = ["**/node_modules"]
-allowed_outbound_hosts = ["http://172.238.48.187:8000"]
+allowed_outbound_hosts = ["https://chat-ai-ai-gateway-34777e2.zuplo.app"]
 
 [component.shopping-assistant-service.build]
 command = ["npm install", "npm run build"]

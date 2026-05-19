@@ -706,7 +706,17 @@ jobs:
       - name: Deploy shopping-assistant-service
         continue-on-error: true
         working-directory: src/spin-functions/shopping-assistant-service
+        env:
+          ZUPLO_API_KEY: ${{ secrets.ZUPLO_API_KEY }}
         run: |
+          # Inject the Zuplo API key into the placeholder before building.
+          # The placeholder is __ZUPLO_API_KEY__ in src/index.ts; never commit
+          # the real key — this sed runs only inside the CI workspace.
+          if [ -z "${ZUPLO_API_KEY}" ]; then
+            echo "ERROR: ZUPLO_API_KEY GitHub Secret not set"
+            exit 1
+          fi
+          sed -i "s|__ZUPLO_API_KEY__|${ZUPLO_API_KEY}|g" src/index.ts
           npm install
           npm run build
           spin aka app link --app-name shopping-assistant-service
