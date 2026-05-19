@@ -1,6 +1,11 @@
 # OpenTelemetry Collector
-# Receives OTLP traces/metrics from all microservices,
-# exposes a Prometheus scrape endpoint for metrics.
+#
+# Receives OTLP traces/metrics from:
+#  - Microservices inside LKE (ClusterIP, no auth)
+#  - Spin functions on Akamai Functions (LoadBalancer, Bearer auth)
+#
+# Exposes a Prometheus scrape endpoint for metrics, forwards traces
+# to Grafana Tempo.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -9,13 +14,31 @@ metadata:
   namespace: monitoring
 data:
   config.yaml: |
+    extensions:
+      # Bearer-token authentication for the public OTLP HTTP receiver.
+      # The token value is mounted as the env var OTEL_BEARER_TOKEN
+      # (sourced from the otel-bearer-token K8s Secret).
+      bearertokenauth:
+        scheme: "Bearer"
+        token: "${env:OTEL_BEARER_TOKEN}"
+
     receivers:
+      # Internal cluster receiver — no auth, ClusterIP only.
       otlp:
         protocols:
           grpc:
             endpoint: "0.0.0.0:4317"
           http:
             endpoint: "0.0.0.0:4318"
+
+      # Public receiver — Bearer-token authenticated, exposed via
+      # LoadBalancer for Akamai Functions Spin apps.
+      otlp/public:
+        protocols:
+          http:
+            endpoint: "0.0.0.0:4319"
+            auth:
+              authenticator: bearertokenauth
 
     processors:
       batch:
@@ -38,13 +61,14 @@ data:
           insecure: true
 
     service:
+      extensions: [bearertokenauth]
       pipelines:
         metrics:
-          receivers: [otlp]
+          receivers: [otlp, otlp/public]
           processors: [memory_limiter, batch]
           exporters: [prometheus]
         traces:
-          receivers: [otlp]
+          receivers: [otlp, otlp/public]
           processors: [memory_limiter, batch]
           exporters: [otlp/tempo]
 ---
@@ -67,11 +91,19 @@ spec:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.101.0
           args: ["--config=/etc/otelcol-contrib/config.yaml"]
+          env:
+            - name: OTEL_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: otel-bearer-token
+                  key: token
           ports:
             - name: otlp-grpc
               containerPort: 4317
             - name: otlp-http
               containerPort: 4318
+            - name: otlp-http-pub
+              containerPort: 4319
             - name: metrics
               containerPort: 8889
           volumeMounts:
@@ -89,6 +121,7 @@ spec:
           configMap:
             name: otel-collector-config
 ---
+# Internal-only ClusterIP service (existing LKE microservices use this).
 apiVersion: v1
 kind: Service
 metadata:
@@ -110,3 +143,25 @@ spec:
     - name: internal-metrics
       port: 8888
       targetPort: 8888
+---
+# Public LoadBalancer for Akamai Functions Spin apps.
+# Bearer-token authentication is enforced by the OTel Collector itself
+# (otlp/public receiver). Linode auto-creates a NodeBalancer; its IPv4
+# is surfaced in CI logs as `service/otel-collector-public` EXTERNAL-IP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-public
+  namespace: monitoring
+  annotations:
+    # Linode NodeBalancer label for easier identification in the Cloud Manager
+    service.beta.kubernetes.io/linode-loadbalancer-throttle: "0"
+spec:
+  type: LoadBalancer
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-http-pub
+      port: 4319
+      targetPort: 4319
+      protocol: TCP

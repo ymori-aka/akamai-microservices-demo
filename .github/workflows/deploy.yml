@@ -465,7 +465,21 @@ jobs:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
           kubectl apply -f kubernetes-manifests/monitoring/namespace.yaml
+
+          # Bearer-token Secret for the public OTLP HTTP receiver
+          # (used by Akamai Functions Spin apps). The collector mounts
+          # this via env var and rejects requests without a matching
+          # Authorization: Bearer header.
+          kubectl create secret generic otel-bearer-token \
+            --from-literal=token="${{ secrets.OTEL_BEARER_TOKEN }}" \
+            --dry-run=client -o yaml \
+            | kubectl apply -n monitoring -f -
+
           kubectl apply -f kubernetes-manifests/monitoring/otel-collector.yaml
+          # Force restart so the collector picks up the new bearer token
+          # / config changes (apply alone won't restart if Deployment
+          # spec is unchanged).
+          kubectl -n monitoring rollout restart deployment/otel-collector || true
           kubectl apply -f kubernetes-manifests/monitoring/redis-exporter.yaml
           kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
           kubectl apply -f kubernetes-manifests/monitoring/loki.yaml
