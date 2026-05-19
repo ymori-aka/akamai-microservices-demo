@@ -1,0 +1,17 @@
+# Provider plugins (re-downloaded on `terraform init`)
+.terraform/
+
+# Local state — should move to remote state (Linode Object Storage) eventually.
+# Never commit: contains full resource snapshots (no secrets, but noisy diffs).
+terraform.tfstate
+terraform.tfstate.backup
+
+# Plan output files
+*.tfplan
+
+# Local var overrides (often contain tokens — keep out of git).
+*.tfvars
+!example.tfvars
+
+# NOTE: .terraform.lock.hcl IS committed — it pins exact provider versions
+# so collaborators get the same plugin builds.
