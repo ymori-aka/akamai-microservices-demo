@@ -481,7 +481,12 @@ jobs:
           # spec is unchanged).
           kubectl -n monitoring rollout restart deployment/otel-collector || true
           kubectl apply -f kubernetes-manifests/monitoring/redis-exporter.yaml
+          # Apply alert rule ConfigMap BEFORE Prometheus so the rules are
+          # available the moment Prometheus restarts and re-reads its config.
+          kubectl apply -f kubernetes-manifests/monitoring/prometheus-rules.yaml
           kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
+          # Force Prometheus restart so config + rule changes take effect.
+          kubectl -n monitoring rollout restart deployment/prometheus || true
           kubectl apply -f kubernetes-manifests/monitoring/loki.yaml
           kubectl apply -f kubernetes-manifests/monitoring/promtail.yaml
           kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
