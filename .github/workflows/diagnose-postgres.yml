@@ -67,6 +67,22 @@ jobs:
           kubectl -n monitoring logs "$POD" --previous --tail=100 2>&1 \
             || echo "(no previous container — pod has not restarted)"
 
+      - name: Alert rules loaded in Prometheus
+        continue-on-error: true
+        run: |
+          set +e
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          if [ -z "$PROM" ]; then exit 0; fi
+          echo "===== Alert rules currently loaded ====="
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- http://localhost:9090/api/v1/rules 2>/dev/null \
+            | python3 -c "import json,sys; d=json.load(sys.stdin)
+for g in d.get('data',{}).get('groups',[]):
+  print(f\"GROUP: {g['name']} (file: {g.get('file','?')})\")
+  for r in g.get('rules',[]):
+    print(f\"  - {r.get('type','?')}: {r.get('name','?')} [state={r.get('state','?')}]\")
+" 2>&1 | head -30
+
       - name: Prometheus target health
         continue-on-error: true
         run: |
