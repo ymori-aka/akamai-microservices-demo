@@ -45,6 +45,12 @@ data:
       scrape_interval: 15s
       evaluation_interval: 15s
 
+    # Alerting rules — evaluated every evaluation_interval (15s).
+    # Fires both into the in-cluster Alertmanager (if deployed) and is
+    # always visible at http://prometheus:9090/alerts.
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
     scrape_configs:
       # App metrics via OTel Collector (Prometheus exporter)
       - job_name: 'otel-collector'
@@ -244,6 +250,9 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: rules
+              mountPath: /etc/prometheus/rules
+              readOnly: true
             - name: data
               mountPath: /prometheus
           resources:
@@ -257,6 +266,9 @@ spec:
         - name: config
           configMap:
             name: prometheus-config
+        - name: rules
+          configMap:
+            name: prometheus-rules
         - name: data
           persistentVolumeClaim:
             claimName: prometheus-data

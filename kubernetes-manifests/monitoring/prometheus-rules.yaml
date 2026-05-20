@@ -1,0 +1,87 @@
+# Prometheus alert rules.
+# Loaded by Prometheus via `rule_files: /etc/prometheus/rules/*.yml`.
+# Visible at http://prometheus:9090/alerts.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+data:
+  postgres-exporter.yml: |
+    groups:
+      - name: postgres-exporter
+        interval: 30s
+        rules:
+          # The postgres-exporter target either disappeared from service
+          # discovery or its scrape is failing.
+          - alert: PostgresExporterDown
+            expr: up{job="postgres-exporter"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: postgres-exporter
+            annotations:
+              summary: "postgres-exporter scrape failing (2m+)"
+              description: |
+                Prometheus cannot reach postgres-exporter at
+                {{ $labels.instance }} for more than 2 minutes.
+                Business KPI panels (Revenue/Orders Today & Yesterday)
+                will go to "No data". Check pod state with
+                kubectl -n monitoring get pod -l app=postgres-exporter.
+
+          # The custom orders_daily / orders_today metric stopped appearing
+          # even though the exporter target is still up. This catches the
+          # case where the underlying DB query started failing silently.
+          - alert: PostgresExporterMissingOrdersMetric
+            expr: absent(orders_daily_order_count)
+            for: 5m
+            labels:
+              severity: critical
+              component: postgres-exporter
+            annotations:
+              summary: "orders_daily_order_count metric missing for 5m+"
+              description: |
+                postgres-exporter is up but the orders_daily_order_count
+                gauge has been absent for 5+ minutes. The custom query
+                may be failing or the DB connection dead.
+                Run the fix-postgres-exporter GitHub workflow to recover.
+
+          # Catches the "two pods, one CrashLooping" scenario we just
+          # observed. Even though the working pod keeps metrics flowing,
+          # the failing pod indicates the next rollout will be broken.
+          - alert: PostgresExporterPodCrashLoop
+            expr: |
+              rate(kube_pod_container_status_restarts_total{
+                namespace="monitoring",
+                pod=~"postgres-exporter-.*"
+              }[15m]) * 60 > 1
+            for: 10m
+            labels:
+              severity: warning
+              component: postgres-exporter
+            annotations:
+              summary: "postgres-exporter pod restarting frequently"
+              description: |
+                Pod {{ $labels.pod }} has been restarting more than once
+                per minute over the last 15 minutes. Likely a stuck
+                Deployment rollout or a broken probe.
+
+          # Pod is running but readiness probe is failing — would mean
+          # it's not in the Service endpoints and won't be scraped.
+          - alert: PostgresExporterNotReady
+            expr: |
+              kube_pod_status_ready{
+                namespace="monitoring",
+                pod=~"postgres-exporter-.*",
+                condition="true"
+              } == 0
+            for: 5m
+            labels:
+              severity: warning
+              component: postgres-exporter
+            annotations:
+              summary: "postgres-exporter pod not Ready for 5m+"
+              description: |
+                Pod {{ $labels.pod }} has not reached Ready state for
+                5+ minutes. Readiness probe is probably failing.

@@ -1,0 +1,98 @@
+name: Fix postgres-exporter (force apply)
+
+# Standalone, manually-triggered workflow that applies the canonical
+# postgres-exporter manifest, force-restarts the Deployment, cleans up
+# stale ReplicaSets, and verifies the metric is actually emitting.
+#
+# This does NOT depend on the full Deploy job — it can recover the
+# monitoring stack even when app rollouts are broken.
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    name: Force-apply and verify postgres-exporter
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Apply canonical manifest + reset DSN secret
+        env:
+          ORDER_DB_DSN: ${{ secrets.ORDER_DB_DSN }}
+        run: |
+          set +e
+          # Ensure the DSN secret exists in monitoring namespace
+          if [ -n "${ORDER_DB_DSN}" ]; then
+            kubectl create secret generic orders-db-credentials \
+              --from-literal=DSN="${ORDER_DB_DSN}" \
+              --dry-run=client -o yaml \
+              | kubectl apply -n monitoring -f -
+          fi
+
+          # Apply the manifest unconditionally (creates ConfigMap, Deployment, Service, CronJob)
+          kubectl apply -f kubernetes-manifests/monitoring/postgres-exporter.yaml
+
+      - name: Force fresh ReplicaSet + clean up stale ones
+        run: |
+          set +e
+          # Force a rolling restart so the new spec actually rolls out.
+          kubectl -n monitoring rollout restart deployment/postgres-exporter
+          # Wait up to 5 minutes for the new pod to become Ready.
+          kubectl -n monitoring rollout status deployment/postgres-exporter --timeout=300s
+
+          # Delete any stuck ReplicaSets with 0 ready replicas — keeps the
+          # cluster clean even if the new rollout took a while.
+          kubectl -n monitoring get rs -l app=postgres-exporter \
+            -o jsonpath='{range .items[?(@.status.readyReplicas==0)]}{.metadata.name}{"\n"}{end}' \
+            | xargs -r -n1 kubectl -n monitoring delete rs
+
+      - name: Verify metric in /metrics AND in Prometheus
+        run: |
+          set +e
+          echo "===== Verify /metrics on the pod ====="
+          POD=$(kubectl -n monitoring get pod -l app=postgres-exporter --field-selector=status.phase=Running -o name | head -1)
+          if [ -z "$POD" ]; then
+            echo "✗ FAIL: no Running postgres-exporter pod"
+            exit 1
+          fi
+
+          for i in 1 2 3 4 5; do
+            OUTPUT=$(kubectl -n monitoring exec "$POD" -- \
+              sh -c "wget -qO- http://localhost:9187/metrics 2>/dev/null | grep -E '^orders_daily_order_count[ {]'")
+            if [ -n "$OUTPUT" ]; then
+              echo "✓ /metrics OK (attempt $i):"
+              echo "$OUTPUT"
+              break
+            fi
+            echo "Attempt $i: not yet, waiting 10s..."
+            sleep 10
+          done
+          if [ -z "$OUTPUT" ]; then
+            echo "✗ FAIL: /metrics did not return orders_daily_order_count"
+            exit 1
+          fi
+
+          echo ""
+          echo "===== Verify Prometheus has the metric ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for i in 1 2 3 4 5 6; do
+            RESULT=$(kubectl -n monitoring exec "$PROM" -- \
+              wget -qO- "http://localhost:9090/api/v1/query?query=orders_daily_order_count" 2>/dev/null)
+            if echo "$RESULT" | grep -q '"value"'; then
+              echo "✓ Prometheus has the metric (attempt $i):"
+              echo "$RESULT"
+              break
+            fi
+            echo "Attempt $i: Prometheus has no data yet, waiting 15s..."
+            sleep 15
+          done
+          if ! echo "$RESULT" | grep -q '"value"'; then
+            echo "✗ FAIL: Prometheus query returned no result"
+            echo "$RESULT"
+            exit 1
+          fi
+
+          echo ""
+          echo "===== Final pod state ====="
+          kubectl -n monitoring get pod -l app=postgres-exporter -o wide
