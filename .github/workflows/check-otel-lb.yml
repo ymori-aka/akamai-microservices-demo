@@ -1,0 +1,45 @@
+name: Check OTel LoadBalancer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: Get otel-collector-public External IP + verify
+        run: |
+          set +e
+          echo "===== Service ====="
+          kubectl -n monitoring get svc otel-collector-public -o wide
+          echo ""
+          echo "===== External-IP (jsonpath) ====="
+          IP=$(kubectl -n monitoring get svc otel-collector-public \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          HOST=$(kubectl -n monitoring get svc otel-collector-public \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "IP=${IP}"
+          echo "HOST=${HOST}"
+          if [ -z "${IP}" ] && [ -z "${HOST}" ]; then
+            echo "✗ FAIL: no External-IP/Hostname yet (LoadBalancer still provisioning?)"
+            echo "Events:"
+            kubectl -n monitoring describe svc otel-collector-public | tail -30
+            exit 1
+          fi
+          TARGET="${HOST:-${IP}}"
+          echo "OTel endpoint: http://${TARGET}:4319"
+          echo ""
+          echo "===== curl test (no auth — should 401) ====="
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" -m 10 \
+            "http://${TARGET}:4319/v1/traces"
+          echo ""
+          echo "===== curl test (Bearer ${{ secrets.OTEL_BEARER_TOKEN }} masked) ====="
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" -m 10 \
+            -H "Authorization: Bearer ${{ secrets.OTEL_BEARER_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "http://${TARGET}:4319/v1/traces"
+          echo ""
+          echo "===== Collector pod env ====="
+          kubectl -n monitoring exec deploy/otel-collector -- \
+            sh -c 'echo "OTEL_BEARER_TOKEN set: $([ -n "$OTEL_BEARER_TOKEN" ] && echo YES || echo NO)"'
