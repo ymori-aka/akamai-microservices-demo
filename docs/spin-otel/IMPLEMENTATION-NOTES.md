@@ -121,4 +121,29 @@ succeeds for all three with the otel.ts import. Bundle sizes ~12MB
 rebuilds from source). Only `src/*.ts` + `spin.toml` committed, matching
 the pattern from the earlier Zuplo commit.
 
+### 2026-05-20 — `[discovery]` CORRECTION: rec & product-intro LLM calls still work
+
+Earlier note predicted recommendation/product-intro LLM calls would fail
+(direct IP `172.238.48.187:8000` after the Cloudflare-only firewall).
+**That prediction was WRONG.** The verify-spin-otel run shows both return
+HTTP 200 with real Gemma output:
+- product-intro → full generated intro
+- recommendation → `["AKMT002","AKMT003","AKMT004","AKMT028"]`
+
+Reason: Akamai Functions egress IPs are inside the Cloudflare ranges
+already allowlisted on port 8000 (rule `accept-inbound-8000`). So the
+direct-IP path still works for them. No fix needed. `spin_llm_errors_total`
+stayed empty for those two, confirming healthy LLM calls.
+
+### 2026-05-20 — `[verified]` End-to-end Phase 2 confirmed
+
+verify-spin-otel workflow (run 26141766875) — all green:
+- 3/3 functions HTTP 200 with real responses
+- Prometheus has `boutique_spin_requests_total` for all 3 services
+  (labels: service, service_name, service_version=ba569b0)
+- `boutique_spin_llm_tokens_total` flowing for shopping-assistant
+
+Pipeline Akamai Functions → public OTel collector (Bearer) →
+Prometheus confirmed working. Phase 2 done.
+
 <!-- New entries appended below as implementation proceeds -->
