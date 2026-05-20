@@ -13,7 +13,10 @@ component = "recommendation-service"
 [component.recommendation-service]
 source = "dist/recommendation-service.wasm"
 exclude_files = ["**/node_modules"]
-allowed_outbound_hosts = ["http://172.238.48.187:8000"]
+allowed_outbound_hosts = [
+  "http://172.238.48.187:8000",
+  "http://172.233.70.69:4319",
+]
 
 [component.recommendation-service.build]
 command = ["npm install", "npm run build"]

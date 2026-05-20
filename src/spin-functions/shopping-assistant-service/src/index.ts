@@ -1,4 +1,7 @@
 import { AutoRouter, cors, error, json } from 'itty-router';
+import { makeTracer } from './otel';
+
+const SERVICE = 'shopping-assistant-service';
 
 // Zuplo AI Gateway endpoint (proxies to the upstream Gemma LLM).
 // API key is replaced by CI at build time via sed substitution against
@@ -22,45 +25,100 @@ router
   // Request body: { messages: [{role, content}][], max_tokens?, temperature? }
   // Response:     { message: string }
   .post('/chat', async (req: Request) => {
-    let body: any;
-    try {
-      body = await req.json();
-    } catch {
-      return error(400, { error: 'Invalid JSON body' });
-    }
+    const tracer = makeTracer(SERVICE);
+    const start = Date.now();
+    const route = 'POST /chat';
+    let statusCode = 200;
 
-    if (!body.messages || !Array.isArray(body.messages)) {
-      return error(400, { error: 'messages array is required' });
-    }
-
-    try {
-      const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${ZUPLO_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: body.messages,
-          max_tokens: body.max_tokens ?? 512,
-          temperature: body.temperature ?? 0.7,
-        }),
-      });
-
-      if (!response.ok) {
-        console.error(`LLM returned ${response.status}`);
-        return error(502, { error: `LLM request failed: ${response.status}` });
+    const result = await tracer.withSpan(route, 'SERVER', {
+      'http.method': 'POST',
+      'http.route': '/chat',
+    }, async (serverSpan) => {
+      let body: any;
+      try {
+        body = await req.json();
+      } catch {
+        statusCode = 400;
+        return error(400, { error: 'Invalid JSON body' });
       }
 
-      const data = await response.json() as any;
-      const content: string = data.choices?.[0]?.message?.content ?? '';
-      return json({ message: content.trim() });
+      if (!body.messages || !Array.isArray(body.messages)) {
+        statusCode = 400;
+        return error(400, { error: 'messages array is required' });
+      }
 
-    } catch (e) {
-      console.error(`Error calling LLM: ${e}`);
-      return error(502, { error: `Failed to reach LLM: ${e}` });
-    }
+      const parentId = tracer.lastSpanId();
+      try {
+        return await tracer.withSpan('llm.chat.completions', 'CLIENT', {
+          'llm.endpoint': 'chat-ai-ai-gateway-34777e2.zuplo.app',
+          'llm.model': MODEL,
+        }, async (llmSpan) => {
+          const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${ZUPLO_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: MODEL,
+              messages: body.messages,
+              max_tokens: body.max_tokens ?? 512,
+              temperature: body.temperature ?? 0.7,
+            }),
+          });
+
+          llmSpan.setAttr('http.status_code', response.status);
+
+          if (!response.ok) {
+            console.error(`LLM returned ${response.status}`);
+            statusCode = 502;
+            tracer.recordCounter('spin_llm_errors_total', 1, {
+              service: SERVICE, model: MODEL, reason: `http_${response.status}`,
+            });
+            return error(502, { error: `LLM request failed: ${response.status}` });
+          }
+
+          const data = await response.json() as any;
+          const usage = data.usage ?? {};
+          if (usage.prompt_tokens) {
+            llmSpan.setAttr('llm.tokens.prompt', usage.prompt_tokens);
+            tracer.recordCounter('spin_llm_tokens_total', usage.prompt_tokens, {
+              service: SERVICE, model: MODEL, kind: 'prompt',
+            });
+          }
+          if (usage.completion_tokens) {
+            llmSpan.setAttr('llm.tokens.completion', usage.completion_tokens);
+            tracer.recordCounter('spin_llm_tokens_total', usage.completion_tokens, {
+              service: SERVICE, model: MODEL, kind: 'completion',
+            });
+          }
+          if (usage.total_tokens) llmSpan.setAttr('llm.tokens.total', usage.total_tokens);
+
+          const content: string = data.choices?.[0]?.message?.content ?? '';
+          return json({ message: content.trim() });
+        }, parentId);
+      } catch (e) {
+        console.error(`Error calling LLM: ${e}`);
+        statusCode = 502;
+        tracer.recordCounter('spin_llm_errors_total', 1, {
+          service: SERVICE, model: MODEL, reason: 'fetch_failed',
+        });
+        return error(502, { error: `Failed to reach LLM: ${e}` });
+      } finally {
+        serverSpan.setAttr('http.status_code', statusCode);
+      }
+    });
+
+    // Metrics + flush (telemetry failures never affect the response).
+    tracer.recordCounter('spin_requests_total', 1, {
+      service: SERVICE, route, status_code: statusCode,
+    });
+    tracer.recordHistogram('spin_request_duration_ms', Date.now() - start, {
+      service: SERVICE, route, status_code: statusCode,
+    });
+    await tracer.flush();
+
+    return result;
   });
 
 //@ts-ignore

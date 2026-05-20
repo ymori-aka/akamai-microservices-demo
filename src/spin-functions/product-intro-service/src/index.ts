@@ -1,4 +1,8 @@
 import { AutoRouter, cors, error, json } from 'itty-router';
+import { makeTracer, Tracer } from './otel';
+
+const SERVICE = 'product-intro-service';
+const MODEL = 'google_gemma-4-26B-A4B-it-Q4_K_M.gguf';
 
 // ---- Product Catalog (embedded) ----
 interface Product {
@@ -44,7 +48,7 @@ const PRODUCTS: Product[] = [
 const LLM_ENDPOINT = "http://172.238.48.187:8000";
 
 // ---- LLM call ----
-async function generateIntro(product: Product, lang: string): Promise<string> {
+async function generateIntro(product: Product, lang: string, tracer?: Tracer): Promise<string> {
   let prompt: string;
 
   if (lang === 'ja') {
@@ -85,28 +89,50 @@ Category: ${product.categories.join(", ")}
 Description: ${product.description}`;
   }
 
-  try {
+  const callLLM = async (llmSpan?: { setAttr: (k: string, v: any) => void }) => {
     const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
+        model: MODEL,
         messages: [{ role: "user", content: prompt }],
         max_tokens: 300,
         temperature: 0.7,
       }),
     });
 
+    llmSpan?.setAttr('http.status_code', response.status);
+    llmSpan?.setAttr('intro.lang', lang);
+
     if (!response.ok) {
       console.error(`LLM request failed: ${response.status}`);
+      tracer?.recordCounter('spin_llm_errors_total', 1, {
+        service: SERVICE, model: MODEL, reason: `http_${response.status}`,
+      });
       return product.description;
     }
 
     const data = await response.json() as any;
+    const usage = data.usage ?? {};
+    if (usage.prompt_tokens) tracer?.recordCounter('spin_llm_tokens_total', usage.prompt_tokens, { service: SERVICE, model: MODEL, kind: 'prompt' });
+    if (usage.completion_tokens) tracer?.recordCounter('spin_llm_tokens_total', usage.completion_tokens, { service: SERVICE, model: MODEL, kind: 'completion' });
     const content: string = data.choices?.[0]?.message?.content ?? "";
     return content.trim() || product.description;
+  };
+
+  try {
+    if (tracer) {
+      const parentId = tracer.lastSpanId();
+      return await tracer.withSpan('llm.chat.completions', 'CLIENT', {
+        'llm.endpoint': 'product-intro-llm', 'llm.model': MODEL,
+      }, (llmSpan) => callLLM(llmSpan), parentId);
+    }
+    return await callLLM();
   } catch (e) {
     console.error(`Error calling LLM: ${e}`);
+    tracer?.recordCounter('spin_llm_errors_total', 1, {
+      service: SERVICE, model: MODEL, reason: 'fetch_failed',
+    });
     return product.description;
   }
 }
@@ -122,30 +148,44 @@ const router = AutoRouter({
 router
   .get('/healthz', () => json({ status: 'ok' }))
   .get('/intro', async (req: Request) => {
-    const url = new URL(req.url);
-    const productId = url.searchParams.get('product_id');
-    const lang = url.searchParams.get('lang') ?? 'en';
+    const tracer = makeTracer(SERVICE);
+    const start = Date.now();
+    const route = 'GET /intro';
+    let statusCode = 200;
 
-    if (!productId) {
-      return error(400, { error: 'product_id query parameter is required' });
-    }
+    const result = await tracer.withSpan(route, 'SERVER', {
+      'http.method': 'GET', 'http.route': '/intro',
+    }, async (serverSpan) => {
+      const url = new URL(req.url);
+      const productId = url.searchParams.get('product_id');
+      const lang = url.searchParams.get('lang') ?? 'en';
 
-    const product = PRODUCTS.find(p => p.id === productId);
-    if (!product) {
-      return error(404, { error: `Product ${productId} not found` });
-    }
+      if (!productId) {
+        statusCode = 400; serverSpan.setAttr('http.status_code', 400);
+        return error(400, { error: 'product_id query parameter is required' });
+      }
 
-    if (!['en', 'ja', 'ko', 'zh'].includes(lang)) {
-      return error(400, { error: 'lang must be "en", "ja", "ko", or "zh"' });
-    }
+      const product = PRODUCTS.find(p => p.id === productId);
+      if (!product) {
+        statusCode = 404; serverSpan.setAttr('http.status_code', 404);
+        return error(404, { error: `Product ${productId} not found` });
+      }
 
-    const intro = await generateIntro(product, lang);
-    return json({
-      product_id: productId,
-      product_name: product.name,
-      lang,
-      intro,
+      if (!['en', 'ja', 'ko', 'zh'].includes(lang)) {
+        statusCode = 400; serverSpan.setAttr('http.status_code', 400);
+        return error(400, { error: 'lang must be "en", "ja", "ko", or "zh"' });
+      }
+
+      const intro = await generateIntro(product, lang, tracer);
+      serverSpan.setAttr('http.status_code', 200);
+      return json({ product_id: productId, product_name: product.name, lang, intro });
     });
+
+    tracer.recordCounter('spin_requests_total', 1, { service: SERVICE, route, status_code: statusCode });
+    tracer.recordHistogram('spin_request_duration_ms', Date.now() - start, { service: SERVICE, route, status_code: statusCode });
+    await tracer.flush();
+
+    return result;
   });
 
 //@ts-ignore

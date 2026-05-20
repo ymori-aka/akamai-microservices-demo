@@ -721,7 +721,14 @@ jobs:
       - name: Deploy recommendation-service
         continue-on-error: true
         working-directory: src/spin-functions/recommendation-service
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
+          OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
         run: |
+          # Inject OTel config (see docs/spin-otel/SPEC.md §4.4)
+          sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
+          sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
+          sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
           npm install
           npm run build
           spin aka app link --app-name recommendation-service
@@ -730,7 +737,13 @@ jobs:
       - name: Deploy product-intro-service
         continue-on-error: true
         working-directory: src/spin-functions/product-intro-service
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
+          OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
         run: |
+          sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
+          sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
+          sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
           npm install
           npm run build
           spin aka app link --app-name product-intro-service
@@ -741,15 +754,21 @@ jobs:
         working-directory: src/spin-functions/shopping-assistant-service
         env:
           ZUPLO_API_KEY: ${{ secrets.ZUPLO_API_KEY }}
+          OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
+          OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
         run: |
-          # Inject the Zuplo API key into the placeholder before building.
-          # The placeholder is __ZUPLO_API_KEY__ in src/index.ts; never commit
-          # the real key — this sed runs only inside the CI workspace.
+          # Inject the Zuplo API key + OTel config into placeholders before
+          # building. Placeholders live in src/index.ts (__ZUPLO_API_KEY__)
+          # and src/otel.ts (__OTEL_*__); never committed. sed runs only in
+          # the CI workspace. See docs/spin-otel/SPEC.md §4.4.
           if [ -z "${ZUPLO_API_KEY}" ]; then
             echo "ERROR: ZUPLO_API_KEY GitHub Secret not set"
             exit 1
           fi
           sed -i "s|__ZUPLO_API_KEY__|${ZUPLO_API_KEY}|g" src/index.ts
+          sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
+          sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
+          sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
           npm install
           npm run build
           spin aka app link --app-name shopping-assistant-service

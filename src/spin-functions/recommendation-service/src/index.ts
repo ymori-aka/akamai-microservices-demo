@@ -1,4 +1,8 @@
 import { AutoRouter, cors, error, json } from 'itty-router';
+import { makeTracer, Tracer } from './otel';
+
+const SERVICE = 'recommendation-service';
+const MODEL = 'google_gemma-4-26B-A4B-it-Q4_K_M.gguf';
 
 // ---- Product Catalog (embedded) ----
 const PRODUCTS = [
@@ -36,7 +40,7 @@ const PRODUCTS = [
 const LLM_ENDPOINT = "http://172.238.48.187:8000";
 
 // ---- LLM call ----
-async function getRecommendations(productId: string): Promise<string[]> {
+async function getRecommendations(productId: string, tracer?: Tracer): Promise<string[]> {
   const product = PRODUCTS.find(p => p.id === productId);
   if (!product) return [];
 
@@ -53,24 +57,32 @@ Return ONLY a JSON array of product IDs, nothing else. Example: ["AKMT002","AKMT
 Product catalog:
 ${catalogList}`;
 
-  try {
+  const callLLM = async (llmSpan?: { setAttr: (k: string, v: any) => void }) => {
     const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
+        model: MODEL,
         messages: [{ role: "user", content: prompt }],
         max_tokens: 100,
         temperature: 0.3,
       }),
     });
 
+    llmSpan?.setAttr('http.status_code', response.status);
+
     if (!response.ok) {
       console.error(`LLM request failed: ${response.status}`);
+      tracer?.recordCounter('spin_llm_errors_total', 1, {
+        service: SERVICE, model: MODEL, reason: `http_${response.status}`,
+      });
       return getFallbackRecommendations(productId);
     }
 
     const data = await response.json() as any;
+    const usage = data.usage ?? {};
+    if (usage.prompt_tokens) tracer?.recordCounter('spin_llm_tokens_total', usage.prompt_tokens, { service: SERVICE, model: MODEL, kind: 'prompt' });
+    if (usage.completion_tokens) tracer?.recordCounter('spin_llm_tokens_total', usage.completion_tokens, { service: SERVICE, model: MODEL, kind: 'completion' });
     const content: string = data.choices?.[0]?.message?.content ?? "";
 
     // Extract JSON array from response
@@ -80,8 +92,21 @@ ${catalogList}`;
     const ids: string[] = JSON.parse(match[0]);
     // Validate IDs exist in catalog
     return ids.filter(id => PRODUCTS.some(p => p.id === id)).slice(0, 4);
+  };
+
+  try {
+    if (tracer) {
+      const parentId = tracer.lastSpanId();
+      return await tracer.withSpan('llm.chat.completions', 'CLIENT', {
+        'llm.endpoint': 'recommendation-llm', 'llm.model': MODEL,
+      }, (llmSpan) => callLLM(llmSpan), parentId);
+    }
+    return await callLLM();
   } catch (e) {
     console.error(`Error calling LLM: ${e}`);
+    tracer?.recordCounter('spin_llm_errors_total', 1, {
+      service: SERVICE, model: MODEL, reason: 'fetch_failed',
+    });
     return getFallbackRecommendations(productId);
   }
 }
@@ -111,20 +136,40 @@ const router = AutoRouter({
 router
   .get('/healthz', () => json({ status: 'ok' }))
   .get('/recommendations', async (req: Request) => {
-    const url = new URL(req.url);
-    const productId = url.searchParams.get('product_id');
+    const tracer = makeTracer(SERVICE);
+    const start = Date.now();
+    const route = 'GET /recommendations';
+    let statusCode = 200;
 
-    if (!productId) {
-      return error(400, { error: 'product_id query parameter is required' });
-    }
+    const result = await tracer.withSpan(route, 'SERVER', {
+      'http.method': 'GET', 'http.route': '/recommendations',
+    }, async (serverSpan) => {
+      const url = new URL(req.url);
+      const productId = url.searchParams.get('product_id');
 
-    const product = PRODUCTS.find(p => p.id === productId);
-    if (!product) {
-      return error(404, { error: `Product ${productId} not found` });
-    }
+      if (!productId) {
+        statusCode = 400;
+        serverSpan.setAttr('http.status_code', 400);
+        return error(400, { error: 'product_id query parameter is required' });
+      }
 
-    const recommendations = await getRecommendations(productId);
-    return json({ product_id: productId, recommendations });
+      const product = PRODUCTS.find(p => p.id === productId);
+      if (!product) {
+        statusCode = 404;
+        serverSpan.setAttr('http.status_code', 404);
+        return error(404, { error: `Product ${productId} not found` });
+      }
+
+      const recommendations = await getRecommendations(productId, tracer);
+      serverSpan.setAttr('http.status_code', 200);
+      return json({ product_id: productId, recommendations });
+    });
+
+    tracer.recordCounter('spin_requests_total', 1, { service: SERVICE, route, status_code: statusCode });
+    tracer.recordHistogram('spin_request_duration_ms', Date.now() - start, { service: SERVICE, route, status_code: statusCode });
+    await tracer.flush();
+
+    return result;
   });
 
 //@ts-ignore
