@@ -1,0 +1,80 @@
+name: Apply OTel Collector (Phase 1)
+
+# Standalone workflow_dispatch: applies the OTel Collector manifest
+# (including public LoadBalancer + bearertokenauth) and the bearer
+# token Secret. Independent of the full Deploy job — recovers Phase 1
+# without going through Build.
+on:
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply bearer-token Secret + collector manifest
+        env:
+          OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+        run: |
+          set +e
+          if [ -z "${OTEL_BEARER_TOKEN}" ]; then
+            echo "✗ FAIL: OTEL_BEARER_TOKEN GitHub Secret missing"
+            exit 1
+          fi
+          kubectl create secret generic otel-bearer-token \
+            --from-literal=token="${OTEL_BEARER_TOKEN}" \
+            --dry-run=client -o yaml \
+            | kubectl apply -n monitoring -f -
+
+          kubectl apply -f kubernetes-manifests/monitoring/otel-collector.yaml
+          kubectl -n monitoring rollout restart deployment/otel-collector
+          kubectl -n monitoring rollout status deployment/otel-collector --timeout=180s
+
+      - name: Wait for LoadBalancer External-IP
+        run: |
+          set +e
+          for i in $(seq 1 30); do
+            IP=$(kubectl -n monitoring get svc otel-collector-public \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            HOST=$(kubectl -n monitoring get svc otel-collector-public \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            if [ -n "${IP}${HOST}" ]; then
+              break
+            fi
+            echo "Attempt $i: still provisioning..."
+            sleep 10
+          done
+          echo "===== otel-collector-public ====="
+          kubectl -n monitoring get svc otel-collector-public -o wide
+          echo "IP=${IP}"
+          echo "HOST=${HOST}"
+          TARGET="${HOST:-${IP}}"
+          if [ -z "$TARGET" ]; then
+            echo "✗ FAIL: LB never got an External-IP"
+            kubectl -n monitoring describe svc otel-collector-public | tail -30
+            exit 1
+          fi
+          echo "OTEL_PUBLIC_ENDPOINT=http://${TARGET}:4319"
+          echo "OTEL_PUBLIC_ENDPOINT=http://${TARGET}:4319" >> $GITHUB_OUTPUT
+
+      - name: Smoke test (auth required)
+        run: |
+          set +e
+          IP=$(kubectl -n monitoring get svc otel-collector-public \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          HOST=$(kubectl -n monitoring get svc otel-collector-public \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          TARGET="${HOST:-${IP}}"
+          echo "===== curl no-auth (expect 401) ====="
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" -m 10 \
+            -X POST "http://${TARGET}:4319/v1/traces"
+          echo ""
+          echo "===== curl with-auth (expect 200/4xx-content) ====="
+          curl -s -m 10 \
+            -H "Authorization: Bearer ${{ secrets.OTEL_BEARER_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"resourceSpans":[]}' \
+            -X POST "http://${TARGET}:4319/v1/traces" \
+            -w "\nHTTP %{http_code}\n"
