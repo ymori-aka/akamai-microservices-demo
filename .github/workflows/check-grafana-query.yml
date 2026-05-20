@@ -1,0 +1,40 @@
+name: Check Grafana datasource + query
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: Grafana datasources + run the exact panel query through Grafana
+        run: |
+          set +e
+          G=$(kubectl -n monitoring get pod -l app=grafana -o name | head -1)
+          echo "grafana pod: $G"
+
+          echo "===== Grafana datasources (uid, name, type) ====="
+          kubectl -n monitoring exec "$G" -- \
+            wget -qO- --header="Authorization: Bearer ${{ secrets.GRAFANA_API_TOKEN }}" \
+            http://admin:admin@localhost:3000/api/datasources 2>/dev/null \
+            | tr ',' '\n' | grep -E '"uid"|"name"|"type"|"isDefault"' | head -40
+
+          echo ""
+          echo "===== Datasource UID referenced in dashboards ====="
+          echo "Dashboards hardcode: PBFA97CFB590B2093"
+
+          echo ""
+          echo "===== Query orders_daily_order_count via Grafana proxy ====="
+          # Find the prometheus datasource id
+          DS_ID=$(kubectl -n monitoring exec "$G" -- \
+            wget -qO- http://admin:admin@localhost:3000/api/datasources 2>/dev/null \
+            | tr '{' '\n' | grep -i prometheus | grep -oE '"id":[0-9]+' | head -1 | grep -oE '[0-9]+')
+          echo "prometheus datasource id: ${DS_ID}"
+
+          kubectl -n monitoring exec "$G" -- \
+            wget -qO- "http://admin:admin@localhost:3000/api/datasources/proxy/${DS_ID}/api/v1/query?query=sum(orders_daily_order_count)" 2>/dev/null
+          echo ""
+          echo "===== Same query by UID (proxy/uid/...) ====="
+          kubectl -n monitoring exec "$G" -- \
+            wget -qO- "http://admin:admin@localhost:3000/api/datasources/proxy/uid/PBFA97CFB590B2093/api/v1/query?query=sum(orders_daily_order_count)" 2>/dev/null
+          echo ""
