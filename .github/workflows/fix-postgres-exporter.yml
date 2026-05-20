@@ -47,6 +47,22 @@ jobs:
             -o jsonpath='{range .items[?(@.status.readyReplicas==0)]}{.metadata.name}{"\n"}{end}' \
             | xargs -r -n1 kubectl -n monitoring delete rs
 
+      - name: Apply Prometheus alert rules + reload
+        run: |
+          set +e
+          # Apply rules ConfigMap, updated Prometheus deployment, restart.
+          kubectl apply -f kubernetes-manifests/monitoring/prometheus-rules.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
+          kubectl -n monitoring rollout restart deployment/prometheus
+          kubectl -n monitoring rollout status deployment/prometheus --timeout=180s
+
+          # Verify rules are loaded
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          echo "===== Loaded alert rule groups ====="
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- http://localhost:9090/api/v1/rules 2>/dev/null \
+            | tr ',' '\n' | grep -E '"name"|"state"' | head -20
+
       - name: Verify metric in /metrics AND in Prometheus
         run: |
           set +e
