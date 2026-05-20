@@ -1,0 +1,61 @@
+name: Verify Spin OTel
+
+# Generates traffic to the 3 Spin functions on Akamai Functions, then
+# checks that their telemetry reached Prometheus (metrics) via the public
+# OTel collector. See docs/spin-otel/SPEC.md §6.
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: self-hosted
+    steps:
+      - name: Generate traffic to all 3 Spin functions
+        run: |
+          set +e
+          SA="https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
+          PI="https://b0ff4a59-2449-4385-9f5c-03f471fd9392.fwf.app"
+          RC="https://bc53a68a-dfd1-4144-a8b9-ed72f049bd8a.fwf.app"
+
+          echo "===== shopping-assistant /chat ====="
+          curl -s -m 30 -X POST "$SA/chat" \
+            -H "Content-Type: application/json" \
+            -d '{"messages":[{"role":"user","content":"Tell me a fun fact about cats"}],"max_tokens":40}' \
+            -w "\nHTTP %{http_code}\n" | tail -3
+
+          echo "===== product-intro /intro ====="
+          curl -s -m 30 "$PI/intro?product_id=AKMT001&lang=en" \
+            -w "\nHTTP %{http_code}\n" | tail -3
+
+          echo "===== recommendation /recommendations ====="
+          curl -s -m 30 "$RC/recommendations?product_id=AKMT001" \
+            -w "\nHTTP %{http_code}\n" | tail -3
+
+          echo ""
+          echo "Waiting 30s for OTel pipeline (batch + scrape)..."
+          sleep 30
+
+      - name: Query Prometheus for spin_* metrics
+        run: |
+          set +e
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          if [ -z "$PROM" ]; then echo "no prometheus pod"; exit 1; fi
+
+          # OTel collector exports with namespace=boutique, so metric becomes
+          # boutique_spin_requests_total.
+          for METRIC in boutique_spin_requests_total boutique_spin_llm_tokens_total; do
+            echo "===== ${METRIC} ====="
+            kubectl -n monitoring exec "$PROM" -- \
+              wget -qO- "http://localhost:9090/api/v1/query?query=${METRIC}" 2>/dev/null \
+              | tr '},' '\n' | grep -E 'service|value|"__name__"' | head -30
+            echo ""
+          done
+
+      - name: Check OTel collector received the data
+        run: |
+          set +e
+          echo "===== collector internal metrics (accepted spans/metrics) ====="
+          COL=$(kubectl -n monitoring get pod -l app=otel-collector -o name | head -1)
+          kubectl -n monitoring exec "$COL" -- \
+            wget -qO- http://localhost:8888/metrics 2>/dev/null \
+            | grep -E 'otelcol_receiver_accepted_(spans|metric_points)' | head -10
