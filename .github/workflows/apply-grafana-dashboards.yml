@@ -1,0 +1,21 @@
+name: Apply Grafana dashboards
+
+# Standalone: re-applies the grafana-dashboards ConfigMap and restarts
+# Grafana so dashboard JSON changes land without a full Build+Deploy.
+on:
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply + reload
+        run: |
+          set +e
+          # Delete + recreate to force Grafana to drop any cached version.
+          kubectl -n monitoring delete configmap grafana-dashboards --ignore-not-found
+          kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          kubectl -n monitoring rollout restart deployment/grafana
+          kubectl -n monitoring rollout status deployment/grafana --timeout=120s
+          echo "Done. Home dashboard now has the Edge AI (Spin) row."
