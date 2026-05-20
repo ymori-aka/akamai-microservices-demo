@@ -194,8 +194,59 @@ data:
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
           "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
 
+        { "id": 200, "type": "row", "title": "Edge AI (Spin / Akamai Functions)", "collapsed": false,
+          "gridPos": { "x": 0, "y": 50, "w": 24, "h": 1 } },
+
+        { "id": 201, "type": "stat", "title": "Spin req / min (total)",
+          "description": "Total request rate across all 3 Spin functions on Akamai Functions. Source: OTLP from the functions via the public OTel collector.",
+          "gridPos": { "x": 0, "y": 51, "w": 6, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum(rate(boutique_spin_requests_total[5m])) * 60 OR vector(0)", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "colorMode": "value", "graphMode": "area", "textMode": "value", "justifyMode": "center", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "fieldConfig": { "defaults": { "unit": "rpm", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "purple" } } } },
+
+        { "id": 202, "type": "timeseries", "title": "Spin request rate by function",
+          "gridPos": { "x": 6, "y": 51, "w": 9, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum by (service) (rate(boutique_spin_requests_total[5m])) * 60", "legendFormat": "{{service}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "fieldConfig": { "defaults": { "unit": "rpm", "decimals": 1, "custom": { "lineWidth": 2, "fillOpacity": 20, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
+
+        { "id": 203, "type": "timeseries", "title": "Spin avg latency by function",
+          "description": "Average request duration. Note: histogram is bucket-less (see docs/spin-otel SPEC §3.3) so avg is accurate but p95 is not available.",
+          "gridPos": { "x": 15, "y": 51, "w": 9, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum by (service) (rate(boutique_spin_request_duration_ms_sum[5m])) / clamp_min(sum by (service) (rate(boutique_spin_request_duration_ms_count[5m])), 0.0001)", "legendFormat": "{{service}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 10, "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
+
+        { "id": 204, "type": "timeseries", "title": "Spin LLM tokens / min by function",
+          "gridPos": { "x": 0, "y": 58, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum by (service, kind) (rate(boutique_spin_llm_tokens_total[5m])) * 60", "legendFormat": "{{service}} · {{kind}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "custom": { "lineWidth": 2, "fillOpacity": 20, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "palette-classic" } } } },
+
+        { "id": 205, "type": "timeseries", "title": "Spin LLM errors / min by function",
+          "description": "LLM call failures (HTTP non-2xx or fetch errors) per function. Should normally be flat zero.",
+          "gridPos": { "x": 12, "y": 58, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [
+            { "expr": "sum by (service, reason) (rate(boutique_spin_llm_errors_total[5m])) * 60", "legendFormat": "{{service}} · {{reason}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }
+          ],
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 2, "custom": { "lineWidth": 2, "fillOpacity": 25, "gradientMode": "opacity", "lineInterpolation": "smooth", "showPoints": "never" }, "color": { "mode": "fixed", "fixedColor": "red" } } } },
+
         { "id": 30, "type": "text", "title": "",
-          "gridPos": { "x": 0, "y": 57, "w": 24, "h": 3 },
+          "gridPos": { "x": 0, "y": 65, "w": 24, "h": 3 },
           "options": { "mode": "html", "content": "<div style=\"display:flex;gap:12px;font-family:-apple-system,'Inter',sans-serif;\"><a href=\"/d/akamai-microservices\" style=\"flex:1;text-decoration:none;\"><div style=\"padding:14px 18px;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#e5e7eb;transition:background 0.2s;\"><div style=\"font-size:14px;font-weight:600;color:#60a5fa;\">→ Operations</div><div style=\"font-size:12px;opacity:0.7;margin-top:4px;\">Per-service request rate, latency, errors, traces, logs</div></div></a><a href=\"/d/akamai-infrastructure\" style=\"flex:1;text-decoration:none;\"><div style=\"padding:14px 18px;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#e5e7eb;\"><div style=\"font-size:14px;font-weight:600;color:#a78bfa;\">→ Infrastructure &amp; LLM</div><div style=\"font-size:12px;opacity:0.7;margin-top:4px;\">PostgreSQL, NodeBalancer, LLM token / latency drill-down</div></div></a><a href=\"http://172.233.68.25/\" target=\"_blank\" style=\"flex:1;text-decoration:none;\"><div style=\"padding:14px 18px;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#e5e7eb;\"><div style=\"font-size:14px;font-weight:600;color:#fb923c;\">↗ Live Storefront</div><div style=\"font-size:12px;opacity:0.7;margin-top:4px;\">Open the public e-commerce site in a new tab</div></div></a></div>" } }
       ]
     }
