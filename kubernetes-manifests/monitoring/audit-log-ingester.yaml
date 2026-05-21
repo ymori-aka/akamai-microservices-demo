@@ -58,31 +58,50 @@ data:
         else:
             print(f"pushed {len(lines)} lines to Loki")
 
+    from datetime import datetime, timezone
+
+    def event_ts_ns(evt):
+        # Akamai audit events are CloudEvents with a top-level ISO8601 "time".
+        v = evt.get("time") or evt.get("timestamp")
+        if isinstance(v, (int, float)):
+            return str(int(v * 1e9)) if v < 1e12 else str(int(v * 1e6))
+        if isinstance(v, str):
+            try:
+                s = v.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(s)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return str(int(dt.timestamp() * 1e9))
+            except Exception:
+                pass
+        return str(int(time.time() * 1e9))
+
     def parse_object(key):
         obj = s3.get_object(Bucket=BUCKET, Key=key)
         raw = obj["Body"].read()
         if key.endswith(".gz") or raw[:2] == b"\x1f\x8b":
             raw = gzip.decompress(raw)
-        text = raw.decode("utf-8", errors="replace")
+        text = raw.decode("utf-8", errors="replace").strip()
+        if not text:
+            return []
         out = []
+        # Akamai writes ONE JSON object per file. Try that first; fall back
+        # to NDJSON (one event per line) for robustness.
+        try:
+            evt = json.loads(text)
+            out.append([event_ts_ns(evt), json.dumps(evt, separators=(",", ":"))])
+            return out
+        except json.JSONDecodeError:
+            pass
         for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
-            # Each line is a JSON audit event. Use its timestamp if present.
-            ts_ns = str(int(time.time() * 1e9))
             try:
                 evt = json.loads(line)
-                for tk in ("timestamp", "time", "@timestamp", "event_time"):
-                    if tk in evt:
-                        # best-effort: assume ISO8601 or epoch
-                        v = evt[tk]
-                        if isinstance(v, (int, float)):
-                            ts_ns = str(int(v * 1e9)) if v < 1e12 else str(int(v * 1e6))
-                        break
+                out.append([event_ts_ns(evt), line])
             except Exception:
-                pass
-            out.append([ts_ns, line])
+                out.append([str(int(time.time() * 1e9)), line])
         return out
 
     def main():

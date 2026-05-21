@@ -1,0 +1,34 @@
+name: Verify audit-log ingestion
+
+# Runs the audit-log ingester once on demand, then queries Loki to
+# confirm the Akamai Cloud Pulse audit events landed.
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: self-hosted
+    steps:
+      - name: Run ingester once (manual Job from CronJob)
+        run: |
+          set +e
+          kubectl -n monitoring delete job audit-ingester-manual --ignore-not-found
+          kubectl -n monitoring create job audit-ingester-manual \
+            --from=cronjob/audit-log-ingester
+          kubectl -n monitoring wait --for=condition=complete job/audit-ingester-manual --timeout=180s
+          echo "===== ingester logs ====="
+          kubectl -n monitoring logs job/audit-ingester-manual --tail=50
+
+      - name: Query Loki for audit events
+        run: |
+          set +e
+          LOKI=$(kubectl -n monitoring get pod -l app=loki -o name | head -1)
+          echo "===== Loki: count of {job=akamai-audit} last 24h ====="
+          END=$(date +%s)000000000; START=$(( $(date +%s) - 86400 ))000000000
+          kubectl -n monitoring exec "$LOKI" -- \
+            wget -qO- "http://localhost:3100/loki/api/v1/query_range?query=%7Bjob%3D%22akamai-audit%22%7D&start=${START}&end=${END}&limit=5" 2>/dev/null \
+            | head -c 2000
+          echo ""
+          echo "===== Loki labels ====="
+          kubectl -n monitoring exec "$LOKI" -- \
+            wget -qO- "http://localhost:3100/loki/api/v1/label/job/values" 2>/dev/null
