@@ -492,6 +492,18 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/loki.yaml
           kubectl apply -f kubernetes-manifests/monitoring/promtail.yaml
           kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
+
+          # Audit-log ingester: Object Storage credentials Secret + CronJob.
+          # Pulls Akamai Cloud Pulse audit logs from the akamai-audit-logs
+          # bucket into Loki. Only deploy when the keys are present.
+          if [ -n "${{ secrets.AUDIT_S3_ACCESS_KEY }}" ]; then
+            kubectl create secret generic audit-s3-credentials \
+              --from-literal=access_key="${{ secrets.AUDIT_S3_ACCESS_KEY }}" \
+              --from-literal=secret_key="${{ secrets.AUDIT_S3_SECRET_KEY }}" \
+              --dry-run=client -o yaml \
+              | kubectl apply -n monitoring -f -
+            kubectl apply -f kubernetes-manifests/monitoring/audit-log-ingester.yaml
+          fi
           kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           kubectl apply -f kubernetes-manifests/monitoring/kiali.yaml

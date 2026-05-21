@@ -1,0 +1,187 @@
+# Akamai Cloud Pulse audit-log ingester.
+#
+# Every 5 min: lists new audit-log objects in the akamai-audit-logs
+# Object Storage bucket (written by the `audit_logs` monitor stream),
+# parses the NDJSON entries, and pushes them into Loki so they show up
+# in Grafana. Processed-object high-water-mark is stored back in the
+# bucket at audit/.ingester/last_key so reruns are incremental.
+#
+# Credentials: audit-s3-credentials Secret (created in CI from the
+# AUDIT_S3_ACCESS_KEY / AUDIT_S3_SECRET_KEY GitHub Secrets).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-log-ingester-script
+  namespace: monitoring
+data:
+  ingest.py: |
+    import os, gzip, io, json, time, sys
+    import boto3, requests
+
+    ENDPOINT = "https://jp-osa-1.linodeobjects.com"
+    BUCKET   = "akamai-audit-logs"
+    PREFIX   = "audit/"
+    STATE_KEY = "audit/.ingester/last_key"
+    LOKI = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=ENDPOINT,
+        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+        region_name="jp-osa",
+    )
+
+    def get_last_key():
+        try:
+            o = s3.get_object(Bucket=BUCKET, Key=STATE_KEY)
+            return o["Body"].read().decode().strip()
+        except Exception:
+            return ""
+
+    def set_last_key(k):
+        s3.put_object(Bucket=BUCKET, Key=STATE_KEY, Body=k.encode())
+
+    def push_to_loki(lines):
+        # lines: list of (ts_ns_str, log_line_str)
+        if not lines:
+            return
+        body = {"streams": [{
+            "stream": {"job": "akamai-audit", "source": "cloud-pulse",
+                       "stream_type": "audit_logs"},
+            "values": lines,
+        }]}
+        r = requests.post(LOKI, json=body, timeout=15)
+        if r.status_code >= 300:
+            print(f"loki push failed {r.status_code}: {r.text[:300]}", file=sys.stderr)
+        else:
+            print(f"pushed {len(lines)} lines to Loki")
+
+    def parse_object(key):
+        obj = s3.get_object(Bucket=BUCKET, Key=key)
+        raw = obj["Body"].read()
+        if key.endswith(".gz") or raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        text = raw.decode("utf-8", errors="replace")
+        out = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # Each line is a JSON audit event. Use its timestamp if present.
+            ts_ns = str(int(time.time() * 1e9))
+            try:
+                evt = json.loads(line)
+                for tk in ("timestamp", "time", "@timestamp", "event_time"):
+                    if tk in evt:
+                        # best-effort: assume ISO8601 or epoch
+                        v = evt[tk]
+                        if isinstance(v, (int, float)):
+                            ts_ns = str(int(v * 1e9)) if v < 1e12 else str(int(v * 1e6))
+                        break
+            except Exception:
+                pass
+            out.append([ts_ns, line])
+        return out
+
+    def main():
+        last = get_last_key()
+        print(f"last processed key: {last!r}")
+        paginator = s3.get_paginator("list_objects_v2")
+        keys = []
+        for page in paginator.paginate(Bucket=BUCKET, Prefix=PREFIX):
+            for o in page.get("Contents", []):
+                k = o["Key"]
+                if k.startswith("audit/.ingester/"):
+                    continue
+                if k > last:
+                    keys.append(k)
+        keys.sort()
+        if not keys:
+            print("no new audit objects")
+            return
+        print(f"{len(keys)} new objects")
+        max_key = last
+        for k in keys:
+            try:
+                lines = parse_object(k)
+                push_to_loki(lines)
+                max_key = max(max_key, k)
+            except Exception as e:
+                print(f"error on {k}: {e}", file=sys.stderr)
+        if max_key and max_key != last:
+            set_last_key(max_key)
+            print(f"updated last key -> {max_key}")
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: audit-log-ingester
+  namespace: monitoring
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 240
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: ingester
+              image: python:3.12-slim
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: audit-s3-credentials
+                      key: access_key
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: audit-s3-credentials
+                      key: secret_key
+                - name: HOME
+                  value: /tmp
+                - name: PIP_CACHE_DIR
+                  value: /tmp/pip
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  pip install --quiet --target /tmp/pylibs boto3 requests >/dev/null 2>&1
+                  PYTHONPATH=/tmp/pylibs python /script/ingest.py
+              volumeMounts:
+                - name: script
+                  mountPath: /script
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 300m
+                  memory: 256Mi
+          volumes:
+            - name: script
+              configMap:
+                name: audit-log-ingester-script
+            - name: tmp
+              emptyDir: {}
