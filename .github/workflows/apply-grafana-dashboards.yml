@@ -16,6 +16,10 @@ jobs:
           # Delete + recreate to force Grafana to drop any cached version.
           kubectl -n monitoring delete configmap grafana-dashboards --ignore-not-found
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          # Also apply grafana.yaml (provisioning provider paths /
+          # disableDeletion changes) so Istio dashboard duplicates get
+          # cleaned up and not re-created.
+          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
           kubectl -n monitoring rollout restart deployment/grafana
           kubectl -n monitoring rollout status deployment/grafana --timeout=120s
-          echo "Done. Home dashboard now has the Edge AI (Spin) row."
+          echo "Done. Dashboards reloaded; Istio duplicates cleaned."

@@ -82,7 +82,10 @@ data:
         orgId: 1
         folder: Akamai Store
         type: file
-        disableDeletion: true
+        # false so dashboards removed from the path (e.g. the Istio ones
+        # that used to be double-imported here) get cleaned up on restart.
+        # Safe because allowUiUpdates is false — this is a pure GitOps setup.
+        disableDeletion: false
         updateIntervalSeconds: 10
         allowUiUpdates: false
         options:
@@ -98,7 +101,7 @@ data:
         updateIntervalSeconds: 10
         allowUiUpdates: false
         options:
-          path: /var/lib/grafana/dashboards/istio
+          path: /var/lib/grafana/dashboards-istio
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -154,7 +157,11 @@ spec:
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
             - name: istio-dashboards
-              mountPath: /var/lib/grafana/dashboards/istio
+              # Mounted OUTSIDE /var/lib/grafana/dashboards so the default
+              # file provider (which scans that path recursively) does not
+              # double-import these — that was creating duplicate Istio
+              # dashboards (one in "Akamai Store", one in "Istio Service Mesh").
+              mountPath: /var/lib/grafana/dashboards-istio
             - name: data
               mountPath: /var/lib/grafana
           resources:
