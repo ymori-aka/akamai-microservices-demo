@@ -1,0 +1,41 @@
+name: Check postgres metric gaps
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: Pods + range query for gaps over last 6h
+        run: |
+          set +e
+          echo "===== postgres-exporter pods ====="
+          kubectl -n monitoring get pod -l app=postgres-exporter -o wide
+
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+
+          echo ""
+          echo "===== Instant: orders_daily_order_count ====="
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- "http://localhost:9090/api/v1/query?query=orders_daily_order_count" 2>/dev/null
+
+          echo ""
+          echo "===== up{job=postgres-exporter} over last 6h (1 = scrape ok) ====="
+          END=$(date +%s); START=$((END-21600))
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- "http://localhost:9090/api/v1/query_range?query=up%7Bjob%3D%22postgres-exporter%22%7D&start=${START}&end=${END}&step=300" 2>/dev/null \
+            | tr ',' '\n' | grep -oE '"[01]"' | sort | uniq -c
+          echo "(count of '1' = healthy scrapes, '0' = failed scrapes, 5-min steps)"
+
+          echo ""
+          echo "===== presence of orders_daily_order_count over last 6h ====="
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- "http://localhost:9090/api/v1/query_range?query=count(orders_daily_order_count)&start=${START}&end=${END}&step=300" 2>/dev/null \
+            | tr ']' '\n' | grep -oE '\[[0-9.]+,"[0-9]+"' | tail -40
+          echo "(each line = a 5-min step where the metric existed; missing steps = GAPS)"
+
+          echo ""
+          echo "===== postgres-exporter scrape errors (last 6h) ====="
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- "http://localhost:9090/api/v1/query?query=changes(up%7Bjob%3D%22postgres-exporter%22%7D%5B6h%5D)" 2>/dev/null
