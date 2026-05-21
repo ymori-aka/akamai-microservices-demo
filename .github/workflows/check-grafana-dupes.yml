@@ -1,0 +1,20 @@
+name: Check Grafana duplicate dashboards
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: List all dashboards with title + uid + folder
+        run: |
+          set +e
+          G=$(kubectl -n monitoring get pod -l app=grafana -o name | head -1)
+          echo "===== All dashboards (title | uid | url) ====="
+          kubectl -n monitoring exec "$G" -- \
+            wget -qO- "http://admin:admin@localhost:3000/api/search?type=dash-db" 2>/dev/null \
+            | python3 -c "import json,sys
+d=json.load(sys.stdin)
+for x in sorted(d, key=lambda r: r.get('title','')):
+    print(f\"{x.get('title','?'):45s} | {x.get('uid','?'):20s} | {x.get('url','')}\")"
