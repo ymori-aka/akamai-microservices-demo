@@ -1,0 +1,25 @@
+name: Check ACLP collector
+on: { workflow_dispatch: {} }
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: aclp-collector pod + metrics + logs
+        run: |
+          set +e
+          echo "===== aclp-collector pod ====="
+          kubectl -n monitoring get pod -l app=aclp-collector -o wide
+          echo ""
+          echo "===== /metrics avg_* + iops (on collector :9464) ====="
+          COL=$(kubectl -n monitoring get pod -l app=aclp-collector -o name | head -1)
+          kubectl -n monitoring exec "$COL" -- sh -c "wget -qO- http://localhost:9464/metrics 2>/dev/null | grep -E '^(avg_|cpu_|memory_|disk_|read_iops|write_iops)' | head -30" || echo "(no avg_/iops metrics on collector)"
+          echo ""
+          echo "===== Prometheus: avg_cpu_usage / avg_read_iops ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for q in avg_cpu_usage avg_memory_usage avg_disk_usage avg_read_iops avg_write_iops read_iops write_iops; do
+            echo "--- $q ---"
+            kubectl -n monitoring exec "$PROM" -- wget -qO- "http://localhost:9090/api/v1/query?query=${q}" 2>/dev/null | head -c 300; echo ""
+          done
+          echo ""
+          echo "===== aclp-collector logs (last 40) ====="
+          kubectl -n monitoring logs "$COL" --tail=40 2>/dev/null
