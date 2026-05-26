@@ -8,6 +8,41 @@ metadata:
   name: prometheus-rules
   namespace: monitoring
 data:
+  aclp-collector.yml: |
+    groups:
+      - name: aclp-collector
+        interval: 30s
+        rules:
+          # ACLP DBaaS metrics gone — almost always the LINODE_PAT expired
+          # and aclp-collector is getting 401 from Cloud Pulse. This is the
+          # real recurring cause of "PostgreSQL CPU/Mem/Disk/IOPS panels are
+          # blank". Recover with the fix-aclp-collector workflow after
+          # refreshing the LINODE_PAT GitHub Secret.
+          - alert: AclpDbaasMetricsMissing
+            expr: absent(avg_cpu_usage{entity_id="470692"})
+            for: 15m
+            labels:
+              severity: critical
+              component: aclp-collector
+            annotations:
+              summary: "ACLP DBaaS metrics missing 15m+ (likely expired LINODE_PAT)"
+              description: |
+                avg_cpu_usage for the managed PG (entity 470692) has been
+                absent 15m+. aclp-collector is probably getting 401 from
+                Cloud Pulse — the LINODE_PAT has expired. Refresh the
+                GitHub Secret and run the fix-aclp-collector workflow.
+          - alert: AclpNodebalancerMetricsMissing
+            expr: absent(nb_total_active_sessions)
+            for: 15m
+            labels:
+              severity: warning
+              component: aclp-collector
+            annotations:
+              summary: "ACLP NodeBalancer metrics missing 15m+"
+              description: |
+                NodeBalancer Cloud Pulse metrics absent 15m+. Same likely
+                cause as AclpDbaasMetricsMissing (expired PAT / 401).
+
   postgres-exporter.yml: |
     groups:
       - name: postgres-exporter
