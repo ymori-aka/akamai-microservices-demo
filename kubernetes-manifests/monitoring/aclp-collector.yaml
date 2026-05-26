@@ -3,9 +3,19 @@
 # Pulls metrics from Akamai's monitoring API and re-exposes them as a
 # Prometheus scrape endpoint. Currently collecting: dbaas, nodebalancer.
 #
-# Auth: requires a Linode Personal Access Token with Monitor:Read and
-# Databases:Read permissions, stored in the K8s Secret `linode-pat`
-# (key=TOKEN). CI creates this Secret from the LINODE_PAT GitHub Secret.
+# Auth: requires a Linode Personal Access Token stored in the K8s Secret
+# `linode-pat` (key=TOKEN). CI creates this Secret from the LINODE_PAT
+# GitHub Secret.
+#
+# IMPORTANT — use a NON-EXPIRING, least-privilege token to avoid the
+# recurring "PostgreSQL/NodeBalancer panels go blank" incident, which was
+# caused by the PAT expiring -> 401 Unauthorized from Cloud Pulse.
+# Current token (id 70533131, label "aclp-collector-permanent"):
+#   scopes: databases:read_only monitor:read_only nodebalancers:read_only
+#           object_storage:read_only
+#   expiry: 2999-12-31 (effectively never)
+# Detection: Prometheus alert AclpDbaasMetricsMissing (prometheus-rules.yaml).
+# Recovery: refresh LINODE_PAT GitHub Secret, run fix-aclp-collector.yml.
 #
 # NodeBalancer metrics: ENABLED (Akamai confirmed access 2026-05-17).
 
