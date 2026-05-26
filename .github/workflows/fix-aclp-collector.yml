@@ -1,0 +1,25 @@
+name: Fix ACLP collector (refresh PAT)
+on: { workflow_dispatch: {} }
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: Recreate linode-pat secret + restart collector + verify
+        run: |
+          set +e
+          if [ -z "${{ secrets.LINODE_PAT }}" ]; then echo "LINODE_PAT missing"; exit 1; fi
+          kubectl -n monitoring delete secret linode-pat --ignore-not-found
+          kubectl -n monitoring create secret generic linode-pat --from-literal=TOKEN="${{ secrets.LINODE_PAT }}"
+          kubectl -n monitoring rollout restart deployment/aclp-collector
+          kubectl -n monitoring rollout status deployment/aclp-collector --timeout=120s
+          echo "waiting 90s for first poll cycle..."
+          sleep 90
+          echo "===== collector logs (look for 401 vs success) ====="
+          kubectl -n monitoring logs deployment/aclp-collector --tail=20
+          echo ""
+          echo "===== Prometheus: avg_cpu_usage{entity_id=470692} ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for q in avg_cpu_usage avg_memory_usage avg_disk_usage avg_read_iops avg_write_iops; do
+            echo "--- $q ---"
+            kubectl -n monitoring exec "$PROM" -- wget -qO- "http://localhost:9090/api/v1/query?query=${q}%7Bentity_id%3D%22470692%22%7D" 2>/dev/null | head -c 300; echo ""
+          done
