@@ -1,0 +1,19 @@
+name: Check dashboard configmap
+on: { workflow_dispatch: {} }
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: Dump loaded home.json Revenue/Orders panel queries
+        run: |
+          set +e
+          echo "===== cluster ConfigMap grafana-dashboards: orders_ queries ====="
+          kubectl -n monitoring get configmap grafana-dashboards -o jsonpath='{.data.home\.json}' 2>/dev/null \
+            | grep -oE '"expr": "[^"]*orders_[^"]*"' | head -10
+          echo ""
+          echo "===== count of home dashboards in grafana DB (via sqlite in pod) ====="
+          G=$(kubectl -n monitoring get pod -l app=grafana -o name | head -1)
+          kubectl -n monitoring exec "$G" -- sh -c 'ls -la /var/lib/grafana/dashboards/ 2>/dev/null; echo "---"; ls -la /var/lib/grafana/dashboards-istio/ 2>/dev/null | head' 2>/dev/null
+          echo ""
+          echo "===== grafana provider config seen by pod ====="
+          kubectl -n monitoring exec "$G" -- cat /etc/grafana/provisioning/dashboards/dashboards.yaml 2>/dev/null | grep -E "path|name:|folder"
