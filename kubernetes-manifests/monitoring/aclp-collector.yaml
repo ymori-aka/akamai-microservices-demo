@@ -68,9 +68,12 @@ data:
               - nb_active_tcp_backends
               - nb_active_udp_backends
 
-          # objectstorage: NOT supported in latest (v1.0.0).
-          # 1.6.0 Docker tag is broken (2KB image). Pending a stable image
-          # version that supports objectstorage service_type.
+          # objectstorage: NOT collectable from this account yet.
+          # ROOT CAUSE (confirmed 2026-05-26): the Osaka region (jp-osa) is
+          # NOT supported by Cloud Pulse for Object Storage (and Logs) yet.
+          # Our buckets + the managed PG live in jp-osa, so these service
+          # types return nothing regardless of collector version. Re-enable
+          # once Cloud Pulse adds jp-osa support for objectstorage.
           # - service_type: objectstorage
           #   entity_regions: ["jp-osa", "jp-tyo-3"]
           #   agg_function: sum
