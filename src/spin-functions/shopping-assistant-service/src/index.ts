@@ -53,11 +53,18 @@ router
           'llm.endpoint': 'chat-ai-ai-gateway-34777e2.zuplo.app',
           'llm.model': MODEL,
         }, async (llmSpan) => {
-          const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
+          // Cache-buster: the Zuplo AI Gateway was caching completions with a
+          // body-insensitive key, so every chat returned the first cached
+          // answer (and the Firewall-for-AI block appeared bypassed). Force a
+          // cache miss per request via a unique query param + no-cache headers
+          // so each prompt gets a fresh completion.
+          const nocache = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions?nocache=${nocache}`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${ZUPLO_API_KEY}`,
+              'Cache-Control': 'no-cache, no-store',
             },
             body: JSON.stringify({
               model: MODEL,
