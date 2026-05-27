@@ -1,0 +1,28 @@
+name: Heal ACLP collector (deploy self-healer)
+on: { workflow_dispatch: {} }
+jobs:
+  heal:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply self-healer + run one immediate check
+        run: |
+          set +e
+          kubectl apply -f kubernetes-manifests/monitoring/aclp-collector-healer.yaml
+          echo "===== CronJob ====="
+          kubectl -n monitoring get cronjob aclp-collector-healer
+
+          # Kick one immediate run so we can see it work right now.
+          JOB="aclp-healer-manual-$(date +%s)"
+          kubectl -n monitoring create job "$JOB" --from=cronjob/aclp-collector-healer
+          kubectl -n monitoring wait --for=condition=complete --timeout=120s job/"$JOB"
+          echo "===== healer job logs ====="
+          kubectl -n monitoring logs job/"$JOB" --tail=40
+
+          echo ""
+          echo "===== current DBaaS metrics in Prometheus ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for q in avg_cpu_usage avg_memory_usage avg_disk_usage avg_read_iops avg_write_iops; do
+            echo "--- $q ---"
+            kubectl -n monitoring exec "$PROM" -- wget -qO- "http://localhost:9090/api/v1/query?query=${q}%7Bentity_id%3D%22470692%22%7D" 2>/dev/null | head -c 220; echo ""
+          done

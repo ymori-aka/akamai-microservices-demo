@@ -486,6 +486,10 @@ jobs:
           # Apply alert rule ConfigMap BEFORE Prometheus so the rules are
           # available the moment Prometheus restarts and re-reads its config.
           kubectl apply -f kubernetes-manifests/monitoring/prometheus-rules.yaml
+          # Self-healer CronJob: auto-restarts aclp-collector when DBaaS
+          # (Managed PostgreSQL) metrics go absent. Remediation companion to
+          # the AclpDbaasMetricsMissing alert in prometheus-rules.yaml.
+          kubectl apply -f kubernetes-manifests/monitoring/aclp-collector-healer.yaml
           kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
           # Force Prometheus restart so config + rule changes take effect.
           kubectl -n monitoring rollout restart deployment/prometheus || true

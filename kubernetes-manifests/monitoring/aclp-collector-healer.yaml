@@ -1,0 +1,110 @@
+# Self-healing for the ACLP (Cloud Pulse) collector.
+#
+# Why this exists:
+#   The aclp-collector periodically stops emitting DBaaS (Managed PostgreSQL)
+#   metrics while the pod stays Running — it silently stops polling Cloud Pulse
+#   (often after its short-lived Cloud Pulse JWT can no longer be refreshed),
+#   WITHOUT crashing and frequently WITHOUT a 401. A `rollout restart` always
+#   recovers it. The LINODE_PAT itself is a non-expiring token (id 70533131)
+#   and is NOT the recurring cause anymore.
+#
+# What this does:
+#   Every 10 min, a CronJob asks the in-cluster Prometheus whether
+#   avg_cpu_usage{entity_id="470692"} has been present at all in the last 12 min.
+#   If it has been absent (empty result while Prometheus itself is healthy),
+#   it runs `kubectl rollout restart deployment/aclp-collector`.
+#
+# Detection (separate, already in place): prometheus-rules.yaml alert
+#   AclpDbaasMetricsMissing. This healer is the *remediation*.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aclp-healer
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aclp-healer
+  namespace: monitoring
+rules:
+  # rollout restart = GET the Deployment then PATCH a template annotation.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+  # Read-only visibility for logging/debugging in the Job.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aclp-healer
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: aclp-healer
+subjects:
+  - kind: ServiceAccount
+    name: aclp-healer
+    namespace: monitoring
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: aclp-collector-healer
+  namespace: monitoring
+  labels:
+    app: aclp-collector-healer
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app: aclp-collector-healer
+        spec:
+          serviceAccountName: aclp-healer
+          restartPolicy: Never
+          containers:
+            - name: healer
+              image: alpine/k8s:1.31.0
+              resources:
+                requests: { cpu: "10m", memory: "32Mi" }
+                limits: { cpu: "100m", memory: "128Mi" }
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  PROM="http://prometheus:9090/api/v1/query"
+                  # present_over_time returns 1 if the series existed anytime in
+                  # the window, else an empty result. Window > scrape gap avoids
+                  # false positives from a single missed scrape.
+                  Q='present_over_time(avg_cpu_usage{entity_id="470692"}[12m])'
+                  R=$(curl -s --max-time 10 --data-urlencode "query=${Q}" "${PROM}" || true)
+                  echo "prometheus response: ${R}"
+
+                  # Guard: only act when Prometheus itself answered successfully.
+                  # If Prometheus is down/unreachable, do NOT restart (avoid storms).
+                  if ! echo "${R}" | grep -q '"status":"success"'; then
+                    echo "Prometheus not reachable / not success — skipping (no action)."
+                    exit 0
+                  fi
+
+                  if echo "${R}" | grep -q '"result":\[\]'; then
+                    echo "avg_cpu_usage ABSENT for >=12m — restarting aclp-collector"
+                    kubectl -n monitoring rollout restart deployment/aclp-collector
+                    echo "restart issued."
+                  else
+                    echo "avg_cpu_usage present — collector healthy, no action."
+                  fi
