@@ -76,9 +76,18 @@ spec:
         spec:
           serviceAccountName: aclp-healer
           restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: healer
               image: alpine/k8s:1.31.0
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               resources:
                 requests: { cpu: "10m", memory: "32Mi" }
                 limits: { cpu: "100m", memory: "128Mi" }
