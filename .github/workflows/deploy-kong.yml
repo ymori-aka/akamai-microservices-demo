@@ -22,32 +22,51 @@ jobs:
           kubectl apply -f kubernetes-manifests/kong/declarative.yaml
 
       - name: Install / upgrade Kong via Helm (dbless OSS)
+        id: helminstall
+        continue-on-error: true
         run: |
-          # Use a writable helm config dir on the runner so `helm repo add`
-          # actually persists (previous failure: "no repositories found").
+          # Writable helm config dir on the runner so `helm repo add` persists.
           export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm-config"
           export HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm-cache"
           export HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm-data"
           mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
           helm repo add kong https://charts.konghq.com
           helm repo update kong
+          # No --wait here so the next step can surface what's actually wrong
+          # if the pod doesn't become Ready.
           helm upgrade --install kong kong/kong \
             -n kong \
             -f kubernetes-manifests/kong/values.yaml \
-            --wait --timeout 6m
+            --timeout 4m
 
-      - name: Verify
+      - name: Diagnose (always — works even if helm install above failed)
         run: |
-          echo "===== kong namespace ====="
-          kubectl -n kong get pods,svc -o wide
+          echo "===== resources in kong ns ====="
+          kubectl -n kong get all -o wide || true
           echo ""
-          POD=$(kubectl -n kong get pod -l app.kubernetes.io/name=kong -o name | head -1)
+          echo "===== recent events ====="
+          kubectl -n kong get events --sort-by=.lastTimestamp 2>/dev/null | tail -40 || true
+          echo ""
+          POD=$(kubectl -n kong get pod -l app.kubernetes.io/name=kong -o name 2>/dev/null | head -1)
           if [ -n "$POD" ]; then
-            echo "===== kong version ====="
-            kubectl -n kong exec "$POD" -c proxy -- kong version || true
-            echo "===== quick proxy probe (no routes yet, expect 404 from Kong) ====="
-            kubectl -n kong run kong-curl --rm -i --restart=Never \
-              --image=curlimages/curl:8.10.1 \
-              --command -- curl -s -o /dev/null -w "kong-proxy: %{http_code}\n" \
-              "http://kong-kong-proxy.kong.svc.cluster.local/" || true
+            echo "===== describe $POD ====="
+            kubectl -n kong describe "$POD" | tail -80
+            echo ""
+            echo "===== logs (all containers, last 80) ====="
+            kubectl -n kong logs "$POD" --all-containers=true --tail=80 || true
+          else
+            echo "no kong pod found yet"
           fi
+
+      - name: Mark step result
+        run: |
+          if [ "${{ steps.helminstall.outcome }}" = "failure" ]; then
+            echo "helm install failed — see Diagnose output above for the root cause"
+            exit 1
+          fi
+          # Quick post-install reachability probe (best-effort)
+          kubectl -n kong rollout status deployment/kong-kong --timeout=60s || true
+          kubectl -n kong run kong-curl --rm -i --restart=Never \
+            --image=curlimages/curl:8.10.1 \
+            --command -- curl -s -o /dev/null -w "kong-proxy reachable: %{http_code}\n" \
+            "http://kong-kong-proxy.kong.svc.cluster.local/" || true

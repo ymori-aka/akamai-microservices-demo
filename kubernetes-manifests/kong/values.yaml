@@ -10,9 +10,9 @@
 # and AI plugins without provisioning a Konnect control plane first. Konnect
 # can be added later by adding cluster_control_plane env + cert/key.
 
-image:
-  repository: kong
-  tag: "3.8"
+# Use the chart's default Kong image so we don't pin to a tag that may not
+# exist on hub (the previous "3.8" pin can resolve to "not found").
+# image: {}
 
 # dbless mode
 env:
