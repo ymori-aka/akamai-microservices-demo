@@ -11,7 +11,3 @@ metadata:
 data:
   kong.yaml: |
     _format_version: "3.0"
-    _transform: true
-    services: []
-    routes: []
-    plugins: []
