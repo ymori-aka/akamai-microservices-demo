@@ -501,6 +501,9 @@ func (fe *frontendServer) assistantHandler(w http.ResponseWriter, r *http.Reques
 	if err := templates.ExecuteTemplate(w, "assistant", injectCommonTemplateData(r, map[string]interface{}{
 		"show_currency": false,
 		"currencies":    currencies,
+		// Toggle support: chat UI shows a backend radio. Kong option is enabled
+		// once SHOPPING_ASSISTANT_KONG_ADDR is set in the deployment env.
+		"kong_enabled": os.Getenv("SHOPPING_ASSISTANT_KONG_ADDR") != "",
 	})); err != nil {
 		log.Println(err)
 	}
@@ -586,6 +589,9 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		Message string        `json:"message"`
 		History []IncomingMsg `json:"history"`
 		Lang    string        `json:"lang"`
+		// Backend selects which gateway to call: "zuplo" (default, current
+		// Akamai Functions/Zuplo path) or "kong" (Kong AI Gateway, when set).
+		Backend string `json:"backend"`
 	}
 	var req IncomingReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -643,14 +649,29 @@ Never invent products that are not in the catalog.
 	}
 	messages = append(messages, LLMMessage{Role: "user", Content: req.Message})
 
-	// --- call Spin shopping-assistant-service (which proxies to GPU) ---
-	// LKE pods cannot reach the GPU server directly; route via Akamai Functions.
-	assistantURL := os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR")
-	if assistantURL == "" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] SHOPPING_ASSISTANT_SERVICE_ADDR is not set"})
-		return
+	// --- pick backend per request (UI radio) ---
+	// "zuplo" (default) → existing Akamai Functions / Zuplo path.
+	// "kong"            → Kong AI Gateway (only when SHOPPING_ASSISTANT_KONG_ADDR is set).
+	var assistantURL, backendLabel string
+	switch req.Backend {
+	case "kong":
+		assistantURL = os.Getenv("SHOPPING_ASSISTANT_KONG_ADDR")
+		backendLabel = "kong"
+		if assistantURL == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] Kong backend selected but SHOPPING_ASSISTANT_KONG_ADDR is not set yet."})
+			return
+		}
+	default:
+		assistantURL = os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR")
+		backendLabel = "zuplo"
+		if assistantURL == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] SHOPPING_ASSISTANT_SERVICE_ADDR is not set"})
+			return
+		}
 	}
+	_ = backendLabel // reserved for future per-backend metrics labels
 	// Trim trailing slash for safety
 	assistantURL = strings.TrimRight(assistantURL, "/")
 

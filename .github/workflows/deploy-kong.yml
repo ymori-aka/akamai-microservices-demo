@@ -23,8 +23,14 @@ jobs:
 
       - name: Install / upgrade Kong via Helm (dbless OSS)
         run: |
-          helm repo add kong https://charts.konghq.com 2>/dev/null || true
-          helm repo update
+          # Use a writable helm config dir on the runner so `helm repo add`
+          # actually persists (previous failure: "no repositories found").
+          export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm-config"
+          export HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm-cache"
+          export HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm-data"
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
+          helm repo add kong https://charts.konghq.com
+          helm repo update kong
           helm upgrade --install kong kong/kong \
             -n kong \
             -f kubernetes-manifests/kong/values.yaml \

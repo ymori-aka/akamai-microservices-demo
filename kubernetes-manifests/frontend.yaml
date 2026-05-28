@@ -83,6 +83,10 @@ spec:
             value: "adservice:9555"
           - name: SHOPPING_ASSISTANT_SERVICE_ADDR
             value: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
+          # Kong AI Gateway endpoint. Empty = chat UI's Kong radio is shown
+          # disabled. Fill once Phase 4 exposes Kong externally.
+          - name: SHOPPING_ASSISTANT_KONG_ADDR
+            value: ""
           - name: ENV_PLATFORM
             value: "akamai"
           - name: ADMIN_USER
