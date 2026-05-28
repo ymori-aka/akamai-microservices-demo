@@ -1,0 +1,17 @@
+# Kong Gateway (dbless) declarative configuration.
+#
+# Phase 1: empty stub so Kong can start. Routes / services / ai-proxy plugin
+# are added in Phase 2 by editing this ConfigMap and `kubectl rollout restart`
+# of the Kong proxy Deployment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-dbless-config
+  namespace: kong
+data:
+  kong.yaml: |
+    _format_version: "3.0"
+    _transform: true
+    services: []
+    routes: []
+    plugins: []

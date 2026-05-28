@@ -1,0 +1,66 @@
+# Kong Gateway (OSS, dbless) Helm values for the LKE cluster.
+#
+# Phase 1 goals:
+#   - Bring Kong up isolated in the `kong` namespace.
+#   - Internal-only (ClusterIP) so production traffic is unaffected.
+#   - Declarative config sourced from the kong-dbless-config ConfigMap
+#     (currently empty; Phase 2 adds the ai-proxy route/plugin).
+#
+# Why OSS Kong (not Konnect) at this stage: lets us validate the data plane
+# and AI plugins without provisioning a Konnect control plane first. Konnect
+# can be added later by adding cluster_control_plane env + cert/key.
+
+image:
+  repository: kong
+  tag: "3.8"
+
+# dbless mode
+env:
+  database: "off"
+  declarative_config: /kong/declarative/kong.yaml
+  # Bundled plugins include ai-proxy / ai-prompt-guard / ai-rate-limiting-advanced
+  # since Kong 3.6. Explicit "bundled" keeps defaults; add more here as needed.
+  plugins: bundled
+
+dblessConfig:
+  configMap: kong-dbless-config
+
+ingressController:
+  enabled: false  # no IC for now; we drive routes via declarative config
+
+proxy:
+  enabled: true
+  type: ClusterIP        # internal only in Phase 1
+  http:
+    enabled: true
+    servicePort: 80
+    containerPort: 8000
+  tls:
+    enabled: false
+
+admin:
+  enabled: true
+  type: ClusterIP
+  http:
+    enabled: true
+    servicePort: 8001
+    containerPort: 8001
+
+manager:    { enabled: false }
+portal:     { enabled: false }
+status:     { enabled: true }
+serviceMonitor: { enabled: false }
+
+resources:
+  requests: { cpu: "50m",  memory: "256Mi" }
+  limits:   { cpu: "1",    memory: "1Gi"   }
+
+# Pod security: satisfy restricted PSS if enforced.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  seccompProfile: { type: RuntimeDefault }
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
