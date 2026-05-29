@@ -1,0 +1,24 @@
+name: Diagnose frontend 500
+on: { workflow_dispatch: {} }
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: All pods (find non-Running / 0 replicas)
+        run: |
+          set +e
+          kubectl get deploy -o wide
+          echo "===== pods (not Running first) ====="
+          kubectl get pods -o wide | grep -ivE 'Running|Completed' || echo "(all Running)"
+          echo "===== full pod list ====="
+          kubectl get pods -o wide
+      - name: Frontend logs (the 500 cause)
+        run: |
+          set +e
+          POD=$(kubectl get pod -l app=frontend -o name | head -1)
+          echo "pod: $POD"
+          kubectl logs "$POD" --tail=60
+      - name: Recent warning events
+        run: |
+          set +e
+          kubectl get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE 'Warning|Failed|Unhealthy|BackOff' | tail -40
