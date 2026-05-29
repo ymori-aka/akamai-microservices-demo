@@ -28,6 +28,7 @@ jobs:
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
       - name: Service-graph metrics present in Prometheus
+        continue-on-error: true
         run: |
           # Run an in-cluster curl pod to hit Prometheus + Tempo APIs.
           run_curl() {
@@ -45,6 +46,7 @@ jobs:
             | python3 -c 'import sys,json;d=json.load(sys.stdin);[print("  %-30s = %s"%(r["metric"].get("service","?"),r["value"][1])) for r in d.get("data",{}).get("result",[])] or print("  (none)")' 2>/dev/null || true
 
       - name: Tempo service.name coverage + one trace span tree
+        continue-on-error: true
         run: |
           run_curl() {
             kubectl -n monitoring run dbg-$RANDOM --image=curlimages/curl:8.10.1 \
@@ -73,6 +75,7 @@ jobs:
           fi
 
       - name: collector internal span counters + app startup logs
+        continue-on-error: true
         run: |
           run_curl() {
             kubectl -n monitoring run dbg-$RANDOM --image=curlimages/curl:8.10.1 \
@@ -88,12 +91,14 @@ jobs:
           kubectl logs deployment/productcatalogservice --tail=400 2>&1 | grep -iE "trac|exporter|collector|otel|mongo|loaded|seed|55678|4317|product" | head -15 | sed 's/^/  /' || true
 
       - name: otel-collector receiver/exporter activity
+        continue-on-error: true
         run: |
           echo "===== collector logs (opencensus / refused / export errors) ====="
           kubectl -n monitoring logs deployment/otel-collector --tail=200 2>&1 \
             | grep -iE "opencensus|refused|error|warn|tempo|started|receiver" | tail -40 | sed 's/^/  /' || true
 
       - name: tracing env actually set on each app
+        continue-on-error: true
         run: |
           for d in frontend cartservice currencyservice productcatalogservice checkoutservice adservice; do
             echo "--- $d ---"
@@ -101,6 +106,7 @@ jobs:
           done
 
       - name: app trace-export logs (are Go apps exporting? errors?)
+        continue-on-error: true
         run: |
           for d in frontend productcatalogservice checkoutservice; do
             echo "===== $d logs (trace/export/collector) ====="
