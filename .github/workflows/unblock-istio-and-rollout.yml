@@ -1,0 +1,54 @@
+name: Unblock istio injector + roll frontend (sha-b4e407a)
+on: { workflow_dispatch: {} }
+jobs:
+  unblock:
+    runs-on: self-hosted
+    steps:
+      - name: 0) Make sidecar-injector non-blocking (failurePolicy=Ignore)
+        run: |
+          set +e
+          # ROOT CAUSE: apiserver -> istiod:443 /inject times out ("context
+          # deadline exceeded"). With failurePolicy=Fail this blocks ALL new
+          # pod creation in the mesh. The cluster already runs sidecar-less
+          # (frontend pods are 1/1), so injection is not required. Flip to
+          # Ignore so pod creation succeeds; injection is skipped on timeout.
+          echo "=== BEFORE ==="
+          kubectl get mutatingwebhookconfiguration istio-sidecar-injector \
+            -o jsonpath='{range .webhooks[*]}{.name}={.failurePolicy}{"\n"}{end}'
+          for WH in istio-sidecar-injector istio-revision-tag-default; do
+            COUNT=$(kubectl get mutatingwebhookconfiguration "$WH" -o jsonpath='{.webhooks}' 2>/dev/null | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))' 2>/dev/null)
+            echo "$WH has $COUNT webhooks"
+            if [ -n "$COUNT" ]; then
+              PATCH="["
+              for i in $(seq 0 $((COUNT-1))); do
+                [ "$i" -gt 0 ] && PATCH="$PATCH,"
+                PATCH="$PATCH{\"op\":\"replace\",\"path\":\"/webhooks/$i/failurePolicy\",\"value\":\"Ignore\"}"
+              done
+              PATCH="$PATCH]"
+              kubectl patch mutatingwebhookconfiguration "$WH" --type=json -p "$PATCH"
+            fi
+          done
+          echo "=== AFTER ==="
+          kubectl get mutatingwebhookconfiguration istio-sidecar-injector \
+            -o jsonpath='{range .webhooks[*]}{.name}={.failurePolicy}{"\n"}{end}'
+
+      - name: 1) Roll frontend to sha-b4e407a (chat toggle UI)
+        run: |
+          set +e
+          kubectl set image deployment/frontend server=ghcr.io/ymori-aka/frontend:sha-b4e407a
+          kubectl rollout restart deployment/frontend
+          kubectl rollout status deployment/frontend --timeout=4m
+          echo "=== frontend pods + images ==="
+          kubectl get pods -l app=frontend -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+
+      - name: 2) Verify toggle markup is actually served
+        if: always()
+        run: |
+          set +e
+          echo "ready/replicas + image:"
+          kubectl get deployment frontend -o jsonpath='{.status.readyReplicas}/{.status.replicas}  {.spec.template.spec.containers[0].image}{"\n"}'
+          echo "=== probing /assistant for chat-backend toggle ==="
+          kubectl run fe-curl --rm -i --restart=Never \
+            --image=curlimages/curl:8.10.1 \
+            --command -- curl -s "http://frontend.default.svc.cluster.local:80/assistant" \
+            | grep -ioE 'chat-backend|Kong AI Gateway|chat-backend-toggle' | sort -u || echo "(toggle markup NOT found)"

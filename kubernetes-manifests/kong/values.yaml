@@ -17,13 +17,19 @@
 # dbless mode
 env:
   database: "off"
-  declarative_config: /kong/declarative/kong.yaml
+  # NOTE: do NOT set declarative_config here. When dblessConfig.config is used,
+  # the chart renders its own ConfigMap, mounts it at /kong/declarative/kong.yaml
+  # and sets KONG_DECLARATIVE_CONFIG automatically. Setting it manually while the
+  # external ConfigMap failed to mount caused: "kong.yaml: No such file or directory".
   # Bundled plugins include ai-proxy / ai-prompt-guard / ai-rate-limiting-advanced
   # since Kong 3.6. Explicit "bundled" keeps defaults; add more here as needed.
   plugins: bundled
 
+# Inline declarative config (chart-managed ConfigMap + mount). Phase 1 = empty
+# stub so Kong starts cleanly. Phase 2 adds services/routes/ai-proxy plugin here.
 dblessConfig:
-  configMap: kong-dbless-config
+  config:
+    _format_version: "3.0"
 
 ingressController:
   enabled: false  # no IC for now; we drive routes via declarative config
