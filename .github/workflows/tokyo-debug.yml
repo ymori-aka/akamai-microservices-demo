@@ -53,28 +53,23 @@ jobs:
           echo "===== service.name values Tempo has seen (post-fix) ====="
           run_curl 'curl -s "http://tempo.monitoring.svc.cluster.local:3200/api/search/tag/service.name/values"' \
             | python3 -c 'import sys,json;d=json.load(sys.stdin);print("  "+", ".join(sorted(d.get("tagValues",[]))))' 2>/dev/null || echo "  (failed)"
-          echo "===== find a trace that touches checkoutservice, dump its span tree ====="
+          echo "===== find a checkoutservice trace, list services + span kinds in it ====="
+          # If frontend AND checkoutservice appear in the SAME trace => context
+          # propagated end-to-end (the 'user' edge is then a service_graphs
+          # virtual-node artifact). If the checkout trace contains ONLY
+          # checkoutservice => propagation is broken (separate traces).
           TID=$(run_curl 'curl -s "http://tempo.monitoring.svc.cluster.local:3200/api/search?q=%7B%20.service.name%3D%22checkoutservice%22%20%7D&limit=5"' \
-            | python3 -c 'import sys,json;d=json.load(sys.stdin);ts=d.get("traces",[]);print(ts[0]["traceID"] if ts else "")' 2>/dev/null)
+            | grep -oE '"traceID":"[a-f0-9]+"' | head -1 | sed -E 's/.*:"//; s/"//')
           echo "  traceID=$TID"
           if [ -n "$TID" ]; then
-            run_curl "curl -s 'http://tempo.monitoring.svc.cluster.local:3200/api/traces/$TID'" \
-              | python3 -c '
-import sys,json
-d=json.load(sys.stdin)
-rows=[]
-for b in d.get("batches",[]):
-    svc="?"
-    for a in b.get("resource",{}).get("attributes",[]):
-        if a["key"]=="service.name": svc=a["value"].get("stringValue","?")
-    for ss in b.get("scopeSpans",[]):
-        for sp in ss.get("spans",[]):
-            kind=sp.get("kind","")
-            rows.append((svc, sp.get("name","")[:30], kind, sp.get("spanId",""), sp.get("parentSpanId","")))
-print("  trace has %d spans across services: %s"%(len(rows), sorted(set(r[0] for r in rows))))
-for svc,name,kind,sid,pid in rows[:25]:
-    print("    [%s] kind=%s span=%s parent=%s %s"%(svc,kind,sid[:8],pid[:8] or "ROOT",name))
-' 2>/dev/null || echo "  (trace parse failed)"
+            TR=$(run_curl "curl -s 'http://tempo.monitoring.svc.cluster.local:3200/api/traces/$TID'")
+            echo "  services present in this trace:"
+            echo "$TR" | grep -oE '"stringValue":"(frontend|[a-z]+service|redis[a-z-]*)"' | sed -E 's/.*:"//; s/"//' | sort | uniq -c | sed 's/^/    /'
+            echo "  span kinds in this trace (2=server,3=client):"
+            echo "$TR" | grep -oE '"kind":[0-9]+' | sort | uniq -c | sed 's/^/    /'
+            echo "  root spans (no parentSpanId) count:"
+            echo "$TR" | grep -oc '"spanId"' | sed 's/^/    total spans: /'
+            echo "$TR" | grep -oc '"parentSpanId"' | sed 's/^/    spans WITH parent: /'
           fi
 
       - name: collector internal span counters + app startup logs
