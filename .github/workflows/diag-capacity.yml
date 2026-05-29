@@ -12,7 +12,10 @@ jobs:
           echo ""
           for N in $(kubectl get nodes -o name); do
             echo "########## $N ##########"
-            kubectl describe "$N" | sed -n '/Capacity:/,/Events:/p' | grep -iE "cpu:|memory:|Allocated|Resource|Requests|Limits|---|Non-terminated|pods" | head -40
+            echo "--- Capacity/Allocatable ---"
+            kubectl describe "$N" | sed -n '/^Capacity:/,/^System Info:/p' | grep -iE "cpu:|memory:|pods:"
+            echo "--- Allocated resources ---"
+            kubectl describe "$N" | sed -n '/Allocated resources:/,/Events:/p' | grep -iE "cpu|memory|Resource|---|Non-terminated"
             echo ""
           done
       - name: Pressure / pending / OOM signals
