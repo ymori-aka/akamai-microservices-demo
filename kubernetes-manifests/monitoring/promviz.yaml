@@ -112,6 +112,13 @@ metadata:
   namespace: monitoring
   labels: { app: promviz }
 spec:
+  # LoadBalancer (not ClusterIP): promviz-front is a browser SPA that fetches
+  # UPDATE_URL DIRECTLY from the user's browser (it does not proxy server-side),
+  # so the graph endpoint must be reachable from outside the cluster. promviz
+  # sets CORS Access-Control-Allow-Origin: * so the cross-origin fetch from the
+  # promviz-front LB origin is allowed. The deploy workflow discovers this LB's
+  # IP and injects it into promviz-front's UPDATE_URL.
+  type: LoadBalancer
   selector: { app: promviz }
   ports:
     - name: api

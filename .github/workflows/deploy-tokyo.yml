@@ -155,17 +155,17 @@ jobs:
           # metrics_generator produces no traces_service_graph_* metrics, and
           # both the Grafana Node Graph and Vizceral stay empty.
           #
-          # MIXED FLEET: the custom ymori-aka images (frontend/cartservice/
-          # currencyservice/productcatalogservice/checkoutservice) are the
-          # classic Online Boutique build — they trace via the OpenCensus
-          # agent protocol to COLLECTOR_SERVICE_ADDR (and PANIC at boot if
-          # ENABLE_TRACING=1 but COLLECTOR_SERVICE_ADDR is unset). The upstream
-          # v0.10.5 images (ad/email/payment/recommendation/shipping) trace via
-          # OTLP (OTEL_*). We therefore set BOTH env families on every
-          # deployment; each image reads only the one it understands. The
-          # otel-collector now accepts OpenCensus on :55678 and OTLP on :4317,
-          # both feeding the same Tempo pipeline. Idempotent.
-          OC_ADDR="otel-collector.monitoring.svc.cluster.local:55678"
+          # The custom ymori-aka images (frontend/productcatalogservice/
+          # checkoutservice/...) read COLLECTOR_SERVICE_ADDR and export OTLP
+          # gRPC to it (and PANIC at boot if ENABLE_TRACING=1 but the addr is
+          # unset). It is therefore the OTLP gRPC endpoint and MUST be the
+          # collector's OTLP port :4317 — NOT the OpenCensus :55678 port, which
+          # gives "Unimplemented: unknown service ...TraceService" because OTLP
+          # TraceService isn't registered there. The upstream v0.10.5 images
+          # (ad/email/payment/recommendation/shipping) and cartservice (.NET)
+          # use OTEL_* instead; we set both families on every deployment and
+          # each image reads only the one it understands. Idempotent.
+          OC_ADDR="otel-collector.monitoring.svc.cluster.local:4317"
           OTLP="http://otel-collector.monitoring.svc.cluster.local:4317"
           APPS="frontend cartservice productcatalogservice currencyservice \
                 checkoutservice shippingservice recommendationservice \
@@ -239,6 +239,31 @@ jobs:
           kubectl -n monitoring rollout restart deployment/promviz-front || true
           kubectl -n monitoring rollout restart deployment/grafana || true
           echo "SKIPPED (osa/DB/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
+
+      - name: Wire promviz-front UPDATE_URL to promviz public LB
+        continue-on-error: true
+        run: |
+          # promviz-front is a browser SPA that fetches UPDATE_URL directly from
+          # the user's browser (no server-side proxy), so it must point at
+          # promviz's PUBLIC LoadBalancer IP, not the in-cluster DNS name (which
+          # the browser can't resolve -> UI stuck on "Loading"). Discover the LB
+          # IP and inject it. promviz serves CORS * so the cross-origin fetch is
+          # allowed.
+          echo "waiting for promviz LoadBalancer IP..."
+          PIP=""
+          for i in $(seq 1 30); do
+            PIP=$(kubectl -n monitoring get svc promviz -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+            [ -n "$PIP" ] && break
+            sleep 5
+          done
+          if [ -z "$PIP" ]; then
+            echo "::warning::promviz LB IP not ready yet; promviz-front UPDATE_URL not wired this run."
+          else
+            echo "promviz LB IP = $PIP"
+            kubectl -n monitoring set env deployment/promviz-front \
+              UPDATE_URL="http://$PIP:9091/graph"
+            kubectl -n monitoring rollout restart deployment/promviz-front || true
+          fi
 
       - name: Deploy Kong (dbless OSS) via Helm
         continue-on-error: true
