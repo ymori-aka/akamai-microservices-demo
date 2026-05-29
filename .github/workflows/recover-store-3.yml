@@ -1,0 +1,33 @@
+name: Recover store 3 (redis maxmemory cap + verify cart/currency)
+on: { workflow_dispatch: {} }
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: A) Cap redis-cart memory (maxmemory + LRU, no RDB save)
+        run: |
+          set +e
+          kubectl patch deployment redis-cart --type=json -p '[
+            {"op":"add","path":"/spec/template/spec/containers/0/command","value":["redis-server"]},
+            {"op":"add","path":"/spec/template/spec/containers/0/args","value":["--maxmemory","450mb","--maxmemory-policy","allkeys-lru","--save",""]},
+            {"op":"replace","path":"/spec/template/spec/containers/0/resources","value":{"limits":{"memory":"512Mi","cpu":"250m"},"requests":{"cpu":"70m","memory":"200Mi"}}}
+          ]'
+          kubectl rollout status deployment/redis-cart --timeout=120s
+          kubectl get deploy redis-cart -o jsonpath='redis-cart: {.status.readyReplicas}/{.status.replicas}  args={.spec.template.spec.containers[0].args}  lim={.spec.template.spec.containers[0].resources.limits}{"\n"}'
+
+      - name: B) Ensure cart/currency on good images and rolled out
+        run: |
+          set +e
+          kubectl set image deployment/cartservice server=us-central1-docker.pkg.dev/google-samples/microservices-demo/cartservice:v0.10.5
+          kubectl rollout status deployment/cartservice --timeout=150s
+          kubectl rollout status deployment/currencyservice --timeout=150s
+
+      - name: C) Final readiness
+        if: always()
+        run: |
+          set +e
+          for D in redis-cart cartservice currencyservice frontend; do
+            kubectl get deploy $D -o jsonpath="$D: {.status.readyReplicas}/{.status.replicas} {.spec.template.spec.containers[0].image}{\"\n\"}"
+          done
+          echo "===== any non-Running pods ====="
+          kubectl get pods | grep -ivE 'Running|Completed' || echo "(all pods Running)"

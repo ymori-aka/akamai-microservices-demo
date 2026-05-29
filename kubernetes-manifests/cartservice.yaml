@@ -118,6 +118,12 @@ spec:
           privileged: false
           readOnlyRootFilesystem: true
         image: redis:alpine
+        # Cap memory so redis self-evicts instead of being OOMKilled (exit 137)
+        # under sustained loadgenerator traffic. Cart data is ephemeral
+        # (emptyDir), so allkeys-lru eviction is safe; --save "" disables RDB
+        # snapshots to avoid fork/COW memory spikes that also triggered OOM.
+        command: ["redis-server"]
+        args: ["--maxmemory", "450mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
         ports:
         - containerPort: 6379
         readinessProbe:
@@ -133,8 +139,8 @@ spec:
           name: redis-data
         resources:
           limits:
-            memory: 256Mi
-            cpu: 125m
+            memory: 512Mi
+            cpu: 250m
           requests:
             cpu: 70m
             memory: 200Mi
