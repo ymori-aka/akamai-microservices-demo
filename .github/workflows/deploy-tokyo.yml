@@ -176,7 +176,8 @@ jobs:
               COLLECTOR_SERVICE_ADDR="$OC_ADDR" \
               OTEL_EXPORTER_OTLP_ENDPOINT="$OTLP" \
               OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
-              OTEL_SERVICE_NAME="$d" || echo "skip $d (not present)"
+              OTEL_SERVICE_NAME="$d" \
+              OTEL_PROPAGATORS=tracecontext,baggage || echo "skip $d (not present)"
           done
           # EXCEPTION: the custom currencyservice (Node.js) image has broken
           # OpenTelemetry-JS init code — it calls provider.addSpanProcessor(),
