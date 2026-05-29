@@ -89,6 +89,27 @@ spec:
           # Kong radio in the chat UI.
           - name: SHOPPING_ASSISTANT_KONG_ADDR
             value: "http://kong-kong-proxy.kong.svc.cluster.local"
+          # Akamai Firewall for AI (FAI) — screens the user prompt in front of
+          # Kong on the "kong" chat lane. FAI_API_KEY comes from the
+          # fai-credentials secret; optional=true so the frontend still rolls
+          # out before the secret exists. While unset, faiScreen() is a no-op
+          # (allow). Create the secret with:
+          #   kubectl create secret generic fai-credentials \
+          #     --from-literal=api-key=<KEY>
+          - name: FAI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: fai-credentials
+                key: api-key
+                optional: true
+          - name: FAI_CONFIG_ID
+            value: "1787"
+          - name: FAI_APP_ID
+            value: "akamai-store-chat"
+          # Fail-open by default: if FAI errors (e.g. an inactive key → 401),
+          # the chat still works. Set "true" to block on FAI errors instead.
+          - name: FAI_FAIL_CLOSED
+            value: "false"
           - name: ENV_PLATFORM
             value: "akamai"
           - name: ADMIN_USER

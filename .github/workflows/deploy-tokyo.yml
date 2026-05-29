@@ -1,0 +1,191 @@
+name: Deploy to Tokyo (jp-tyo-3) LKE
+
+# Osaka→Tokyo consolidation, step ② (app + monitoring) and Kong.
+#
+# Deploys the SAME app + monitoring stack to the new Tokyo cluster
+# (LKE id 610031, created by terraform-linode/lke.tf) so it runs in
+# parallel with jp-osa until cut-over. This is the reproducible,
+# "never region-locked again" path — it fetches the Tokyo kubeconfig and
+# pins KUBECONFIG to it for every step, so it can NEVER touch jp-osa.
+#
+# Phase A (minimal-first, per migration plan):
+#   - Postgres data is NOT migrated; the orders DB / postgres-exporter and
+#     osa-specific monitoring (aclp-collector, audit-log-ingester) are SKIPPED.
+#   - Istio is SKIPPED (the app runs sidecarless); so are istio policies + kiali.
+#   - Object Storage images still point at the osa bucket via IMAGE_BASE_URL
+#     in frontend.yaml until step ③ (new E3 bucket + copy).
+#
+# Required GitHub secrets (already present, used by deploy.yml / deploy-kong.yml):
+#   GHCR_TOKEN, FRONTEND_ADMIN_PASSWORD, OTEL_BEARER_TOKEN
+# Optional: FAI_API_KEY (Firewall for AI; created if present).
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      image_tag:
+        description: "Tag for the custom ghcr images (frontend/currency/productcatalog/checkout/cart)"
+        required: true
+        default: "latest"
+
+env:
+  REGISTRY: ghcr.io
+  UPSTREAM: us-central1-docker.pkg.dev/google-samples/microservices-demo
+  UPSTREAM_VERSION: v0.10.5
+
+jobs:
+  deploy-tokyo:
+    name: Deploy app + monitoring + Kong to Tokyo
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------
+      # Pin KUBECONFIG to the Tokyo cluster for ALL subsequent steps.
+      # This guarantees we can never accidentally deploy into jp-osa.
+      # ---------------------------------------------------------------
+      - name: Fetch Tokyo kubeconfig + sanity-check target
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          linode-cli lke kubeconfig-view "${{ inputs.cluster_id }}" --json \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)[0]["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+          export KUBECONFIG="$KC"
+          echo "=== target nodes (must be jp-tyo-3 / lke${{ inputs.cluster_id }}) ==="
+          kubectl get nodes -o wide
+          # Guard: refuse to proceed unless node names belong to this cluster.
+          if ! kubectl get nodes -o name | grep -q "lke${{ inputs.cluster_id }}-"; then
+            echo "::error::Node names do not match cluster ${{ inputs.cluster_id }} — aborting to protect jp-osa."
+            exit 1
+          fi
+
+      - name: Create ghcr.io imagePullSecret (private custom images)
+        continue-on-error: true
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=ghcr.io \
+            --docker-username=ymori-aka \
+            --docker-password=${{ secrets.GHCR_TOKEN }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create frontend admin credentials Secret
+        continue-on-error: true
+        run: |
+          kubectl create secret generic frontend-admin-secret \
+            --from-literal=username=admin \
+            --from-literal=password=${{ secrets.FRONTEND_ADMIN_PASSWORD }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create Firewall-for-AI secret (optional)
+        continue-on-error: true
+        env:
+          FAI_API_KEY: ${{ secrets.FAI_API_KEY }}
+        run: |
+          if [ -n "$FAI_API_KEY" ]; then
+            kubectl create secret generic fai-credentials \
+              --from-literal=api-key="$FAI_API_KEY" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          else
+            echo "FAI_API_KEY not set — skipping fai-credentials (frontend faiScreen no-ops)."
+          fi
+
+      - name: Apply namespace PSS labels
+        continue-on-error: true
+        run: kubectl apply -f kubernetes-manifests/namespaces.yaml
+
+      - name: Deploy core microservices (kustomize) + redis/mongodb
+        continue-on-error: true
+        run: |
+          # Creates all deployments/services from bare manifests (image refs
+          # are overridden in the next step). No istio, no sidecar injection.
+          kubectl apply -k kubernetes-manifests/
+          kubectl apply -f kubernetes-manifests/cartservice.yaml
+          kubectl apply -f kubernetes-manifests/mongodb.yaml
+          kubectl rollout status deployment/redis-cart --timeout=120s || true
+          kubectl rollout status statefulset/mongodb --timeout=240s || true
+
+      - name: Pin images (upstream v0.10.5 + custom ${{ inputs.image_tag }})
+        continue-on-error: true
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          kubectl set image deployment/adservice             server=${UPSTREAM}/adservice:${UPSTREAM_VERSION}
+          kubectl set image deployment/emailservice          server=${UPSTREAM}/emailservice:${UPSTREAM_VERSION}
+          kubectl set image deployment/paymentservice        server=${UPSTREAM}/paymentservice:${UPSTREAM_VERSION}
+          kubectl set image deployment/recommendationservice server=${UPSTREAM}/recommendationservice:${UPSTREAM_VERSION}
+          kubectl set image deployment/shippingservice       server=${UPSTREAM}/shippingservice:${UPSTREAM_VERSION}
+          kubectl set image deployment/cartservice           server=${REGISTRY}/ymori-aka/cartservice:${TAG}
+          kubectl set image deployment/currencyservice       server=${REGISTRY}/ymori-aka/currencyservice:${TAG}
+          kubectl set image deployment/productcatalogservice server=${REGISTRY}/ymori-aka/productcatalogservice:${TAG}
+          kubectl set image deployment/checkoutservice       server=${REGISTRY}/ymori-aka/checkoutservice:${TAG}
+
+      - name: Deploy frontend
+        continue-on-error: true
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          kubectl apply -f kubernetes-manifests/frontend.yaml
+          kubectl set image deployment/frontend server=${REGISTRY}/ymori-aka/frontend:${TAG}
+          kubectl rollout status deployment/frontend --timeout=300s || {
+            kubectl get pod -l app=frontend
+            kubectl describe pod -l app=frontend | tail -40
+            kubectl logs -l app=frontend --tail=30 --all-containers=true || true
+          }
+
+      - name: Deploy core monitoring stack (no osa/DB/istio-specific parts)
+        continue-on-error: true
+        run: |
+          kubectl apply -f kubernetes-manifests/monitoring/namespace.yaml
+          kubectl create secret generic otel-bearer-token \
+            --from-literal=token="${{ secrets.OTEL_BEARER_TOKEN }}" \
+            --dry-run=client -o yaml | kubectl apply -n monitoring -f -
+          kubectl apply -f kubernetes-manifests/monitoring/otel-collector.yaml
+          kubectl -n monitoring rollout restart deployment/otel-collector || true
+          kubectl apply -f kubernetes-manifests/monitoring/redis-exporter.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/prometheus-rules.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
+          kubectl -n monitoring rollout restart deployment/prometheus || true
+          kubectl apply -f kubernetes-manifests/monitoring/loki.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/promtail.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          echo "SKIPPED (osa/DB/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
+
+      - name: Deploy Kong (dbless OSS) via Helm
+        continue-on-error: true
+        run: |
+          if ! command -v helm >/dev/null 2>&1; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | HELM_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false bash
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+          kubectl create namespace kong --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f kubernetes-manifests/kong/declarative.yaml || true
+          export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm-config"
+          export HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm-cache"
+          export HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm-data"
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
+          helm repo add kong https://charts.konghq.com
+          helm repo update kong
+          helm upgrade --install kong kong/kong -n kong \
+            -f kubernetes-manifests/kong/values.yaml --timeout 4m
+
+      - name: Summary — pods + external IPs
+        if: always()
+        run: |
+          echo "===== app pods (default) ====="
+          kubectl get pods -o wide || true
+          echo "===== monitoring pods ====="
+          kubectl -n monitoring get pods -o wide || true
+          echo "===== Kong pods ====="
+          kubectl -n kong get pods -o wide || true
+          echo "===== LoadBalancer external IPs ====="
+          kubectl get svc -A | grep -i loadbalancer || true
+          echo ""
+          echo "frontend-external (store):"
+          kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}' || true
+          echo "grafana (monitoring):"
+          kubectl -n monitoring get svc grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}' || true

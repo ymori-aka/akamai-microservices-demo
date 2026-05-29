@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -574,6 +575,111 @@ func (fe *frontendServer) getProductByID(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(out)
 }
 
+// faiScreen runs the user prompt through Akamai Firewall for AI (FAI) Detect
+// BEFORE it is forwarded to the LLM gateway. It is the demo's "AI security at
+// the edge" layer that sits in front of Kong.
+//
+// Behaviour:
+//   - Disabled (returns allowed=true) when FAI_API_KEY is empty — so the chat
+//     keeps working before the key is provisioned.
+//   - Fail-OPEN on any transport error / non-2xx (e.g. a placeholder key that
+//     still returns 401): we log and allow the request through rather than
+//     breaking the demo. Flip FAI_FAIL_CLOSED=true to fail closed instead.
+//   - Blocks (allowed=false) when any triggered rule has action=="Deny", or
+//     when overallRiskScore >= FAI_RISK_THRESHOLD (default 0.8).
+//
+// Config via env:
+//
+//	FAI_API_KEY         secret API key sent as the `Fai-Api-Key` header.
+//	FAI_CONFIG_ID       faiConfigurationId used in the URL path (default 1787).
+//	FAI_APP_ID          userApplicationId sent in the body (default "akamai-store-chat").
+//	FAI_RISK_THRESHOLD  float; block at/above this overallRiskScore (default 0.8).
+//	FAI_FAIL_CLOSED     "true" to block on FAI errors instead of failing open.
+func faiScreen(ctx context.Context, log logrus.FieldLogger, prompt string) (allowed bool, reason string) {
+	apiKey := os.Getenv("FAI_API_KEY")
+	if apiKey == "" {
+		return true, "" // FAI not configured yet → allow
+	}
+	configID := os.Getenv("FAI_CONFIG_ID")
+	if configID == "" {
+		configID = "1787"
+	}
+	appID := os.Getenv("FAI_APP_ID")
+	if appID == "" {
+		appID = "akamai-store-chat"
+	}
+	threshold := 0.8
+	if t := os.Getenv("FAI_RISK_THRESHOLD"); t != "" {
+		if v, err := strconv.ParseFloat(t, 64); err == nil {
+			threshold = v
+		}
+	}
+	failClosed := os.Getenv("FAI_FAIL_CLOSED") == "true"
+
+	// fail() centralises the error path so the fail-open/closed decision lives
+	// in one spot.
+	fail := func(msg string, err error) (bool, string) {
+		log.WithError(err).Warnf("fai: %s (fail_closed=%v)", msg, failClosed)
+		if failClosed {
+			return false, "AI security check is temporarily unavailable. Please try again."
+		}
+		return true, ""
+	}
+
+	body, _ := json.Marshal(map[string]string{
+		"clientRequestId":   uuid.New().String(),
+		"userApplicationId": appID,
+		"llmInput":          prompt,
+	})
+
+	url := fmt.Sprintf("https://aisec.akamai.com/fai/v1/fai-configurations/%s/detect", configID)
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, strings.NewReader(string(body)))
+	if err != nil {
+		return fail("build request failed", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Fai-Api-Key", apiKey)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fail("detect call failed", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fail(fmt.Sprintf("detect non-2xx status=%d body=%s", resp.StatusCode, string(respBody)), nil)
+	}
+
+	var detect struct {
+		OverallRiskScore float64 `json:"overallRiskScore"`
+		RulesTriggered   []struct {
+			Action    string  `json:"action"`
+			Category  string  `json:"category"`
+			RiskScore float64 `json:"riskScore"`
+			RuleID    string  `json:"ruleId"`
+		} `json:"rulesTriggered"`
+	}
+	if err := json.Unmarshal(respBody, &detect); err != nil {
+		return fail("detect decode failed body="+string(respBody), err)
+	}
+
+	for _, ru := range detect.RulesTriggered {
+		if strings.EqualFold(ru.Action, "Deny") {
+			log.Infof("fai: BLOCK rule=%s category=%s action=Deny score=%.2f", ru.RuleID, ru.Category, ru.RiskScore)
+			return false, "Your message was blocked by Akamai Firewall for AI (policy: " + ru.Category + ")."
+		}
+	}
+	if detect.OverallRiskScore >= threshold {
+		log.Infof("fai: BLOCK overallRiskScore=%.2f >= threshold=%.2f", detect.OverallRiskScore, threshold)
+		return false, fmt.Sprintf("Your message was blocked by Akamai Firewall for AI (risk score %.2f).", detect.OverallRiskScore)
+	}
+	log.Infof("fai: ALLOW overallRiskScore=%.2f rules=%d", detect.OverallRiskScore, len(detect.RulesTriggered))
+	return true, ""
+}
+
 // chatBotHandler handles the shopping assistant chat.
 // It fetches the product catalog, builds an OpenAI-compatible prompt,
 // calls the Gemma 4 LLM directly, and returns the response.
@@ -673,6 +779,18 @@ Never invent products that are not in the catalog.
 	}
 	// Trim trailing slash for safety
 	assistantURL = strings.TrimRight(assistantURL, "/")
+
+	// --- Akamai Firewall for AI: screen the user prompt in front of Kong ---
+	// Only on the Kong path (the "Akamai-secured AI gateway" demo lane). The
+	// Zuplo lane already has Firewall for AI applied at the Zuplo edge.
+	if req.Backend == "kong" {
+		if allowed, reason := faiScreen(r.Context(), log, req.Message); !allowed {
+			log.Infof("chatbot: request blocked by Firewall for AI")
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": reason})
+			return
+		}
+	}
 
 	// --- build the per-backend request body + path ---
 	// zuplo: Spin function POST {addr}/chat with {messages,max_tokens,temperature},
