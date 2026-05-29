@@ -1,0 +1,52 @@
+name: Tokyo debug (read-only)
+
+# One-shot, READ-ONLY diagnostics against the Tokyo cluster from the
+# self-hosted runner (local kubectl can't reach the API from the admin
+# machine due to a path-MTU issue on the VPN). Changes NOTHING in-cluster.
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  debug:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: Logs of crashing custom-image pods
+        run: |
+          for d in frontend checkoutservice productcatalogservice; do
+            echo "==================== $d ===================="
+            echo "--- current container logs ---"
+            kubectl logs deployment/$d --tail=40 --all-containers=true 2>&1 | sed 's/^/  /' || true
+            P=$(kubectl get pod -l app=$d --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -1)
+            echo "--- previous (crashed) logs of $P ---"
+            kubectl logs "$P" --previous --tail=40 2>&1 | sed 's/^/  /' || true
+            echo "--- env actually set on $d ---"
+            kubectl set env deployment/$d --list 2>/dev/null | grep -iE "OTEL|TRACING" | sed 's/^/  /' || true
+          done
+
+      - name: ServiceAccount imagePullSecrets (why cart/currency 401)
+        run: |
+          echo "===== serviceaccounts + their imagePullSecrets ====="
+          kubectl get sa -o custom-columns=NAME:.metadata.name,PULLSECRETS:.imagePullSecrets 2>&1 || true
+          echo "===== which SA cart/currency use ====="
+          for d in cartservice currencyservice frontend; do
+            echo "$d -> $(kubectl get deploy $d -o jsonpath='{.spec.template.spec.serviceAccountName}' 2>/dev/null) (pullSecrets: $(kubectl get deploy $d -o jsonpath='{.spec.template.spec.imagePullSecrets}' 2>/dev/null))"
+          done
+          echo "===== ghcr-secret present? ====="
+          kubectl get secret ghcr-secret -o jsonpath='{.metadata.name}{"\n"}' 2>&1 || true
