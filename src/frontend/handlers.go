@@ -671,23 +671,52 @@ Never invent products that are not in the catalog.
 			return
 		}
 	}
-	_ = backendLabel // reserved for future per-backend metrics labels
 	// Trim trailing slash for safety
 	assistantURL = strings.TrimRight(assistantURL, "/")
 
-	type SpinRequest struct {
-		Messages    []LLMMessage `json:"messages"`
-		MaxTokens   int          `json:"max_tokens"`
-		Temperature float64      `json:"temperature"`
+	// --- build the per-backend request body + path ---
+	// zuplo: Spin function POST {addr}/chat with {messages,max_tokens,temperature},
+	//        returns {message}.
+	// kong:  Kong ai-proxy speaks the OpenAI chat API. POST
+	//        {addr}/v1/chat/completions with {model,messages,...}; ai-proxy forwards
+	//        to the Gemma upstream and returns the OpenAI {choices:[{message:{content}}]}.
+	var reqPath string
+	var reqBytes []byte
+	switch req.Backend {
+	case "kong":
+		reqPath = "/v1/chat/completions"
+		model := os.Getenv("SHOPPING_ASSISTANT_KONG_MODEL")
+		if model == "" {
+			model = "google_gemma-4-26B-A4B-it-Q4_K_M.gguf"
+		}
+		type OpenAIRequest struct {
+			Model       string       `json:"model"`
+			Messages    []LLMMessage `json:"messages"`
+			MaxTokens   int          `json:"max_tokens"`
+			Temperature float64      `json:"temperature"`
+		}
+		reqBytes, _ = json.Marshal(OpenAIRequest{
+			Model:       model,
+			Messages:    messages,
+			MaxTokens:   512,
+			Temperature: 0.7,
+		})
+	default:
+		reqPath = "/chat"
+		type SpinRequest struct {
+			Messages    []LLMMessage `json:"messages"`
+			MaxTokens   int          `json:"max_tokens"`
+			Temperature float64      `json:"temperature"`
+		}
+		reqBytes, _ = json.Marshal(SpinRequest{
+			Messages:    messages,
+			MaxTokens:   512,
+			Temperature: 0.7,
+		})
 	}
-	spinReqBody, _ := json.Marshal(SpinRequest{
-		Messages:    messages,
-		MaxTokens:   512,
-		Temperature: 0.7,
-	})
 
 	spinReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		assistantURL+"/chat", strings.NewReader(string(spinReqBody)))
+		assistantURL+reqPath, strings.NewReader(string(reqBytes)))
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create assistant request"), http.StatusInternalServerError)
 		return
@@ -714,20 +743,51 @@ Never invent products that are not in the catalog.
 	defer spinResp.Body.Close()
 
 	respBody, _ := io.ReadAll(spinResp.Body)
-	log.Infof("chatbot: spin response status=%d body=%s", spinResp.StatusCode, string(respBody))
+	log.Infof("chatbot: assistant response backend=%s status=%d body=%s", backendLabel, spinResp.StatusCode, string(respBody))
 
-	var spinResult struct {
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(respBody, &spinResult); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("[DEBUG] decode error: %v | body: %s", err, string(respBody))})
-		return
-	}
-
-	reply := spinResult.Message
-	if reply == "" {
-		reply = fmt.Sprintf("[DEBUG] empty reply | status=%d body=%s", spinResp.StatusCode, string(respBody))
+	var reply string
+	switch req.Backend {
+	case "kong":
+		// OpenAI chat-completions shape returned by Kong ai-proxy.
+		var oai struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(respBody, &oai); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("[DEBUG] kong decode error: %v | body: %s", err, string(respBody))})
+			return
+		}
+		if len(oai.Choices) > 0 {
+			reply = oai.Choices[0].Message.Content
+		}
+		if reply == "" {
+			msg := ""
+			if oai.Error != nil {
+				msg = oai.Error.Message
+			}
+			reply = fmt.Sprintf("[DEBUG] kong empty reply | status=%d err=%q body=%s", spinResp.StatusCode, msg, string(respBody))
+		}
+	default:
+		// Zuplo / Spin function shape: {message}.
+		var spinResult struct {
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(respBody, &spinResult); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("[DEBUG] decode error: %v | body: %s", err, string(respBody))})
+			return
+		}
+		reply = spinResult.Message
+		if reply == "" {
+			reply = fmt.Sprintf("[DEBUG] empty reply | status=%d body=%s", spinResp.StatusCode, string(respBody))
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

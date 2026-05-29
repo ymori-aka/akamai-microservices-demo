@@ -31,8 +31,34 @@ dblessConfig:
   # NOTE: chart expects this as a STRING (the literal kong.yaml content), not a
   # YAML map — passing a map fails helm templating with
   # "wrong type for value; expected string; got map".
+  #
+  # Phase 2: one service/route fronting the self-hosted Gemma LLM
+  # (172.238.48.187:8000, OpenAI-compatible llama.cpp server, same backend the
+  # Spin/Zuplo path uses). The ai-proxy plugin makes the route speak the OpenAI
+  # chat API and forwards to the upstream. provider=openai + upstream_url lets us
+  # point at a self-hosted OpenAI-compatible endpoint instead of api.openai.com.
+  # No auth block: the llama.cpp server requires no API key.
   config: |
     _format_version: "3.0"
+    services:
+      - name: gemma-llm
+        url: http://172.238.48.187:8000
+        routes:
+          - name: openai-chat
+            paths:
+              - /v1/chat/completions
+            strip_path: false
+            methods:
+              - POST
+        plugins:
+          - name: ai-proxy
+            config:
+              route_type: "llm/v1/chat"
+              model:
+                provider: openai
+                name: google_gemma-4-26B-A4B-it-Q4_K_M.gguf
+                options:
+                  upstream_url: http://172.238.48.187:8000/v1/chat/completions
 
 ingressController:
   enabled: false  # no IC for now; we drive routes via declarative config

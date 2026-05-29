@@ -83,10 +83,12 @@ spec:
             value: "adservice:9555"
           - name: SHOPPING_ASSISTANT_SERVICE_ADDR
             value: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
-          # Kong AI Gateway endpoint. Empty = chat UI's Kong radio is shown
-          # disabled. Fill once Phase 4 exposes Kong externally.
+          # Kong AI Gateway endpoint (in-cluster ClusterIP). The frontend appends
+          # /v1/chat/completions and speaks the OpenAI chat API; Kong's ai-proxy
+          # plugin forwards to the self-hosted Gemma LLM. Non-empty enables the
+          # Kong radio in the chat UI.
           - name: SHOPPING_ASSISTANT_KONG_ADDR
-            value: ""
+            value: "http://kong-kong-proxy.kong.svc.cluster.local"
           - name: ENV_PLATFORM
             value: "akamai"
           - name: ADMIN_USER
