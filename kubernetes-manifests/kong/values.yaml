@@ -64,6 +64,22 @@ resources:
   requests: { cpu: "50m",  memory: "256Mi" }
   limits:   { cpu: "1",    memory: "1Gi"   }
 
+# Phase 1 uses an EMPTY declarative config. Kong's default readiness probe
+# (/status/ready) intentionally reports NOT ready when there are no
+# services/routes ("no configuration available"), which would pin the pod at
+# 0/1 forever. Point readiness at /status (always 200 once Kong is up) so the
+# empty stub becomes Ready. Phase 2 adds real routes; can revert to
+# /status/ready then if we want strict proxy-readiness gating.
+readinessProbe:
+  httpGet:
+    path: /status
+    port: status
+    scheme: HTTP
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
 # Pod security: satisfy restricted PSS if enforced.
 podSecurityContext:
   runAsNonRoot: true
