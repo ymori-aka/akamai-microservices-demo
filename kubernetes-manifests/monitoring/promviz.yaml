@@ -143,14 +143,18 @@ spec:
               value: http://promviz.monitoring.svc.cluster.local:9091/graph
             - name: INTERVAL
               value: "5000"
+            # promviz-front keeps an in-memory replay buffer of one graph
+            # snapshot per INTERVAL going back MAX_REPLAY_OFFSET seconds.
+            # 43200 (12h) @ 5s = ~8640 snapshots -> OOMKilled. Keep a short
+            # buffer (10 min) so memory stays bounded.
             - name: MAX_REPLAY_OFFSET
-              value: "43200"
+              value: "600"
           ports:
             - name: http
               containerPort: 8080
           resources:
-            requests: { cpu: 25m, memory: 64Mi }
-            limits: { cpu: 200m, memory: 256Mi }
+            requests: { cpu: 25m, memory: 128Mi }
+            limits: { cpu: 300m, memory: 512Mi }
 ---
 apiVersion: v1
 kind: Service
