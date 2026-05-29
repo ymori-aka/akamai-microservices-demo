@@ -1,0 +1,46 @@
+name: Recover store (redis-cart + cart/currency rollback)
+on: { workflow_dispatch: {} }
+jobs:
+  recover:
+    runs-on: self-hosted
+    steps:
+      - name: 1) Why is redis-cart crashing
+        run: |
+          set +e
+          echo "===== redis-cart describe (Last State / exit reason) ====="
+          kubectl describe pod -l app=redis-cart | grep -iE "Last State|Reason|Exit Code|Restart Count|Limits|Requests|memory|OOM|Started|Finished" | head -30
+          echo "===== redis-cart CURRENT logs ====="
+          kubectl logs -l app=redis-cart --tail=40 2>&1 | tail -40
+          echo "===== redis-cart PREVIOUS logs (the crash) ====="
+          kubectl logs -l app=redis-cart --previous --tail=40 2>&1 | tail -40
+
+      - name: 2) Restart redis-cart (fresh pod)
+        run: |
+          set +e
+          kubectl rollout restart deployment/redis-cart
+          kubectl rollout status deployment/redis-cart --timeout=120s
+          kubectl get pods -l app=redis-cart -o wide
+
+      - name: 3) Roll back cart/currency to last-good image (clear ImagePullBackOff)
+        run: |
+          set +e
+          for D in cartservice currencyservice; do
+            echo "===== $D current image ====="
+            kubectl get deploy $D -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+            echo "----- rollout history $D -----"
+            kubectl rollout history deployment/$D | tail -6
+            kubectl rollout undo deployment/$D
+            kubectl rollout status deployment/$D --timeout=150s
+            echo "===== $D image AFTER undo ====="
+            kubectl get deploy $D -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+          done
+
+      - name: 4) Final state
+        if: always()
+        run: |
+          set +e
+          kubectl get pods -o wide | grep -ivE 'Completed' | grep -iE 'NAME|redis-cart|cartservice|currencyservice|frontend'
+          echo "===== deploy readiness ====="
+          for D in redis-cart cartservice currencyservice frontend; do
+            kubectl get deploy $D -o jsonpath="$D: {.status.readyReplicas}/{.status.replicas} {.spec.template.spec.containers[0].image}{\"\n\"}"
+          done
