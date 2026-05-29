@@ -44,10 +44,35 @@ data:
         local:
           path: /var/tempo/blocks
 
+    # Metrics generator: derives service-graph + span metrics from the trace
+    # stream and remote_writes them into the existing Prometheus (which already
+    # runs --web.enable-remote-write-receiver for k6). These metrics
+    # (traces_service_graph_request_total{client,server}, ..._failed_total, ...)
+    # are the SINGLE data source for both the Grafana Node Graph and Vizceral.
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: jp-tyo-3
+      storage:
+        path: /var/tempo/generator/wal
+        remote_write:
+          - url: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+            send_exemplars: true
+      traces_storage:
+        path: /var/tempo/generator/traces
+      processor:
+        service_graphs:
+          max_items: 10000
+        span_metrics: {}
+
     overrides:
       defaults:
         ingestion:
           max_traces_per_user: 100000
+        # Activate the generator for the (single, anonymous) tenant.
+        metrics_generator:
+          processors: [service-graphs, span-metrics]
 ---
 apiVersion: apps/v1
 kind: Deployment

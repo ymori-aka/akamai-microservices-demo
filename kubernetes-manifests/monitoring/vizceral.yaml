@@ -1,0 +1,217 @@
+# Vizceral — Netflix-style animated service-traffic map.
+#
+# Data source: Tempo's metrics_generator service-graph metrics
+# (traces_service_graph_request_total{client,server} + ..._failed_total),
+# remote_written into Prometheus. A tiny stdlib-Python feeder queries those
+# every few seconds and serves Vizceral's traffic JSON, plus the WebGL UI
+# itself (vizceral.js loaded from a CDN by the browser).
+#
+# No custom image is built: python:3.12-slim runs the script from a ConfigMap.
+# Exposed via LoadBalancer on port 80.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vizceral-feeder
+  namespace: monitoring
+data:
+  feeder.py: |
+    #!/usr/bin/env python3
+    """Prometheus service-graph -> Vizceral traffic JSON + WebGL UI."""
+    import json, os, time, urllib.parse, urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    PROM = os.environ.get("PROM_URL", "http://prometheus.monitoring.svc.cluster.local:9090")
+    REGION = os.environ.get("VIZCERAL_REGION", "jp-tyo-3")
+    ENTRY = os.environ.get("VIZCERAL_ENTRY", "frontend")
+    RANGE = os.environ.get("RATE_RANGE", "2m")
+
+    def prom_query(expr):
+        url = PROM + "/api/v1/query?" + urllib.parse.urlencode({"query": expr})
+        try:
+            with urllib.request.urlopen(url, timeout=8) as r:
+                d = json.load(r)
+            if d.get("status") != "success":
+                return []
+            return d["data"]["result"]
+        except Exception as e:
+            print("prom query failed:", expr, e, flush=True)
+            return []
+
+    def edge_map(expr):
+        """Return {(client, server): value} from a service-graph query."""
+        out = {}
+        for s in prom_query(expr):
+            m = s.get("metric", {})
+            c, srv = m.get("client"), m.get("server")
+            if not c or not srv:
+                continue
+            try:
+                out[(c, srv)] = float(s["value"][1])
+            except (KeyError, ValueError):
+                pass
+        return out
+
+    def build_traffic():
+        # requests/sec per edge, and failed requests/sec per edge
+        normal = edge_map("sum by (client, server) (rate(traces_service_graph_request_total[%s]))" % RANGE)
+        danger = edge_map("sum by (client, server) (rate(traces_service_graph_request_failed_total[%s]))" % RANGE)
+
+        services = set()
+        for (c, srv) in set(normal) | set(danger):
+            services.add(c); services.add(srv)
+        if ENTRY not in services:
+            services.add(ENTRY)
+
+        # scale rps -> "requests" volume Vizceral expects (per-second is fine,
+        # multiply for nicer particle density).
+        SCALE = 100.0
+        conns = []
+        for (c, srv) in set(normal) | set(danger):
+            n = normal.get((c, srv), 0.0) * SCALE
+            dgr = danger.get((c, srv), 0.0) * SCALE
+            conns.append({"source": c, "target": srv,
+                          "metrics": {"normal": max(n - dgr, 0.0), "danger": dgr}})
+
+        # Synthetic INTERNET -> entry edge = total fan-out of the entry service.
+        entry_out = sum(v for (c, srv), v in normal.items() if c == ENTRY) * SCALE
+        entry_err = sum(v for (c, srv), v in danger.items() if c == ENTRY) * SCALE
+        if entry_out == 0:
+            entry_out = 1.0  # keep the entry arrow visible even with no load yet
+        conns.append({"source": "INTERNET", "target": ENTRY,
+                      "metrics": {"normal": max(entry_out - entry_err, 0.0), "danger": entry_err}})
+
+        nodes = [{"name": "INTERNET", "renderer": "focusedChild"}]
+        nodes += [{"name": s} for s in sorted(services)]
+        total = max(entry_out, sum(c["metrics"]["normal"] + c["metrics"]["danger"] for c in conns), 100.0)
+
+        region = {"renderer": "region", "name": REGION, "maxVolume": total,
+                  "updated": int(time.time() * 1000), "nodes": nodes, "connections": conns,
+                  "class": "normal"}
+        return {
+            "renderer": "global", "name": "edge", "maxVolume": total,
+            "nodes": [{"renderer": "region", "name": "INTERNET", "class": "normal"}, region],
+            "connections": [{"source": "INTERNET", "target": REGION,
+                             "metrics": {"normal": max(entry_out - entry_err, 0.0), "danger": entry_err},
+                             "class": "normal"}],
+        }
+
+    INDEX = """<!doctype html><html><head><meta charset=utf-8>
+    <title>Vizceral - Akamai Store traffic</title>
+    <style>html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:-apple-system,Inter,sans-serif}
+    #viz{width:100vw;height:100vh;display:block}
+    #hdr{position:fixed;top:10px;left:14px;color:#fff;z-index:10}
+    #hdr b{font-size:18px}#hdr span{opacity:.6;font-size:12px}</style></head>
+    <body>
+    <div id=hdr><b>Akamai Store — live traffic</b> <span id=st>connecting…</span></div>
+    <canvas id=viz></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/vizceral@4.7.5/dist/vizceral.min.js"></script>
+    <script>
+    const canvas = document.getElementById('viz');
+    function size(){canvas.width=innerWidth;canvas.height=innerHeight;}
+    size(); addEventListener('resize', size);
+    const viz = new Vizceral(canvas);
+    viz.setView([]);
+    viz.animate();
+    async function poll(){
+      try{
+        const r = await fetch('api/traffic',{cache:'no-store'});
+        const d = await r.json();
+        viz.updateData(d);
+        document.getElementById('st').textContent = 'live · '+new Date().toLocaleTimeString();
+      }catch(e){ document.getElementById('st').textContent = 'feeder error'; }
+    }
+    poll(); setInterval(poll, 5000);
+    </script></body></html>"""
+
+    class H(BaseHTTPRequestHandler):
+        def _send(self, code, body, ctype):
+            b = body if isinstance(body, bytes) else body.encode()
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(b)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(b)
+        def do_GET(self):
+            p = self.path.split("?")[0].rstrip("/")
+            if p in ("", "/index.html"):
+                self._send(200, INDEX, "text/html; charset=utf-8")
+            elif p.endswith("api/traffic"):
+                self._send(200, json.dumps(build_traffic()), "application/json")
+            elif p.endswith("healthz"):
+                self._send(200, "ok", "text/plain")
+            else:
+                self._send(404, "not found", "text/plain")
+        def log_message(self, *a):  # quiet
+            pass
+
+    if __name__ == "__main__":
+        port = int(os.environ.get("PORT", "8080"))
+        print("vizceral-feeder listening on :%d, PROM=%s" % (port, PROM), flush=True)
+        ThreadingHTTPServer(("0.0.0.0", port), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vizceral
+  namespace: monitoring
+  labels: { app: vizceral }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: vizceral }
+  template:
+    metadata:
+      labels: { app: vizceral }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: feeder
+          image: python:3.12-slim
+          command: ["python", "/app/feeder.py"]
+          env:
+            - name: PROM_URL
+              value: http://prometheus.monitoring.svc.cluster.local:9090
+            - name: VIZCERAL_REGION
+              value: jp-tyo-3
+            - name: VIZCERAL_ENTRY
+              value: frontend
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+      volumes:
+        - name: app
+          configMap:
+            name: vizceral-feeder
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vizceral
+  namespace: monitoring
+  labels: { app: vizceral }
+spec:
+  type: LoadBalancer
+  selector: { app: vizceral }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

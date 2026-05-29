@@ -165,6 +165,12 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          # Vizceral animated service-traffic map (feeds off Tempo service-graph
+          # metrics that the updated tempo.yaml now remote_writes to Prometheus).
+          kubectl apply -f kubernetes-manifests/monitoring/vizceral.yaml
+          # Pick up the new Tempo metrics_generator config + reloaded dashboards.
+          kubectl -n monitoring rollout restart deployment/tempo || true
+          kubectl -n monitoring rollout restart deployment/grafana || true
           echo "SKIPPED (osa/DB/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
 
       - name: Deploy Kong (dbless OSS) via Helm
