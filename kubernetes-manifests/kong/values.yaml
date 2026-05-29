@@ -28,7 +28,10 @@ env:
 # Inline declarative config (chart-managed ConfigMap + mount). Phase 1 = empty
 # stub so Kong starts cleanly. Phase 2 adds services/routes/ai-proxy plugin here.
 dblessConfig:
-  config:
+  # NOTE: chart expects this as a STRING (the literal kong.yaml content), not a
+  # YAML map — passing a map fails helm templating with
+  # "wrong type for value; expected string; got map".
+  config: |
     _format_version: "3.0"
 
 ingressController:
