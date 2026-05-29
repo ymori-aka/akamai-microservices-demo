@@ -1,0 +1,55 @@
+name: Diagnose / force frontend rollout
+on: { workflow_dispatch: {} }
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Describe current state
+        run: |
+          set +e
+          echo "=========== deployment frontend ==========="
+          kubectl describe deployment/frontend | tail -80
+          echo ""
+          echo "=========== replicasets ==========="
+          kubectl get rs -l app=frontend -o wide
+          echo ""
+          echo "=========== pods ==========="
+          kubectl get pods -l app=frontend -o wide
+          echo ""
+          echo "=========== recent events touching frontend ==========="
+          kubectl get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE 'frontend' | tail -30
+          echo ""
+          echo "=========== HPA / PDB ==========="
+          kubectl get hpa -A 2>/dev/null | grep -i frontend
+          kubectl get pdb -A 2>/dev/null | grep -i frontend
+          echo ""
+          echo "=========== current image on running pods ==========="
+          kubectl get pods -l app=frontend -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+
+      - name: Pin to known-good image (sha-d90930f, has the toggle code) + force restart
+        run: |
+          set +e
+          kubectl set image deployment/frontend server=ghcr.io/ymori-aka/frontend:sha-d90930f
+          # rollout restart bumps a template annotation so the deployment
+          # controller is forced to roll a new ReplicaSet even if image is unchanged.
+          kubectl rollout restart deployment/frontend
+          # Watch for up to 4 min.
+          kubectl rollout status deployment/frontend --timeout=4m
+
+      - name: Diagnose if still failed
+        if: failure()
+        run: |
+          set +e
+          echo "=========== rollout still failing — full dump ==========="
+          kubectl get pods -l app=frontend -o wide
+          echo ""
+          kubectl describe rs -l app=frontend | tail -80
+          echo ""
+          kubectl describe deployment/frontend | tail -40
+          echo ""
+          kubectl get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE 'frontend|denied|failed|error|ImagePull|backoff' | tail -40
+          echo ""
+          for p in $(kubectl get pods -l app=frontend -o name); do
+            echo "----- logs $p -----"
+            kubectl logs "$p" --all-containers=true --tail=40 2>/dev/null
+          done
