@@ -44,6 +44,21 @@ jobs:
           run_curl 'curl -s "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=sum%20by%20(service)(traces_spanmetrics_calls_total)"' \
             | python3 -c 'import sys,json;d=json.load(sys.stdin);[print("  %-30s = %s"%(r["metric"].get("service","?"),r["value"][1])) for r in d.get("data",{}).get("result",[])] or print("  (none)")' 2>/dev/null || true
 
+      - name: collector internal span counters + app startup logs
+        run: |
+          run_curl() {
+            kubectl -n monitoring run dbg-$RANDOM --image=curlimages/curl:8.10.1 \
+              --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null
+          }
+          echo "===== collector :8888 span counters by receiver/exporter ====="
+          run_curl 'curl -s http://otel-collector.monitoring.svc.cluster.local:8888/metrics' \
+            | grep -iE "receiver_accepted_spans|receiver_refused_spans|exporter_sent_spans|exporter_send_failed_spans|receiver_accepted_metric" \
+            | grep -v "^#" | sed 's/^/  /' || echo "  (could not read :8888)"
+          echo "===== frontend STARTUP logs (tracing init decision) ====="
+          kubectl logs deployment/frontend --tail=400 2>&1 | grep -iE "trac|exporter|collector|otel|sampler|telemetry|init|stats|55678|4317" | head -15 | sed 's/^/  /' || true
+          echo "===== productcatalog STARTUP logs ====="
+          kubectl logs deployment/productcatalogservice --tail=400 2>&1 | grep -iE "trac|exporter|collector|otel|mongo|loaded|seed|55678|4317|product" | head -15 | sed 's/^/  /' || true
+
       - name: otel-collector receiver/exporter activity
         run: |
           echo "===== collector logs (opencensus / refused / export errors) ====="
