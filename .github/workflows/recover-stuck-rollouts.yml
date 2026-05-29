@@ -1,0 +1,53 @@
+name: Recover stuck rollouts (istiod + frontend + kong)
+on: { workflow_dispatch: {} }
+jobs:
+  recover:
+    runs-on: self-hosted
+    steps:
+      - name: 1) Restart istiod (unblocks sidecar injection)
+        run: |
+          set +e
+          echo "=== istiod status BEFORE ==="
+          kubectl -n istio-system get pods,deploy -l app=istiod 2>/dev/null
+          kubectl -n istio-system rollout restart deployment/istiod || true
+          kubectl -n istio-system rollout status deployment/istiod --timeout=120s
+          kubectl -n istio-system get pods -l app=istiod
+          echo "=== webhook configs ==="
+          kubectl get mutatingwebhookconfigurations 2>/dev/null | grep -iE 'istio|inject' | head
+
+      - name: 2) Force frontend rollout (now that injector should respond)
+        run: |
+          set +e
+          # Discard the failed/stuck rollout, pin a known-good image, restart.
+          kubectl rollout undo deployment/frontend 2>/dev/null || true
+          kubectl set image deployment/frontend server=ghcr.io/ymori-aka/frontend:sha-b4e407a
+          kubectl rollout restart deployment/frontend
+          kubectl rollout status deployment/frontend --timeout=4m
+          echo "=== frontend pods ==="
+          kubectl get pods -l app=frontend -o wide
+          kubectl get pods -l app=frontend -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+
+      - name: 3) Restart kong-kong (pick up minimal declarative ConfigMap)
+        run: |
+          set +e
+          # Re-apply the latest ConfigMap from main, then bounce the pod.
+          kubectl apply -f kubernetes-manifests/kong/declarative.yaml
+          kubectl -n kong rollout restart deployment/kong-kong
+          kubectl -n kong rollout status deployment/kong-kong --timeout=3m
+          echo "=== kong pods ==="
+          kubectl -n kong get pods -o wide
+          kubectl -n kong run kong-curl --rm -i --restart=Never \
+            --image=curlimages/curl:8.10.1 \
+            --command -- curl -s -o /dev/null -w "kong-proxy: %{http_code}\n" \
+            "http://kong-kong-proxy.kong.svc.cluster.local/" || true
+
+      - name: 4) Final verification
+        if: always()
+        run: |
+          set +e
+          echo "===== frontend final ====="
+          kubectl get deployment frontend -o jsonpath='{.status.readyReplicas}/{.status.replicas} ready, image: '
+          kubectl get deployment frontend -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+          echo "===== kong final ====="
+          kubectl -n kong get deployment kong-kong -o jsonpath='{.status.readyReplicas}/{.status.replicas} ready, image: '
+          kubectl -n kong get deployment kong-kong -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
