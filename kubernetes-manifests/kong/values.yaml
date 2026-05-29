@@ -50,6 +50,37 @@ dblessConfig:
             strip_path: false
             methods:
               - POST
+            plugins:
+              # Phase 3a: AI Firewall. Inspect the user prompt and reject
+              # (HTTP 400) anything that looks like a credit-card / PII leak or
+              # a prompt-injection ("ignore previous instructions") attempt
+              # BEFORE it reaches the LLM. deny_patterns are PCRE regexes; only
+              # `user` role messages are checked (match_all_roles=false) so the
+              # catalog system prompt never trips a rule.
+              - name: ai-prompt-guard
+                config:
+                  match_all_roles: false
+                  allow_all_conversation_history: true
+                  deny_patterns:
+                    # 13-16 digit card numbers (optionally space/dash grouped)
+                    - "[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{1,4}"
+                    # US SSN
+                    - "[0-9]{3}-[0-9]{2}-[0-9]{4}"
+                    # Prompt-injection / jailbreak phrasings
+                    - "(?i)ignore (all |any )?(previous|prior|above) (instructions|prompts|rules)"
+                    - "(?i)disregard (the |all )?(previous|prior|above|system)"
+                    - "(?i)reveal (your |the )?(system )?prompt"
+              # Phase 3b: abuse protection. OSS Kong only offers request-based
+              # rate limiting (token-based ai-rate-limiting-advanced is an
+              # Enterprise plugin, not present in this image). 30 req/min per
+              # client IP, counted node-local (dbless can't use the cluster
+              # policy). Returns HTTP 429 once exceeded.
+              - name: rate-limiting
+                config:
+                  minute: 30
+                  policy: local
+                  limit_by: ip
+                  error_message: "AI gateway rate limit exceeded — slow down."
         plugins:
           - name: ai-proxy
             config:
