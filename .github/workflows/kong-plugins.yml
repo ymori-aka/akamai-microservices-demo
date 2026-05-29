@@ -1,0 +1,12 @@
+name: Kong list available plugins
+on: { workflow_dispatch: {} }
+jobs:
+  list:
+    runs-on: self-hosted
+    steps:
+      - name: Query Kong admin /plugins/enabled
+        run: |
+          set +e
+          kubectl -n kong run kong-plugins --rm -i --restart=Never \
+            --image=curlimages/curl:8.10.1 --command -- \
+            sh -c 'curl -s http://kong-kong-admin.kong.svc.cluster.local:8001/ | tr "," "\n" | grep -iE "available_on_server|ai-|rate-limit" ; echo "---ENABLED---"; curl -s http://kong-kong-admin.kong.svc.cluster.local:8001/plugins/enabled'
