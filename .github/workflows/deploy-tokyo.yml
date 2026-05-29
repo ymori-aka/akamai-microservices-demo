@@ -232,6 +232,11 @@ jobs:
           # metrics_generator config + reloaded dashboards.
           kubectl -n monitoring rollout restart deployment/otel-collector || true
           kubectl -n monitoring rollout restart deployment/tempo || true
+          # vizceral/promviz embed config/HTML loaded at container start, so an
+          # `apply` alone does not pick up ConfigMap/env changes — restart them.
+          kubectl -n monitoring rollout restart deployment/vizceral || true
+          kubectl -n monitoring rollout restart deployment/promviz || true
+          kubectl -n monitoring rollout restart deployment/promviz-front || true
           kubectl -n monitoring rollout restart deployment/grafana || true
           echo "SKIPPED (osa/DB/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
 
@@ -274,6 +279,12 @@ jobs:
           echo "===== Vizceral / promviz endpoints (monitoring) ====="
           for s in vizceral promviz-front; do
             echo "$s: $(kubectl -n monitoring get svc $s -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)"
+          done
+          echo "===== viz pods + logs (diagnose empty-reply/OOM) ====="
+          kubectl -n monitoring get pods -l 'app in (vizceral,promviz,promviz-front)' -o wide || true
+          for d in promviz-front promviz vizceral; do
+            echo "--- $d logs ---"
+            kubectl -n monitoring logs deployment/$d --tail=15 2>&1 | sed 's/^/    /' || true
           done
           echo "===== LoadBalancer external IPs ====="
           kubectl get svc -A | grep -i loadbalancer || true
