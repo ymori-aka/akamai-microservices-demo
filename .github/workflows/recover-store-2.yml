@@ -1,0 +1,44 @@
+name: Recover store 2 (cartservice image + redis-cart memory)
+on: { workflow_dispatch: {} }
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: A) Inspect current good cartservice image + redis limits
+        run: |
+          set +e
+          echo "===== cartservice pods (phase + image) ====="
+          kubectl get pods -l app=cartservice -o jsonpath='{range .items[*]}{.status.phase}{" "}{.spec.containers[0].image}{"\n"}{end}'
+          echo "===== redis-cart resources BEFORE ====="
+          kubectl get deploy redis-cart -o jsonpath='{.spec.template.spec.containers[0].resources}{"\n"}'
+
+      - name: B) Pin cartservice to the running pod's good image
+        run: |
+          set +e
+          GOOD=$(kubectl get pods -l app=cartservice -o jsonpath='{range .items[*]}{.status.phase}{" "}{.status.containerStatuses[0].ready}{" "}{.spec.containers[0].image}{"\n"}{end}' \
+            | awk '$1=="Running" && $2=="true" {print $3}' | grep -vE '^cartservice$' | head -1)
+          echo "good cartservice image = [$GOOD]"
+          if [ -n "$GOOD" ]; then
+            kubectl set image deployment/cartservice server="$GOOD"
+            kubectl rollout status deployment/cartservice --timeout=150s
+          else
+            echo "WARN: could not determine a good cartservice image; leaving as-is"
+          fi
+          kubectl get deploy cartservice -o jsonpath='cartservice AFTER: {.status.readyReplicas}/{.status.replicas} {.spec.template.spec.containers[0].image}{"\n"}'
+
+      - name: C) Raise redis-cart memory limit (was OOMKilled, exit 137)
+        run: |
+          set +e
+          kubectl patch deployment redis-cart --type=strategic -p '{"spec":{"template":{"spec":{"containers":[{"name":"redis","resources":{"requests":{"cpu":"70m","memory":"200Mi"},"limits":{"cpu":"250m","memory":"512Mi"}}}}]}}}'
+          kubectl rollout status deployment/redis-cart --timeout=120s
+          echo "===== redis-cart resources AFTER ====="
+          kubectl get deploy redis-cart -o jsonpath='{.spec.template.spec.containers[0].resources}{"\n"}'
+
+      - name: D) Final readiness
+        if: always()
+        run: |
+          set +e
+          for D in redis-cart cartservice currencyservice frontend; do
+            kubectl get deploy $D -o jsonpath="$D: {.status.readyReplicas}/{.status.replicas} {.spec.template.spec.containers[0].image}{\"\n\"}"
+          done
+          kubectl get pods -o wide | grep -ivE 'Completed|Running' || echo "(all pods Running)"
