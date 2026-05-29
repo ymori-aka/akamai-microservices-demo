@@ -1,0 +1,26 @@
+name: Diagnose cluster capacity
+on: { workflow_dispatch: {} }
+jobs:
+  cap:
+    runs-on: self-hosted
+    steps:
+      - name: Node allocatable + allocated requests/limits
+        run: |
+          set +e
+          echo "===== nodes ====="
+          kubectl get nodes -o wide
+          echo ""
+          for N in $(kubectl get nodes -o name); do
+            echo "########## $N ##########"
+            kubectl describe "$N" | sed -n '/Capacity:/,/Events:/p' | grep -iE "cpu:|memory:|Allocated|Resource|Requests|Limits|---|Non-terminated|pods" | head -40
+            echo ""
+          done
+      - name: Pressure / pending / OOM signals
+        run: |
+          set +e
+          echo "===== node conditions (pressure) ====="
+          kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{range .status.conditions[*]}{.type}={.status}{" "}{end}{"\n"}{end}'
+          echo "===== pending pods ====="
+          kubectl get pods -A --field-selector=status.phase=Pending 2>/dev/null | head -20
+          echo "===== recent OOM/evict/FailedScheduling events ====="
+          kubectl get events -A --sort-by=.lastTimestamp 2>/dev/null | grep -iE "OOM|Evict|FailedScheduling|Insufficient|preempt" | tail -20 || echo "(none)"
