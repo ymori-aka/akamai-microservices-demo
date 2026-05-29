@@ -1,0 +1,167 @@
+# promviz + promviz-front — the canonical Prometheus→Vizceral bridge
+# (github.com/nghialv/promviz). This is an ALTERNATIVE/companion to the
+# custom vizceral.yaml feeder: promviz scrapes PromQL on an interval and
+# serves Vizceral-format graph JSON at /graph; promviz-front is the WebGL UI.
+#
+# Data source is the SAME single source of truth as the Grafana Node Graph
+# and the custom Vizceral feeder: Tempo's metrics_generator service-graph
+# metrics, remote_written into Prometheus:
+#   traces_service_graph_request_total{client,server}
+#   traces_service_graph_request_failed_total{client,server}
+#
+# Images (archived project, pinned tags from the upstream compose examples):
+#   nghialv2607/promviz:v0.1.0        (API on :9091, /graph)
+#   mjhddevlion/promviz-front:v0.1.0  (UI on :8080, polls UPDATE_URL)
+#
+# monitoring ns enforces PSS=baseline, so these (root) images run fine.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promviz-config
+  namespace: monitoring
+data:
+  promviz.yaml: |
+    graphName: Akamai Store (jp-tyo-3)
+
+    # GLOBAL level: a single cluster node "jp-tyo-3" with the INTERNET entry.
+    # Volume = request rate hitting the frontend (the store entrypoint).
+    globalLevel:
+      maxVolume: 5000
+      clusterConnections:
+        - query: 'label_replace(label_replace(sum(rate(traces_service_graph_request_total{server="frontend"}[2m])), "source", "INTERNET", "", ""), "target", "jp-tyo-3", "", "")'
+          prometheusURL: http://prometheus.monitoring.svc.cluster.local:9090
+          source:
+            label: source
+          target:
+            label: target
+
+    # CLUSTER level: the per-service topology inside jp-tyo-3.
+    clusterLevel:
+      - cluster: jp-tyo-3
+        maxVolume: 5000
+        serviceConnections:
+          # INTERNET -> frontend (the entry edge).
+          - query: 'label_replace(sum(rate(traces_service_graph_request_total{server="frontend"}[2m])), "service", "frontend", "", "")'
+            prometheusURL: http://prometheus.monitoring.svc.cluster.local:9090
+            source:
+              replacement: INTERNET
+            target:
+              label: service
+          # Inter-service edges, classified normal (status 200).
+          - query: 'label_replace(sum by (client, server) (rate(traces_service_graph_request_total[2m])), "status", "200", "", "")'
+            prometheusURL: http://prometheus.monitoring.svc.cluster.local:9090
+            source:
+              label: client
+            target:
+              label: server
+            status:
+              label: status
+              warningRegex: ^4..$
+              dangerRegex: ^5..$
+          # Inter-service failures, classified danger (status 500).
+          - query: 'label_replace(sum by (client, server) (rate(traces_service_graph_request_failed_total[2m])), "status", "500", "", "")'
+            prometheusURL: http://prometheus.monitoring.svc.cluster.local:9090
+            source:
+              label: client
+            target:
+              label: server
+            status:
+              label: status
+              warningRegex: ^4..$
+              dangerRegex: ^5..$
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promviz
+  namespace: monitoring
+  labels: { app: promviz }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: promviz }
+  template:
+    metadata:
+      labels: { app: promviz }
+    spec:
+      containers:
+        - name: promviz
+          image: nghialv2607/promviz:v0.1.0
+          args:
+            - --config.file=/etc/promviz/promviz.yaml
+            - --retrieval.scrape-interval=5s
+          ports:
+            - name: api
+              containerPort: 9091
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promviz
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 256Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: promviz-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promviz
+  namespace: monitoring
+  labels: { app: promviz }
+spec:
+  selector: { app: promviz }
+  ports:
+    - name: api
+      port: 9091
+      targetPort: 9091
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promviz-front
+  namespace: monitoring
+  labels: { app: promviz-front }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: promviz-front }
+  template:
+    metadata:
+      labels: { app: promviz-front }
+    spec:
+      containers:
+        - name: promviz-front
+          image: mjhddevlion/promviz-front:v0.1.0
+          env:
+            # The browser polls this through the same LB origin (relative
+            # path is rewritten by the front container), so point it at the
+            # in-cluster promviz API.
+            - name: UPDATE_URL
+              value: http://promviz.monitoring.svc.cluster.local:9091/graph
+            - name: INTERVAL
+              value: "5000"
+            - name: MAX_REPLAY_OFFSET
+              value: "43200"
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promviz-front
+  namespace: monitoring
+  labels: { app: promviz-front }
+spec:
+  type: LoadBalancer
+  selector: { app: promviz-front }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

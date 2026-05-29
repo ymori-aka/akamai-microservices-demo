@@ -147,31 +147,55 @@ jobs:
             kubectl logs -l app=frontend --tail=30 --all-containers=true || true
           }
 
-      - name: Enable app-level OTLP tracing (sidecarless → service-graph data)
+      - name: Enable app-level tracing (sidecarless → service-graph data)
         continue-on-error: true
         run: |
-          # Tokyo runs sidecarless (no Istio), so there is NO Envoy telemetry.
-          # Without this, the apps export no traces, Tempo's metrics_generator
-          # produces no traces_service_graph_* metrics, and both the Grafana
-          # Node Graph and Vizceral stay empty. The Online Boutique images honor
-          # the standard OTEL_* env (see istio/canary.yaml). We set a per-service
-          # OTEL_SERVICE_NAME so the service graph has distinct client/server
-          # nodes. Idempotent: re-running just re-sets the same env.
+          # Tokyo runs sidecarless (no Istio) so there is NO Envoy telemetry.
+          # Without app tracing the apps export nothing, Tempo's
+          # metrics_generator produces no traces_service_graph_* metrics, and
+          # both the Grafana Node Graph and Vizceral stay empty.
+          #
+          # MIXED FLEET: the custom ymori-aka images (frontend/cartservice/
+          # currencyservice/productcatalogservice/checkoutservice) are the
+          # classic Online Boutique build — they trace via the OpenCensus
+          # agent protocol to COLLECTOR_SERVICE_ADDR (and PANIC at boot if
+          # ENABLE_TRACING=1 but COLLECTOR_SERVICE_ADDR is unset). The upstream
+          # v0.10.5 images (ad/email/payment/recommendation/shipping) trace via
+          # OTLP (OTEL_*). We therefore set BOTH env families on every
+          # deployment; each image reads only the one it understands. The
+          # otel-collector now accepts OpenCensus on :55678 and OTLP on :4317,
+          # both feeding the same Tempo pipeline. Idempotent.
+          OC_ADDR="otel-collector.monitoring.svc.cluster.local:55678"
           OTLP="http://otel-collector.monitoring.svc.cluster.local:4317"
-          for d in frontend cartservice productcatalogservice currencyservice \
-                   checkoutservice shippingservice recommendationservice \
-                   adservice emailservice paymentservice; do
+          APPS="frontend cartservice productcatalogservice currencyservice \
+                checkoutservice shippingservice recommendationservice \
+                adservice emailservice paymentservice"
+          for d in $APPS; do
             kubectl set env deployment/$d \
+              ENABLE_TRACING=1 \
+              COLLECTOR_SERVICE_ADDR="$OC_ADDR" \
               OTEL_EXPORTER_OTLP_ENDPOINT="$OTLP" \
               OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
-              OTEL_SERVICE_NAME="$d" \
-              ENABLE_TRACING=1 || echo "skip $d (not present)"
+              OTEL_SERVICE_NAME="$d" || echo "skip $d (not present)"
           done
-          # Roll everything so the new env takes effect.
+          kubectl rollout restart deployment $APPS || true
+
+      - name: Attach ghcr-secret to all ServiceAccounts (fix private-image 401)
+        continue-on-error: true
+        run: |
+          # cartservice/currencyservice use their own ServiceAccounts (not
+          # "default"), which lacked the ghcr imagePullSecret, so their private
+          # images fell back to anonymous pulls -> 401 ImagePullBackOff. Attach
+          # ghcr-secret to EVERY ServiceAccount in the namespace so any pod
+          # (current or future) can pull the private ymori-aka images. Durable:
+          # re-running re-applies the same patch even after kustomize recreates
+          # the SAs.
+          for sa in $(kubectl get sa -o name); do
+            kubectl patch "$sa" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}' || true
+          done
+          # Re-roll the private-image apps so they re-pull with the secret.
           kubectl rollout restart deployment \
-            frontend cartservice productcatalogservice currencyservice \
-            checkoutservice shippingservice recommendationservice \
-            adservice emailservice paymentservice || true
+            frontend cartservice currencyservice productcatalogservice checkoutservice || true
 
       - name: Deploy core monitoring stack (no osa/DB/istio-specific parts)
         continue-on-error: true
@@ -194,7 +218,12 @@ jobs:
           # Vizceral animated service-traffic map (feeds off Tempo service-graph
           # metrics that the updated tempo.yaml now remote_writes to Prometheus).
           kubectl apply -f kubernetes-manifests/monitoring/vizceral.yaml
-          # Pick up the new Tempo metrics_generator config + reloaded dashboards.
+          # promviz + promviz-front — canonical Prometheus->Vizceral bridge,
+          # same Tempo service-graph data source as vizceral.yaml + Node Graph.
+          kubectl apply -f kubernetes-manifests/monitoring/promviz.yaml
+          # Pick up the new OpenCensus receiver in the collector + new Tempo
+          # metrics_generator config + reloaded dashboards.
+          kubectl -n monitoring rollout restart deployment/otel-collector || true
           kubectl -n monitoring rollout restart deployment/tempo || true
           kubectl -n monitoring rollout restart deployment/grafana || true
           echo "SKIPPED (osa/DB/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
@@ -228,10 +257,16 @@ jobs:
           echo "===== Kong pods ====="
           kubectl -n kong get pods -o wide || true
           kubectl -n kong get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE "fail|error|warn" | tail -20 || true
-          echo "===== NOT-Running app pods (diagnose ImagePullBackOff etc.) ====="
+          echo "===== NOT-Running app pods (diagnose ImagePullBackOff/crash) ====="
           for p in $(kubectl get pods --no-headers 2>/dev/null | grep -ivE 'Running|Completed' | awk '{print $1}'); do
             echo "--- $p ---"
             kubectl describe pod "$p" 2>/dev/null | grep -iE "image:|reason|message|failed|back-off|pull" | sed 's/^/    /' || true
+            # last crash output (panics, missing-env, etc.)
+            kubectl logs "$p" --previous --tail=12 2>/dev/null | sed 's/^/    crashlog| /' || true
+          done
+          echo "===== Vizceral / promviz endpoints (monitoring) ====="
+          for s in vizceral promviz-front; do
+            echo "$s: $(kubectl -n monitoring get svc $s -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)"
           done
           echo "===== LoadBalancer external IPs ====="
           kubectl get svc -A | grep -i loadbalancer || true
