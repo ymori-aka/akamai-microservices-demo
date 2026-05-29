@@ -52,3 +52,16 @@ variable "lke_ha_control_plane" {
   type        = bool
   default     = true
 }
+
+# Control Plane ACL: the ONLY IPs allowed to reach the k8s API server.
+#   [0] this admin machine, [1] mgmt-server, [2] self-hosted runner egress.
+# Keep the runner IP or deploy-tokyo.yml (runs on that runner) is locked out.
+variable "cp_acl_ipv4" {
+  description = "IPv4 CIDRs allowed to reach the LKE control plane (admin machine, mgmt-server, CI runner)."
+  type        = list(string)
+  default = [
+    "115.165.146.69/32", # this admin machine
+    "172.234.87.163/32", # mgmt-server
+    "206.83.106.54/32",  # self-hosted GitHub Actions runner egress
+  ]
+}

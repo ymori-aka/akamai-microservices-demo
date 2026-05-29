@@ -18,6 +18,20 @@ resource "linode_lke_cluster" "demo" {
 
   control_plane {
     high_availability = var.lke_ha_control_plane
+
+    # Restrict who can reach the k8s API. Locked to exactly:
+    #   - this admin machine  (var.cp_acl_ipv4[0])
+    #   - mgmt-server         (var.cp_acl_ipv4[1])
+    #   - the self-hosted GitHub Actions runner egress (var.cp_acl_ipv4[2])
+    # The runner IP MUST stay here or deploy-tokyo.yml can no longer reach the
+    # cluster (it runs on that runner). Mirrors the jp-osa lockdown so we are
+    # never wide-open again.
+    acl {
+      enabled = true
+      addresses {
+        ipv4 = var.cp_acl_ipv4
+      }
+    }
   }
 
   # Node pool count is managed here (no autoscaler), matching the current

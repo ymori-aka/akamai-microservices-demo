@@ -47,11 +47,24 @@ jobs:
       # This guarantees we can never accidentally deploy into jp-osa.
       # ---------------------------------------------------------------
       - name: Fetch Tokyo kubeconfig + sanity-check target
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
           set -e
+          if [ -z "$LINODE_PAT" ]; then
+            echo "::error::LINODE_PAT secret is empty — cannot fetch kubeconfig. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
           KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
-          linode-cli lke kubeconfig-view "${{ inputs.cluster_id }}" --json \
-            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)[0]["kubeconfig"]).decode())' > "$KC"
+          # Fetch via the Linode API directly (the runner has NO linode-cli).
+          # GET .../kubeconfig returns {"kubeconfig":"<base64>"}.
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          if [ ! -s "$KC" ]; then
+            echo "::error::Fetched kubeconfig is empty — aborting before any kubectl runs."
+            exit 1
+          fi
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
           export KUBECONFIG="$KC"
