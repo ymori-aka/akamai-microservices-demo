@@ -44,6 +44,7 @@ jobs:
           [ -s "$KC" ] || { echo "::error::empty kubeconfig"; exit 1; }
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+          export KUBECONFIG="$KC"
           kubectl get nodes -o name | grep -q "lke${{ inputs.cluster_id }}-" \
             || { echo "::error::nodes don't match cluster ${{ inputs.cluster_id }}"; exit 1; }
 
