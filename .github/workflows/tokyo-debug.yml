@@ -27,6 +27,19 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
+      - name: aclp-collector (Cloud Pulse) diagnosis
+        continue-on-error: true
+        run: |
+          echo "===== aclp-collector pod ====="
+          kubectl -n monitoring get pods -l app=aclp-collector -o wide || true
+          echo "===== aclp-collector logs ====="
+          kubectl -n monitoring logs deployment/aclp-collector --tail=100 2>&1 | grep -iE "error|fail|panic|invalid|unknown field|401|403|scope|unauthor|cannot|objectstorage|nodebalancer|dbaas|Everything is ready|start|config" | tail -30 | sed 's/^/  /' || true
+          echo "===== :9464 metric sample ====="
+          P=$(kubectl -n monitoring get pod -l app=aclp-collector -o name 2>/dev/null | head -1)
+          [ -n "$P" ] && kubectl -n monitoring exec "$P" -- sh -c 'wget -qO- http://localhost:9464/metrics 2>/dev/null | grep -iE "obj_bucket|avg_cpu|nb_ingress" | head -12' 2>/dev/null | sed 's/^/  /' || echo "  (no metrics)"
+          echo "===== postgres-exporter present? (Business KPI) ====="
+          kubectl -n monitoring get deploy postgres-exporter -o wide 2>&1 | sed 's/^/  /' || echo "  (postgres-exporter NOT deployed)"
+
       - name: Orders DB / checkout 422 diagnosis
         continue-on-error: true
         run: |
