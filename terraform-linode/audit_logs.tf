@@ -10,7 +10,7 @@
 # Terraform provider).
 
 resource "linode_object_storage_bucket" "audit_logs" {
-  region = "jp-osa"
+  region = var.region
   label  = "akamai-audit-logs"
 }
 
@@ -19,7 +19,7 @@ resource "linode_object_storage_key" "audit_logs" {
   label = "audit-logs-rw"
   bucket_access {
     bucket_name = linode_object_storage_bucket.audit_logs.label
-    region      = "jp-osa"
+    region      = var.region
     permissions = "read_write"
   }
 }
@@ -29,7 +29,7 @@ output "audit_logs_bucket" {
 }
 
 output "audit_logs_bucket_host" {
-  value = "${linode_object_storage_bucket.audit_logs.label}.jp-osa-1.linodeobjects.com"
+  value = "${linode_object_storage_bucket.audit_logs.label}.${var.obj_host_suffix}"
 }
 
 output "audit_logs_access_key" {
