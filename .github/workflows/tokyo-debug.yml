@@ -37,6 +37,20 @@ jobs:
           echo "===== existing istio/kiali (should be none) ====="
           kubectl get ns 2>&1 | grep -iE "istio|kiali" | sed 's/^/  /' || echo "  (no istio/kiali namespaces)"
 
+      - name: Istio (ambient) request metrics for Kiali
+        continue-on-error: true
+        run: |
+          run_curl() {
+            kubectl -n monitoring run dbg-$RANDOM --image=curlimages/curl:8.10.1 \
+              --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null
+          }
+          echo "===== istio_requests_total source_workload -> destination_service ====="
+          run_curl 'curl -s "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=sum%20by%20(source_workload,destination_service_name)(istio_requests_total)"' \
+            | python3 -c 'import sys,json;d=json.load(sys.stdin);r=d.get("data",{}).get("result",[]);[print("  %-26s -> %-26s = %s"%(m["metric"].get("source_workload","?"),m["metric"].get("destination_service_name","?"),m["value"][1])) for m in r] or print("  (no istio_requests_total yet)")'
+          echo "===== istio_tcp (ztunnel L4) present? ====="
+          run_curl 'curl -s "http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query?query=count(istio_tcp_connections_opened_total)"' \
+            | python3 -c 'import sys,json;d=json.load(sys.stdin);r=d.get("data",{}).get("result",[]);print("  series:",r[0]["value"][1] if r else 0)'
+
       - name: Service-graph metrics present in Prometheus
         continue-on-error: true
         run: |
