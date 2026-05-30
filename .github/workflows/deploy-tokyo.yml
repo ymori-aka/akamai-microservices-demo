@@ -279,13 +279,25 @@ jobs:
           # Akamai Cloud Pulse collector — Tokyo (jp-tyo-3) supports dbaas +
           # nodebalancer + objectstorage (jp-osa did NOT do objectstorage).
           # Bridges those into Prometheus :9464 (already scraped by the
-          # 'aclp-dbaas' job) -> Grafana.
+          # 'aclp-dbaas' job) -> Grafana. IMPORTANT: the default deploy PAT
+          # (LINODE_PAT) only has databases+monitor+lke scopes, so nodebalancer
+          # and object_storage Cloud Pulse return nothing. Use ACLP_PAT (a
+          # token scoped databases+monitor+nodebalancers+object_storage) when
+          # present, falling back to LINODE_PAT.
+          PAT="${{ secrets.ACLP_PAT }}"
+          [ -z "$PAT" ] && PAT="${{ secrets.LINODE_PAT }}"
           kubectl -n monitoring create secret generic linode-pat \
-            --from-literal=TOKEN="${{ secrets.LINODE_PAT }}" \
+            --from-literal=TOKEN="$PAT" \
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
           kubectl -n monitoring rollout restart deployment/aclp-collector || true
-          echo "SKIPPED (osa/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
+          # Business-KPI exporter: custom SQL on the orders table -> Prometheus
+          # gauges (orders_daily_*, orders_today_*). Reads orders-db-credentials
+          # (created above for the Tokyo Managed PG). Scraped by the existing
+          # 'postgres-exporter' Prometheus job.
+          kubectl apply -f kubernetes-manifests/monitoring/postgres-exporter.yaml
+          kubectl -n monitoring rollout restart deployment/postgres-exporter || true
+          echo "SKIPPED (osa/istio-specific): aclp-collector-healer, audit-log-ingester, kiali"
 
       - name: Wire promviz-front UPDATE_URL to promviz public LB
         continue-on-error: true
