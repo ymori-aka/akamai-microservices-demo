@@ -1,0 +1,145 @@
+name: Deploy Istio ambient + Kiali (Tokyo)
+
+# Adds an Istio AMBIENT mesh (sidecarless: ztunnel per-node + a namespace
+# waypoint for L7) to the Tokyo cluster, then Kiali — WITHOUT reintroducing
+# per-pod sidecars. This keeps the "no sidecar" migration spirit while giving
+# Kiali the istio_requests_total metrics it needs for the traffic graph.
+#
+# Why this works here:
+#   - LKE Tokyo CNI is Calico (+ kube-proxy / iptables), which chains cleanly
+#     with istio-cni (no Cilium eBPF conflict).
+#   - Prometheus already has 'istiod' + 'istio-proxies' (Envoy :15090) scrape
+#     jobs from the OSA setup; the ambient waypoint proxy is an istio-proxy
+#     pod, so those metrics get scraped automatically — Kiali reads them from
+#     our existing Prometheus.
+#
+# Runs on the self-hosted runner (only it can reach the Tokyo API).
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      istio_version:
+        description: "Istio chart version (blank = repo latest)"
+        required: false
+        default: ""
+
+jobs:
+  istio-ambient:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Tokyo kubeconfig + sanity-check target
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          [ -s "$KC" ] || { echo "::error::empty kubeconfig"; exit 1; }
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+          kubectl get nodes -o name | grep -q "lke${{ inputs.cluster_id }}-" \
+            || { echo "::error::nodes don't match cluster ${{ inputs.cluster_id }}"; exit 1; }
+
+      - name: Ensure helm + repos
+        run: |
+          if ! command -v helm >/dev/null 2>&1; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+              | HELM_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false bash
+          fi
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "PATH=$PATH" >> "$GITHUB_ENV"
+          export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm-config"
+          export HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm-cache"
+          export HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm-data"
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
+          { echo "HELM_CONFIG_HOME=$HELM_CONFIG_HOME"; echo "HELM_CACHE_HOME=$HELM_CACHE_HOME"; echo "HELM_DATA_HOME=$HELM_DATA_HOME"; } >> "$GITHUB_ENV"
+          helm repo add istio https://istio-release.storage.googleapis.com/charts
+          helm repo add kiali https://kiali.org/helm-charts
+          helm repo update
+
+      - name: Install Gateway API CRDs (for ambient waypoints)
+        run: |
+          if ! kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
+            kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
+          fi
+
+      - name: Install Istio ambient (base + istiod + cni + ztunnel)
+        run: |
+          VER=""
+          [ -n "${{ inputs.istio_version }}" ] && VER="--version ${{ inputs.istio_version }}"
+          kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+          helm upgrade --install istio-base istio/base -n istio-system $VER \
+            --set defaultRevision=default
+          helm upgrade --install istiod istio/istiod -n istio-system $VER \
+            --set profile=ambient --wait --timeout 5m
+          helm upgrade --install istio-cni istio/cni -n istio-system $VER \
+            --set profile=ambient --wait --timeout 5m
+          helm upgrade --install ztunnel istio/ztunnel -n istio-system $VER \
+            --wait --timeout 5m
+          echo "=== istio-system pods ==="
+          kubectl -n istio-system get pods -o wide
+
+      - name: Enroll the app namespace into ambient + add a waypoint (L7)
+        run: |
+          # L4 capture: enroll the 'default' namespace into the ambient mesh.
+          kubectl label namespace default istio.io/dataplane-mode=ambient --overwrite
+          # L7 metrics (istio_requests_total -> Kiali graph): a namespace
+          # waypoint proxy. It is an istio-proxy pod, so Prometheus' existing
+          # 'istio-proxies' job scrapes it on :15090.
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata:
+            name: waypoint
+            namespace: default
+            labels:
+              istio.io/waypoint-for: service
+          spec:
+            gatewayClassName: istio-waypoint
+            listeners:
+              - name: mesh
+                port: 15008
+                protocol: HBONE
+          EOF
+          # Route the namespace's service traffic through the waypoint.
+          kubectl label namespace default istio.io/use-waypoint=waypoint --overwrite
+          kubectl -n default rollout status deployment/waypoint --timeout=180s || \
+            kubectl -n default get pods -l gateway.networking.k8s.io/gateway-name=waypoint -o wide || true
+
+      - name: Install Kiali (reads our Prometheus + Tempo)
+        run: |
+          helm upgrade --install kiali-server kiali/kiali-server -n istio-system \
+            --set auth.strategy=anonymous \
+            --set deployment.service_type=LoadBalancer \
+            --set external_services.istio.root_namespace=istio-system \
+            --set external_services.prometheus.url=http://prometheus.monitoring.svc.cluster.local:9090 \
+            --set external_services.tracing.enabled=true \
+            --set external_services.tracing.provider=tempo \
+            --set external_services.tracing.use_grpc=false \
+            --set external_services.tracing.internal_url=http://tempo.monitoring.svc.cluster.local:3200 \
+            --set external_services.tracing.external_url=http://tempo.monitoring.svc.cluster.local:3200 \
+            --set external_services.grafana.enabled=true \
+            --set external_services.grafana.internal_url=http://grafana.monitoring.svc.cluster.local:3000 \
+            --wait --timeout 5m || true
+
+      - name: Summary — istio/kiali status + Kiali LB IP
+        if: always()
+        run: |
+          echo "===== istio-system ====="
+          kubectl -n istio-system get pods -o wide || true
+          echo "===== ambient enrollment (default ns labels) ====="
+          kubectl get ns default --show-labels || true
+          echo "===== waypoint ====="
+          kubectl -n default get gateway,pods -l gateway.networking.k8s.io/gateway-name=waypoint -o wide || true
+          echo "===== Kiali ====="
+          kubectl -n istio-system get svc kiali -o wide || true
+          echo "Kiali external IP:"
+          kubectl -n istio-system get svc kiali -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}' || true
