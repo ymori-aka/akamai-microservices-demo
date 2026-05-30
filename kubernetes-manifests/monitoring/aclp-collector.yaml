@@ -136,8 +136,12 @@ spec:
     spec:
       containers:
         - name: collector
-          image: linode/aclp-collector:latest
-          imagePullPolicy: Always
+          # Pin 1.6.0: the ':latest' tag is an older build whose
+          # akamaicloudpulsereceiver rejects the objectstorage keys
+          # (entity_regions, group_by) with "invalid keys" -> CrashLoopBackOff,
+          # taking dbaas + nodebalancer down with it. 1.6.0 supports them.
+          image: linode/aclp-collector:1.6.0
+          imagePullPolicy: IfNotPresent
           args: ["--config=/etc/aclp/config.yaml"]
           env:
             - name: LINODE_API_TOKEN
