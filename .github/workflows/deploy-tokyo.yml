@@ -171,13 +171,21 @@ jobs:
                 checkoutservice shippingservice recommendationservice \
                 adservice emailservice paymentservice"
           for d in $APPS; do
+            # NOTE: do NOT force OTEL_PROPAGATORS here. These legacy images honor
+            # the propagator env inconsistently (some hardcode it), so forcing
+            # tracecontext desynced the services that were already correlating
+            # and DROPPED frontend->productcatalog correlation from ~73% to ~3%.
+            # Leaving the per-image defaults yields the best correlation; the
+            # residual "user ->" edges (checkout/payment/email don't extract the
+            # incoming context) would require rebuilding those images to fix.
             kubectl set env deployment/$d \
               ENABLE_TRACING=1 \
               COLLECTOR_SERVICE_ADDR="$OC_ADDR" \
               OTEL_EXPORTER_OTLP_ENDPOINT="$OTLP" \
               OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
-              OTEL_SERVICE_NAME="$d" \
-              OTEL_PROPAGATORS=tracecontext,baggage || echo "skip $d (not present)"
+              OTEL_SERVICE_NAME="$d" || echo "skip $d (not present)"
+            # Clear any OTEL_PROPAGATORS left over from a previous run.
+            kubectl set env deployment/$d OTEL_PROPAGATORS- 2>/dev/null || true
           done
           # EXCEPTION: the custom currencyservice (Node.js) image has broken
           # OpenTelemetry-JS init code — it calls provider.addSpanProcessor(),
