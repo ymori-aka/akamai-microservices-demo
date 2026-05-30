@@ -106,6 +106,29 @@ jobs:
             echo "FAI_API_KEY not set — skipping fai-credentials (frontend faiScreen no-ops)."
           fi
 
+      - name: Apply orders DB credentials + schema (Tokyo Managed PG)
+        # Migration ④: Tokyo gets its OWN empty Managed PostgreSQL
+        # (MicroserviceDB-tyo, jp-tyo-3). Uses a Tokyo-specific secret so the
+        # parallel OSA deploy keeps its own DB. Without ORDER_DB_DSN_TYO set,
+        # this is skipped and orders simply aren't persisted (DSN is optional).
+        if: env.ORDER_DB_DSN_TYO != ''
+        continue-on-error: true
+        env:
+          ORDER_DB_DSN_TYO: ${{ secrets.ORDER_DB_DSN_TYO }}
+        run: |
+          for ns in default monitoring; do
+            kubectl create secret generic orders-db-credentials \
+              --from-literal=DSN="${ORDER_DB_DSN_TYO}" \
+              --dry-run=client -o yaml | kubectl apply -n "$ns" -f -
+          done
+          kubectl create configmap orders-schema \
+            --from-file=schema.sql=kubernetes-manifests/orders-schema.sql \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl delete job orders-schema-migrate --ignore-not-found
+          kubectl apply -f kubernetes-manifests/orders-migrate-job.yaml
+          kubectl wait --for=condition=complete --timeout=180s job/orders-schema-migrate || \
+            kubectl logs job/orders-schema-migrate || true
+
       - name: Apply namespace PSS labels
         continue-on-error: true
         run: kubectl apply -f kubernetes-manifests/namespaces.yaml
