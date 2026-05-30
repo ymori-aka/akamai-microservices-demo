@@ -141,6 +141,12 @@ jobs:
           TAG="${{ inputs.image_tag }}"
           kubectl apply -f kubernetes-manifests/frontend.yaml
           kubectl set image deployment/frontend server=${REGISTRY}/ymori-aka/frontend:${TAG}
+          # Migration ③: point the product images at the new Tokyo (jp-tyo-3 / E3)
+          # Object Storage bucket. Overridden here (not in the shared base
+          # manifest) so the parallel OSA deployment keeps using its osa bucket
+          # until the final cut-over.
+          kubectl set env deployment/frontend \
+            IMAGE_BASE_URL=https://akamai-boutique-img.jp-tyo-1.linodeobjects.com
           kubectl rollout status deployment/frontend --timeout=300s || {
             kubectl get pod -l app=frontend
             kubectl describe pod -l app=frontend | tail -40
