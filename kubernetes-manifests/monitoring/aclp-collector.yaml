@@ -35,8 +35,10 @@ data:
         polling_interval: 5m
         services:
           - service_type: dbaas
-            # Linode Managed PostgreSQL cluster: a470692-akamai-prod...
-            entity_ids: [470692]
+            # Linode Managed PostgreSQL clusters:
+            #   470692 = MicroserviceDB    (jp-osa, legacy/parallel)
+            #   481207 = MicroserviceDB-tyo (jp-tyo-3, migration ④)
+            entity_ids: [470692, 481207]
             agg_function: avg
             metric_names:
               - cpu_usage
@@ -68,32 +70,32 @@ data:
               - nb_active_tcp_backends
               - nb_active_udp_backends
 
-          # objectstorage: NOT collectable from this account yet.
-          # ROOT CAUSE (confirmed 2026-05-26): the Osaka region (jp-osa) is
-          # NOT supported by Cloud Pulse for Object Storage (and Logs) yet.
-          # Our buckets + the managed PG live in jp-osa, so these service
-          # types return nothing regardless of collector version. Re-enable
-          # once Cloud Pulse adds jp-osa support for objectstorage.
-          # - service_type: objectstorage
-          #   entity_regions: ["jp-osa", "jp-tyo-3"]
-          #   agg_function: sum
-          #   group_by: ["entity_id"]
-          #   metric_names:
-          #     - obj_bucket_size
-          #     - obj_bucket_num_objects
-          #     - obj_bytes_uploaded
-          #     - obj_bytes_downloaded
-          #     - obj_egress_throughput
-          #     - obj_ingress_throughput
-          #     - obj_ttfb_average
-          #     - obj_requests_num
-          #     - obj_requests_get
-          #     - obj_requests_put
-          #     - obj_requests_delete
-          #     - obj_responses_2xx
-          #     - obj_responses_4xx
-          #     - obj_responses_5xx
-          #     - obj_responses_rate_limited
+          # objectstorage: ENABLED for jp-tyo-3 (migration to Tokyo).
+          # jp-osa (E1) is NOT supported by Cloud Pulse for Object Storage, but
+          # jp-tyo-3 (E3) IS — confirmed 2026-05-30 (metric-definitions return
+          # 21 obj_* metrics; token issues). We scope to jp-tyo-3 only so the
+          # unsupported jp-osa region can't error the receiver. The PAT already
+          # carries object_storage:read_only.
+          - service_type: objectstorage
+            entity_regions: ["jp-tyo-3"]
+            agg_function: sum
+            group_by: ["entity_id"]
+            metric_names:
+              - obj_bucket_size
+              - obj_bucket_num_objects
+              - obj_bytes_uploaded
+              - obj_bytes_downloaded
+              - obj_egress_throughput
+              - obj_ingress_throughput
+              - obj_ttfb_average
+              - obj_requests_num
+              - obj_requests_get
+              - obj_requests_put
+              - obj_requests_delete
+              - obj_responses_2xx
+              - obj_responses_4xx
+              - obj_responses_5xx
+              - obj_responses_rate_limited
 
     processors:
       batch: {}

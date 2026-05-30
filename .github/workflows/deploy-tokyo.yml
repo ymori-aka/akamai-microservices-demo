@@ -276,7 +276,16 @@ jobs:
           kubectl -n monitoring rollout restart deployment/promviz || true
           kubectl -n monitoring rollout restart deployment/promviz-front || true
           kubectl -n monitoring rollout restart deployment/grafana || true
-          echo "SKIPPED (osa/DB/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
+          # Akamai Cloud Pulse collector — Tokyo (jp-tyo-3) supports dbaas +
+          # nodebalancer + objectstorage (jp-osa did NOT do objectstorage).
+          # Bridges those into Prometheus :9464 (already scraped by the
+          # 'aclp-dbaas' job) -> Grafana.
+          kubectl -n monitoring create secret generic linode-pat \
+            --from-literal=TOKEN="${{ secrets.LINODE_PAT }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
+          kubectl -n monitoring rollout restart deployment/aclp-collector || true
+          echo "SKIPPED (osa/istio-specific): postgres-exporter, aclp-collector-healer, audit-log-ingester, kiali"
 
       - name: Wire promviz-front UPDATE_URL to promviz public LB
         continue-on-error: true

@@ -27,6 +27,21 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
+      - name: Orders DB / checkout 422 diagnosis
+        continue-on-error: true
+        run: |
+          echo "===== orders-db-credentials secret present? + DSN host ====="
+          kubectl get secret orders-db-credentials -o jsonpath='{.data.DSN}' 2>/dev/null | base64 -d 2>/dev/null | sed -E 's#//([^:]+):[^@]+@#//\1:***@#' | sed 's/^/  DSN=/' || echo "  (no secret)"
+          echo "===== ORDER_DB_DSN actually on checkout/frontend pods ====="
+          for d in checkoutservice frontend; do
+            echo "  --- $d ---"
+            kubectl set env deployment/$d --list 2>/dev/null | grep -iE "ORDER_DB|DSN" | sed -E 's#//([^:]+):[^@]+@#//\1:***@#; s/^/    /' || echo "    (ORDER_DB_DSN not set)"
+          done
+          echo "===== checkoutservice logs (DB / order errors) ====="
+          kubectl logs deployment/checkoutservice --tail=60 2>&1 | grep -iE "order|db|postgres|dsn|sql|connect|tls|ssl|error|fail|panic|refused|placeorder|422|denied" | tail -20 | sed 's/^/  /' || true
+          echo "===== frontend logs (checkout 422) ====="
+          kubectl logs deployment/frontend --tail=80 2>&1 | grep -iE "checkout|placeorder|order|422|error|payment|card|grpc" | tail -15 | sed 's/^/  /' || true
+
       - name: CNI / mesh-readiness probe (for Istio ambient feasibility)
         continue-on-error: true
         run: |
