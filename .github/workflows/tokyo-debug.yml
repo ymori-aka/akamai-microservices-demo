@@ -27,6 +27,16 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
+      - name: CNI / mesh-readiness probe (for Istio ambient feasibility)
+        continue-on-error: true
+        run: |
+          echo "===== kube-system networking components ====="
+          kubectl -n kube-system get ds,deploy -o wide 2>&1 | grep -iE "cilium|calico|flannel|kube-proxy|weave|router|cni|NAME" | sed 's/^/  /' || true
+          echo "===== nodes (kubelet/k8s version) ====="
+          kubectl get nodes -o wide 2>&1 | sed 's/^/  /' || true
+          echo "===== existing istio/kiali (should be none) ====="
+          kubectl get ns 2>&1 | grep -iE "istio|kiali" | sed 's/^/  /' || echo "  (no istio/kiali namespaces)"
+
       - name: Service-graph metrics present in Prometheus
         continue-on-error: true
         run: |
