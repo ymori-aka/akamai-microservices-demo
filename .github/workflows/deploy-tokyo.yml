@@ -339,6 +339,36 @@ jobs:
             kubectl -n monitoring rollout restart deployment/promviz-front || true
           fi
 
+      - name: Deploy kube-state-metrics + node-exporter (pod/node metrics)
+        continue-on-error: true
+        run: |
+          # Tokyo was missing these (they come from the grafana-k8s-monitoring
+          # release on OSA), so kube_pod_* / node_* were empty -> "Pod Running"
+          # and node panels blank. Install the standalone charts with
+          # fullnameOverride so the Service names match the Prometheus static
+          # targets (grafana-k8s-monitoring-kube-state-metrics:8080 and
+          # -node-exporter:9100). monitoring ns enforces PSS=baseline, so
+          # node-exporter runs with hostNetwork/hostPID disabled (reads the host
+          # via hostPath, which baseline allows).
+          if ! command -v helm >/dev/null 2>&1; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | HELM_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false bash
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+          export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm-config" HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm-cache" HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm-data"
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update prometheus-community
+          helm upgrade --install ksm prometheus-community/kube-state-metrics -n monitoring \
+            --set fullnameOverride=grafana-k8s-monitoring-kube-state-metrics \
+            --timeout 3m || true
+          helm upgrade --install node-exporter prometheus-community/prometheus-node-exporter -n monitoring \
+            --set fullnameOverride=grafana-k8s-monitoring-node-exporter \
+            --set hostNetwork=false --set hostPID=false \
+            --set service.port=9100 --set service.targetPort=9100 \
+            --timeout 3m || true
+          kubectl -n monitoring rollout status deployment/grafana-k8s-monitoring-kube-state-metrics --timeout=120s || true
+
       - name: Deploy Kong (dbless OSS) via Helm
         continue-on-error: true
         run: |
