@@ -18,12 +18,16 @@ data:
       "links": [
         { "title": "Operations", "type": "link", "url": "/d/akamai-microservices", "icon": "dashboard", "targetBlank": false, "tooltip": "Service-level deep dive" },
         { "title": "Infrastructure & LLM", "type": "link", "url": "/d/akamai-infrastructure", "icon": "dashboard", "targetBlank": false, "tooltip": "DB, NodeBalancer, LLM detail" },
-        { "title": "Akamai Store", "type": "link", "url": "http://172.233.68.25/", "icon": "external link", "targetBlank": true, "tooltip": "Open the live storefront" }
+        { "title": "Service Graph", "type": "link", "url": "/d/service-graph", "icon": "dashboard", "targetBlank": false, "tooltip": "Tempo service map + edges" },
+        { "title": "Store", "type": "link", "url": "http://172.237.1.139/", "icon": "external link", "targetBlank": true, "tooltip": "Open the live storefront" },
+        { "title": "Kiali", "type": "link", "url": "http://172.237.1.202:20001/", "icon": "external link", "targetBlank": true, "tooltip": "Istio ambient mesh graph" },
+        { "title": "Vizceral", "type": "link", "url": "http://172.237.3.207/", "icon": "external link", "targetBlank": true, "tooltip": "Netflix-style animated traffic map" },
+        { "title": "promviz", "type": "link", "url": "http://172.237.3.193/", "icon": "external link", "targetBlank": true, "tooltip": "Prometheus -> Vizceral bridge UI" }
       ],
       "panels": [
         { "id": 100, "type": "text",
           "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
-          "options": { "mode": "html", "content": "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:linear-gradient(90deg,#0099ff 0%,#1a4dff 60%,#7700ff 100%);border-radius:6px;color:white;font-family:-apple-system,'Inter',sans-serif;\"><div><div style=\"font-size:22px;font-weight:700;letter-spacing:-0.4px;\">Akamai Store</div><div style=\"opacity:0.85;font-size:12px;margin-top:2px;\">Live operations overview • LKE jp-osa • refreshed every 30s</div></div><div style=\"font-size:11px;text-align:right;opacity:0.85;line-height:1.6;\"><div>Microservices on LKE · AI at the edge</div><div>Linode Managed PG · Object Storage · Cloud Pulse</div></div></div>" } },
+          "options": { "mode": "html", "content": "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:linear-gradient(90deg,#0099ff 0%,#1a4dff 60%,#7700ff 100%);border-radius:6px;color:white;font-family:-apple-system,'Inter',sans-serif;\"><div><div style=\"font-size:22px;font-weight:700;letter-spacing:-0.4px;\">Akamai Store</div><div style=\"opacity:0.85;font-size:12px;margin-top:2px;\">Live operations overview • LKE jp-tyo-3 • refreshed every 30s</div></div><div style=\"font-size:11px;text-align:right;opacity:0.85;line-height:1.6;\"><div>Microservices on LKE · AI at the edge</div><div>Linode Managed PG · Object Storage · Cloud Pulse</div></div></div>" } },
 
         { "id": 1, "type": "stat", "title": "Pods Running",
           "gridPos": { "x": 0, "y": 3, "w": 3, "h": 4 },
@@ -284,6 +288,11 @@ data:
     {
       "title": "Akamai Store - Operations",
       "uid": "akamai-microservices",
+      "links": [
+        { "title": "← Home", "type": "link", "url": "/d/akamai-home", "icon": "dashboard", "targetBlank": false, "tooltip": "Back to Home" },
+        { "title": "Infrastructure & LLM", "type": "link", "url": "/d/akamai-infrastructure", "icon": "dashboard", "targetBlank": false },
+        { "title": "Service Graph", "type": "link", "url": "/d/service-graph", "icon": "dashboard", "targetBlank": false }
+      ],
       "schemaVersion": 38,
       "refresh": "30s",
       "time": { "from": "now-1h", "to": "now" },
@@ -779,6 +788,11 @@ data:
     {
       "title": "Akamai Store - Infrastructure & LLM",
       "uid": "akamai-infrastructure",
+      "links": [
+        { "title": "← Home", "type": "link", "url": "/d/akamai-home", "icon": "dashboard", "targetBlank": false, "tooltip": "Back to Home" },
+        { "title": "Operations", "type": "link", "url": "/d/akamai-microservices", "icon": "dashboard", "targetBlank": false },
+        { "title": "Service Graph", "type": "link", "url": "/d/service-graph", "icon": "dashboard", "targetBlank": false }
+      ],
       "schemaVersion": 38,
       "version": 1,
       "refresh": "30s",
