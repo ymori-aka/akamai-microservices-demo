@@ -15,7 +15,7 @@ source = "dist/recommendation-service.wasm"
 exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = [
   "http://172.238.48.187:8000",
-  "http://172.233.70.69:4319",
+  "http://172.237.3.147:4319",
 ]
 
 [component.recommendation-service.build]

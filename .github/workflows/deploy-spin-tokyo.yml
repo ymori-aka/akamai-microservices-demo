@@ -1,0 +1,89 @@
+name: Deploy Spin Apps (Tokyo OTel endpoint)
+
+# Standalone redeploy of the Akamai Functions (Spin) apps so their OTel
+# telemetry (metrics + traces + logs) flows to the TOKYO otel-collector
+# public endpoint instead of the osa one. Extracted from deploy.yml's
+# deploy-spin job WITHOUT the OSA app/build jobs, so running it never touches
+# jp-osa.
+#
+# Endpoint is the GitHub secret OTEL_PUBLIC_ENDPOINT (set it to the Tokyo
+# collector LB, http://172.237.3.147:4319). spin.toml allowed_outbound_hosts
+# has already been pointed at that IP.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy-spin:
+    name: Deploy Spin Apps to Akamai Functions (Tokyo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Spin CLI and aka plugin
+        run: |
+          curl -fsSL https://developer.fermyon.com/downloads/install.sh | bash
+          sudo mv spin /usr/local/bin/spin
+          spin --version
+          spin plugins update
+          spin plugins install aka -y
+
+      - name: Authenticate with Akamai Functions
+        run: spin aka login --token ${{ secrets.SPIN_AKA_ACCESS_TOKEN }}
+
+      - name: Show target OTel endpoint
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
+        run: echo "Spin OTEL_PUBLIC_ENDPOINT = ${OTEL_ENDPOINT}"
+
+      - name: Deploy recommendation-service
+        continue-on-error: true
+        working-directory: src/spin-functions/recommendation-service
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
+          OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+        run: |
+          sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
+          sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
+          sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
+          npm install
+          npm run build
+          spin aka app link --app-name recommendation-service
+          spin aka app deploy --no-confirm
+
+      - name: Deploy product-intro-service
+        continue-on-error: true
+        working-directory: src/spin-functions/product-intro-service
+        env:
+          OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
+          OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+        run: |
+          sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
+          sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
+          sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
+          npm install
+          npm run build
+          spin aka app link --app-name product-intro-service
+          spin aka app deploy --no-confirm
+
+      - name: Deploy shopping-assistant-service
+        continue-on-error: true
+        working-directory: src/spin-functions/shopping-assistant-service
+        env:
+          ZUPLO_API_KEY: ${{ secrets.ZUPLO_API_KEY }}
+          OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
+          OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+        run: |
+          if [ -z "${ZUPLO_API_KEY}" ]; then
+            echo "ERROR: ZUPLO_API_KEY GitHub Secret not set"; exit 1
+          fi
+          sed -i "s|__ZUPLO_API_KEY__|${ZUPLO_API_KEY}|g" src/index.ts
+          sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
+          sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
+          sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
+          npm install
+          npm run build
+          spin aka app link --app-name shopping-assistant-service
+          spin aka app deploy --no-confirm

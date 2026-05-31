@@ -68,6 +68,15 @@ data:
         endpoint: "tempo.monitoring.svc.cluster.local:4317"
         tls:
           insecure: true
+      # Forward logs to Loki. Loki 2.9.7 has no native OTLP ingestion, so we
+      # use the contrib `loki` exporter which pushes to the Loki HTTP push API.
+      # This is what carries the Akamai Functions (Spin) app logs — and any
+      # other OTLP logs — into Loki/Grafana.
+      loki:
+        endpoint: "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        default_labels_enabled:
+          exporter: true
+          job: true
 
     service:
       extensions: [bearertokenauth]
@@ -80,6 +89,10 @@ data:
           receivers: [otlp, otlp/public, opencensus]
           processors: [memory_limiter, batch]
           exporters: [otlp/tempo]
+        logs:
+          receivers: [otlp, otlp/public]
+          processors: [memory_limiter, batch]
+          exporters: [loki]
 ---
 apiVersion: apps/v1
 kind: Deployment
