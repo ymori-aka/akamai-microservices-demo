@@ -87,10 +87,11 @@ data:
           startTime: '10s',
         },
         chat: {
-          // LLM is the most expensive backend. Pin to exactly 5 calls
-          // per minute regardless of LLM response time using a
-          // constant-arrival-rate executor (constant-vus would couple
-          // the rate to call latency).
+          // Drives the chat() function, which pins backend="kong". Kong (OSS)
+          // is free, so automated chat load through it is fine. The Zuplo lane
+          // is NEVER load-tested — only exercised by hand during a demo.
+          // constant-arrival-rate keeps the LLM call rate fixed regardless of
+          // response latency.
           executor: 'constant-arrival-rate',
           rate: 5,
           timeUnit: '1m',
@@ -216,9 +217,13 @@ data:
     export function chat() {
       // /bot expects {"message":"...","history":[...]} JSON. The
       // constant-arrival-rate executor controls pacing; no sleep here.
+      // backend PINNED to "kong": Kong (OSS) is free, so it's fine to drive
+      // automated load through it. The Zuplo lane must NEVER be load-tested
+      // (paid/flaky) — it is only exercised by hand during a demo.
       const body = JSON.stringify({
         message: randomItem(CHAT_PROMPTS),
         history: [],
+        backend: 'kong',
       });
       const r = http.post(`${FRONTEND}/bot`, body, {
         headers: { 'Content-Type': 'application/json' },

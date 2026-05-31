@@ -251,6 +251,9 @@ jobs:
           # /assistant) for 24h against frontend:80. Without it the dashboards
           # go quiet between manual bursts.
           kubectl apply -f kubernetes-manifests/k6.yaml
+          # Restart so the updated scenario ConfigMap (e.g. chat scenario
+          # disabled) is picked up — apply alone doesn't re-roll the pod.
+          kubectl rollout restart deployment/k6 || true
           kubectl rollout status deployment/k6 --timeout=150s || \
             kubectl get pods -l app=k6 -o wide || true
 
