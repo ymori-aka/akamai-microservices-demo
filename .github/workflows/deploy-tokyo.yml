@@ -242,6 +242,18 @@ jobs:
           kubectl rollout restart deployment \
             frontend cartservice currencyservice productcatalogservice checkoutservice || true
 
+      - name: Deploy k6 continuous load generator (keeps KPIs/graphs live)
+        continue-on-error: true
+        run: |
+          # The demo is meant to show constant traffic (KPIs, Vizceral, Kiali,
+          # service graph). loadgenerator.yaml is disabled in kustomize; k6.yaml
+          # is a Deployment running constant-vus scenarios (browse/cart/checkout
+          # /assistant) for 24h against frontend:80. Without it the dashboards
+          # go quiet between manual bursts.
+          kubectl apply -f kubernetes-manifests/k6.yaml
+          kubectl rollout status deployment/k6 --timeout=150s || \
+            kubectl get pods -l app=k6 -o wide || true
+
       - name: Deploy core monitoring stack (no osa/DB/istio-specific parts)
         continue-on-error: true
         run: |

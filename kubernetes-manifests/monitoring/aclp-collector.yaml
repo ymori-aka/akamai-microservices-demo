@@ -70,32 +70,23 @@ data:
               - nb_active_tcp_backends
               - nb_active_udp_backends
 
-          # objectstorage: ENABLED for jp-tyo-3 (migration to Tokyo).
-          # jp-osa (E1) is NOT supported by Cloud Pulse for Object Storage, but
-          # jp-tyo-3 (E3) IS — confirmed 2026-05-30 (metric-definitions return
-          # 21 obj_* metrics; token issues). We scope to jp-tyo-3 only so the
-          # unsupported jp-osa region can't error the receiver. The PAT already
-          # carries object_storage:read_only.
-          - service_type: objectstorage
-            entity_regions: ["jp-tyo-3"]
-            agg_function: sum
-            group_by: ["entity_id"]
-            metric_names:
-              - obj_bucket_size
-              - obj_bucket_num_objects
-              - obj_bytes_uploaded
-              - obj_bytes_downloaded
-              - obj_egress_throughput
-              - obj_ingress_throughput
-              - obj_ttfb_average
-              - obj_requests_num
-              - obj_requests_get
-              - obj_requests_put
-              - obj_requests_delete
-              - obj_responses_2xx
-              - obj_responses_4xx
-              - obj_responses_5xx
-              - obj_responses_rate_limited
+          # objectstorage: jp-tyo-3 (E3) DOES support Object Storage Cloud Pulse
+          # (jp-osa E1 does not), and entity_regions/group_by IS the correct
+          # schema per Akamai docs — BUT the ':latest' aclp-collector image is
+          # an older build that rejects those keys ("invalid keys:
+          # entity_regions, group_by") and crashes the whole collector (taking
+          # dbaas + nodebalancer down too). The '1.6.0' tag fails to run
+          # (RunContainerError). Kept DISABLED until a newer runnable image
+          # (try '1.6.0-docker') is confirmed to accept this schema.
+          # - service_type: objectstorage
+          #   entity_regions: ["jp-tyo-3"]
+          #   agg_function: sum
+          #   group_by: ["entity_id"]
+          #   metric_names: [obj_bucket_size, obj_bucket_num_objects,
+          #     obj_bytes_uploaded, obj_bytes_downloaded, obj_egress_throughput,
+          #     obj_ingress_throughput, obj_ttfb_average, obj_requests_num,
+          #     obj_requests_get, obj_requests_put, obj_requests_delete,
+          #     obj_responses_2xx, obj_responses_4xx, obj_responses_5xx]
 
     processors:
       batch: {}
@@ -136,12 +127,11 @@ spec:
     spec:
       containers:
         - name: collector
-          # Pin 1.6.0: the ':latest' tag is an older build whose
-          # akamaicloudpulsereceiver rejects the objectstorage keys
-          # (entity_regions, group_by) with "invalid keys" -> CrashLoopBackOff,
-          # taking dbaas + nodebalancer down with it. 1.6.0 supports them.
-          image: linode/aclp-collector:1.6.0
-          imagePullPolicy: IfNotPresent
+          # ':latest' is the known-runnable image (dbaas + nodebalancer work).
+          # The '1.6.0' tag gives RunContainerError, so we stay on :latest with
+          # objectstorage disabled above until a runnable newer image is found.
+          image: linode/aclp-collector:latest
+          imagePullPolicy: Always
           args: ["--config=/etc/aclp/config.yaml"]
           env:
             - name: LINODE_API_TOKEN
