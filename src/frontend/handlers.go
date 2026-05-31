@@ -324,7 +324,7 @@ func (fe *frontendServer) addToCartHandler(w http.ResponseWriter, r *http.Reques
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to add to cart"), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("location", baseUrl + "/cart")
+	w.Header().Set("location", baseUrl+"/cart")
 	w.WriteHeader(http.StatusFound)
 }
 
@@ -336,7 +336,7 @@ func (fe *frontendServer) emptyCartHandler(w http.ResponseWriter, r *http.Reques
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to empty cart"), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("location", baseUrl + "/")
+	w.Header().Set("location", baseUrl+"/")
 	w.WriteHeader(http.StatusFound)
 }
 
@@ -518,7 +518,7 @@ func (fe *frontendServer) logoutHandler(w http.ResponseWriter, r *http.Request) 
 		c.MaxAge = -1
 		http.SetCookie(w, c)
 	}
-	w.Header().Set("Location", baseUrl + "/")
+	w.Header().Set("Location", baseUrl+"/")
 	w.WriteHeader(http.StatusFound)
 }
 
@@ -536,9 +536,9 @@ func (fe *frontendServer) getProductByID(w http.ResponseWriter, r *http.Request)
 
 	// Return a JSON-friendly struct including Japanese translations
 	type priceJSON struct {
-		CurrencyCode string  `json:"currency_code"`
-		Units        int64   `json:"units"`
-		Nanos        int32   `json:"nanos"`
+		CurrencyCode string `json:"currency_code"`
+		Units        int64  `json:"units"`
+		Nanos        int32  `json:"nanos"`
 	}
 	type productJSON struct {
 		ID            string    `json:"id"`
@@ -756,10 +756,22 @@ Never invent products that are not in the catalog.
 	messages = append(messages, LLMMessage{Role: "user", Content: req.Message})
 
 	// --- pick backend per request (UI radio) ---
-	// "zuplo" (default) → existing Akamai Functions / Zuplo path.
-	// "kong"            → Kong AI Gateway (only when SHOPPING_ASSISTANT_KONG_ADDR is set).
+	// DEFAULT (no/empty radio) → Kong AI Gateway (in-cluster, stable). The
+	// Zuplo lane (external Akamai Functions endpoint) is kept only as an
+	// explicit, secondary "Zuplo demo" choice — it's flaky, so it must never
+	// be the implicit default.
+	// "kong"  → Kong AI Gateway.
+	// "zuplo" → Akamai Functions / Zuplo path (demo only).
 	var assistantURL, backendLabel string
 	switch req.Backend {
+	case "zuplo":
+		assistantURL = os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR")
+		backendLabel = "zuplo"
+		if assistantURL == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] Zuplo backend selected but SHOPPING_ASSISTANT_SERVICE_ADDR is not set"})
+			return
+		}
 	case "kong":
 		assistantURL = os.Getenv("SHOPPING_ASSISTANT_KONG_ADDR")
 		backendLabel = "kong"
@@ -769,11 +781,16 @@ Never invent products that are not in the catalog.
 			return
 		}
 	default:
-		assistantURL = os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR")
-		backendLabel = "zuplo"
-		if assistantURL == "" {
+		// Unspecified → prefer Kong; fall back to Zuplo only if Kong is unset.
+		if v := os.Getenv("SHOPPING_ASSISTANT_KONG_ADDR"); v != "" {
+			assistantURL = v
+			backendLabel = "kong"
+		} else if v := os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR"); v != "" {
+			assistantURL = v
+			backendLabel = "zuplo"
+		} else {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] SHOPPING_ASSISTANT_SERVICE_ADDR is not set"})
+			json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] No chat backend configured (SHOPPING_ASSISTANT_KONG_ADDR / SHOPPING_ASSISTANT_SERVICE_ADDR)"})
 			return
 		}
 	}

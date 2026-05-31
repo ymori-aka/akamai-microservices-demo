@@ -57,12 +57,12 @@
 
           <div class="chat-backend-toggle">
             <span class="chat-backend-label">Backend:</span>
-            <label class="chat-backend-option">
-              <input type="radio" name="chat-backend" value="zuplo" checked> Zuplo (current)
-            </label>
             <label class="chat-backend-option{{ if not $.kong_enabled }} chat-backend-disabled{{ end }}">
-              <input type="radio" name="chat-backend" value="kong" {{ if not $.kong_enabled }}disabled{{ end }}>
+              <input type="radio" name="chat-backend" value="kong" {{ if $.kong_enabled }}checked{{ else }}disabled{{ end }}>
               Kong AI Gateway{{ if not $.kong_enabled }} (not configured yet){{ end }}
+            </label>
+            <label class="chat-backend-option">
+              <input type="radio" name="chat-backend" value="zuplo" {{ if not $.kong_enabled }}checked{{ end }}> Zuplo (demo)
             </label>
           </div>
 
@@ -360,7 +360,7 @@
 
     try {
       var selected = document.querySelector('input[name="chat-backend"]:checked');
-      var backend = selected ? selected.value : "zuplo";
+      var backend = selected ? selected.value : "kong";
 
       var res = await fetch(BASE_URL + "/bot", {
         method: "POST",
