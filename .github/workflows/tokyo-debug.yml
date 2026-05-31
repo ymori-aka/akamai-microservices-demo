@@ -39,6 +39,14 @@ jobs:
           [ -n "$P" ] && kubectl -n monitoring exec "$P" -- sh -c 'wget -qO- http://localhost:9464/metrics 2>/dev/null | grep -iE "obj_bucket|avg_cpu|nb_ingress" | head -12' 2>/dev/null | sed 's/^/  /' || echo "  (no metrics)"
           echo "===== postgres-exporter present? (Business KPI) ====="
           kubectl -n monitoring get deploy postgres-exporter -o wide 2>&1 | sed 's/^/  /' || echo "  (postgres-exporter NOT deployed)"
+          echo "===== k6 load pod ====="
+          kubectl get deploy k6 -o wide 2>&1 | sed 's/^/  /' || echo "  (k6 NOT deployed)"
+          echo "===== metric presence in Prometheus (k6 / KPI / aclp dbaas+nb) ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name 2>/dev/null | head -1)
+          for q in 'count(k6_http_reqs_total)' 'orders_today_order_count' 'orders_daily_order_count' 'count(avg_cpu_usage)' 'count(nb_ingress_traffic_rate)'; do
+            V=$(kubectl -n monitoring exec "$PROM" -- wget -qO- "http://localhost:9090/api/v1/query?query=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$q")" 2>/dev/null | python3 -c 'import sys,json;r=json.load(sys.stdin)["data"]["result"];print(r[0]["value"][1] if r else "NONE")' 2>/dev/null)
+            echo "  $q = $V"
+          done
 
       - name: Orders DB / checkout 422 diagnosis
         continue-on-error: true
