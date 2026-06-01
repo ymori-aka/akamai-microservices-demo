@@ -64,6 +64,23 @@ jobs:
             --set dashboard.service.type=LoadBalancer \
             --wait --timeout 6m
 
+      - name: Make Chaos Mesh webhooks non-blocking (failurePolicy=Ignore)
+        run: |
+          # The LKE control plane cannot reliably reach in-cluster admission
+          # webhooks (same issue as the istiod sidecar-injector). Chaos Mesh's
+          # mutating/validating webhooks then time out and BLOCK every Chaos CR
+          # create ("context deadline exceeded"). The webhooks only do defaulting
+          # + validation; the controller reconciles CRs regardless, and we always
+          # submit complete specs — so set failurePolicy=Ignore so creates aren't
+          # blocked. (timeoutSeconds lowered so the brief wait is minimal.)
+          for kind in mutatingwebhookconfigurations validatingwebhookconfigurations; do
+            for wc in $(kubectl get $kind -o name 2>/dev/null | grep chaos-mesh); do
+              kubectl get "$wc" -o json \
+                | python3 -c 'import sys,json; d=json.load(sys.stdin); [w.update(failurePolicy="Ignore", timeoutSeconds=5) for w in d.get("webhooks",[])]; print(json.dumps(d))' \
+                | kubectl apply -f - >/dev/null && echo "patched $wc -> Ignore"
+            done
+          done
+
       - name: Deploy one-click Chaos Button panel
         run: |
           # Waits for the Chaos Mesh CRDs (installed above) before the button's
