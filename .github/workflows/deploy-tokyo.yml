@@ -155,6 +155,12 @@ jobs:
           kubectl set image deployment/shippingservice       server=${UPSTREAM}/shippingservice:${UPSTREAM_VERSION}
           kubectl set image deployment/cartservice           server=${REGISTRY}/ymori-aka/cartservice:${TAG}
           kubectl set image deployment/currencyservice       server=${REGISTRY}/ymori-aka/currencyservice:${TAG}
+          # frankfurter.app moved to frankfurter.dev (the old host now 301-
+          # redirects, and the service's https.get doesn't follow redirects ->
+          # it parsed the "301" HTML page as JSON and spammed "Rate API
+          # unavailable" warnings on every conversion). Point it at the new URL.
+          kubectl set env deployment/currencyservice \
+            CURRENCY_API_URL='https://api.frankfurter.dev/v1/latest?base=EUR'
           kubectl set image deployment/productcatalogservice server=${REGISTRY}/ymori-aka/productcatalogservice:${TAG}
           kubectl set image deployment/checkoutservice       server=${REGISTRY}/ymori-aka/checkoutservice:${TAG}
 
