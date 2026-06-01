@@ -4,13 +4,15 @@ metadata:
   name: monitoring
   labels:
     # Pod Security Standards (Kubernetes >= 1.25).
-    # baseline: blocks known privilege escalations (hostPath / hostNetwork
-    #           / privileged containers / capabilities adds). Every pod we
-    #           deploy here (Prometheus, Grafana, Loki, Tempo, OTel
-    #           collector, Kiali, aclp-collector) already complies.
-    # warn / audit = restricted: surfaces stricter violations (e.g. missing
-    #           seccompProfile=RuntimeDefault) as warnings + audit log
-    #           entries without blocking, so we can tighten gradually.
-    pod-security.kubernetes.io/enforce: baseline
+    # enforce=privileged: REQUIRED because the log/metric AGENTS here use
+    #   hostPath — promtail (/var/log, /var/lib/docker/containers) and
+    #   node-exporter (/proc, /sys, /). Under `baseline` those DaemonSets are
+    #   rejected ("violates PodSecurity baseline: hostPath volumes") and create
+    #   0 pods, so app logs + node metrics silently disappear. No PSS level
+    #   between baseline and privileged allows only hostPath, and node-exporter's
+    #   Service name is pinned to this namespace — so privileged it is. All
+    #   workloads here are trusted monitoring components.
+    # warn/audit=restricted: still surfaces stricter violations without blocking.
+    pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted
