@@ -160,7 +160,7 @@ jobs:
           # it parsed the "301" HTML page as JSON and spammed "Rate API
           # unavailable" warnings on every conversion). Point it at the new URL.
           kubectl set env deployment/currencyservice \
-            CURRENCY_API_URL='https://api.frankfurter.dev/v1/latest?base=EUR'
+            CURRENCY_API_URL='https://api.frankfurter.dev/v1/latest?base=USD'
           kubectl set image deployment/productcatalogservice server=${REGISTRY}/ymori-aka/productcatalogservice:${TAG}
           kubectl set image deployment/checkoutservice       server=${REGISTRY}/ymori-aka/checkoutservice:${TAG}
 

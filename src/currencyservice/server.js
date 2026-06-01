@@ -104,7 +104,7 @@ function _loadProto (path) {
  */
 const https = require('https');
 
-const RATE_API_URL = process.env.CURRENCY_API_URL || 'https://api.frankfurter.app/latest?base=EUR';
+const RATE_API_URL = process.env.CURRENCY_API_URL || 'https://api.frankfurter.dev/v1/latest?base=USD';
 const CACHE_TTL_MS = parseInt(process.env.CURRENCY_CACHE_TTL_MS || String(24 * 60 * 60 * 1000)); // 24h default
 
 let _rateCache = { data: null, fetchedAt: 0 };
@@ -124,10 +124,15 @@ function _fetchRatesFromAPI () {
       res.on('end', () => {
         try {
           const json = JSON.parse(body);
-          // frankfurter returns { base:"EUR", rates:{ USD:1.09, JPY:160.2, ... } }
-          // Convert to { EUR:"1.0", USD:"1.09", ... } matching static file format
-          const rates = { EUR: '1.0' };
-          for (const [code, val] of Object.entries(json.rates)) {
+          // frankfurter returns { base:"USD", rates:{ EUR:0.86, JPY:159, ... } }
+          // (the base currency itself is NOT in rates). Build a complete map
+          // with the base pinned to 1.0 — base-agnostic, so ?base=USD or
+          // ?base=EUR both work. Products are priced in USD, so a USD base
+          // keeps USD->USD = 1.
+          const base = json.base || 'USD';
+          const rates = {};
+          rates[base] = '1.0';
+          for (const [code, val] of Object.entries(json.rates || {})) {
             rates[code] = String(val);
           }
           resolve(rates);
