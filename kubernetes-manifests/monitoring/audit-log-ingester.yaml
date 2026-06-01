@@ -19,7 +19,9 @@ data:
     import os, gzip, io, json, time, sys
     import boto3, requests
 
-    ENDPOINT = "https://jp-osa-1.linodeobjects.com"
+    # Tokyo (jp-tyo-3 / E3) — the Cloud Pulse audit-log destination now
+    # delivers here (jp-osa E1 was NOT a supported Cloud Pulse Logs region).
+    ENDPOINT = "https://jp-tyo-1.linodeobjects.com"
     BUCKET   = "akamai-audit-logs"
     PREFIX   = "audit/"
     STATE_KEY = "audit/.ingester/last_key"
@@ -30,7 +32,7 @@ data:
         endpoint_url=ENDPOINT,
         aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
         aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-        region_name="jp-osa",
+        region_name="jp-tyo-3",
     )
 
     def get_last_key():

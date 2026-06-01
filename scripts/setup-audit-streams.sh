@@ -21,8 +21,9 @@ set -euo pipefail
 
 API="https://api.linode.com/v4/monitor"
 BUCKET="akamai-audit-logs"
-HOST="jp-osa-1.linodeobjects.com"
-REGION="jp-osa"
+# jp-tyo-3 (E3) — the only JP region Cloud Pulse supports for Log delivery.
+HOST="jp-tyo-1.linodeobjects.com"
+REGION="jp-tyo-3"
 DEST_LABEL="audit-logs-objstorage"
 
 auth=(-H "Authorization: Bearer ${LINODE_TOKEN}")
