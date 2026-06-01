@@ -27,6 +27,14 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
+      - name: currencyservice rate-API log check
+        continue-on-error: true
+        run: |
+          echo "===== currencyservice: API success vs warn-flood ====="
+          kubectl logs deployment/currencyservice --tail=60 2>&1 | grep -iE "refreshed from API|Rate API unavailable|using static|using cached|frankfurter" | tail -12 | sed 's/^/  /' || true
+          echo "===== CURRENCY_API_URL env ====="
+          kubectl set env deployment/currencyservice --list 2>/dev/null | grep -i CURRENCY_API_URL | sed 's/^/  /' || true
+
       - name: Loki / promtail diagnosis (app logs)
         continue-on-error: true
         run: |
