@@ -46,10 +46,15 @@ data:
       evaluation_interval: 15s
 
     # Alerting rules — evaluated every evaluation_interval (15s).
-    # Fires both into the in-cluster Alertmanager (if deployed) and is
-    # always visible at http://prometheus:9090/alerts.
+    # Fires into the in-cluster Alertmanager and is always visible at
+    # http://prometheus:9090/alerts.
     rule_files:
       - /etc/prometheus/rules/*.yml
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['alertmanager.monitoring.svc.cluster.local:9093']
 
     scrape_configs:
       # App metrics via OTel Collector (Prometheus exporter)

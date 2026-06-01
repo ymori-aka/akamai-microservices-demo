@@ -270,6 +270,48 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/prometheus-rules.yaml
           kubectl apply -f kubernetes-manifests/monitoring/prometheus.yaml
           kubectl -n monitoring rollout restart deployment/prometheus || true
+          # Alertmanager: route Prometheus alerts to Slack / PagerDuty. The
+          # config is generated from secrets — only receivers whose secret is
+          # set are included (so partial setup is fine). Without either secret
+          # alerts still fire in Prometheus but route to a null receiver.
+          kubectl apply -f kubernetes-manifests/monitoring/alertmanager.yaml
+          SLACK="${{ secrets.SLACK_WEBHOOK_URL }}"; PD="${{ secrets.PAGERDUTY_ROUTING_KEY }}"
+          AM=$(mktemp)
+          {
+            echo "global: { resolve_timeout: 5m }"
+            echo "route:"
+            echo "  receiver: default"
+            echo "  group_by: [alertname, severity]"
+            echo "  group_wait: 30s"
+            echo "  group_interval: 5m"
+            echo "  repeat_interval: 4h"
+            if [ -n "$PD" ]; then
+              echo "  routes:"
+              echo "    - receiver: pagerduty"
+              echo "      matchers: ['severity=~\"critical|page\"']"
+              echo "      continue: true"
+            fi
+            echo "receivers:"
+            echo "  - name: default"
+            if [ -n "$SLACK" ]; then
+              echo "    slack_configs:"
+              echo "      - api_url: '$SLACK'"
+              echo "        channel: '#alerts'"
+              echo "        send_resolved: true"
+              echo "        title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'"
+            fi
+            if [ -n "$PD" ]; then
+              echo "  - name: pagerduty"
+              echo "    pagerduty_configs:"
+              echo "      - routing_key: '$PD'"
+              echo "        send_resolved: true"
+            fi
+          } > "$AM"
+          kubectl -n monitoring create configmap alertmanager-config \
+            --from-file=alertmanager.yml="$AM" --dry-run=client -o yaml | kubectl apply -f -
+          rm -f "$AM"
+          kubectl -n monitoring rollout restart deployment/alertmanager || true
+          [ -z "$SLACK$PD" ] && echo "NOTE: SLACK_WEBHOOK_URL / PAGERDUTY_ROUTING_KEY not set — alerts route to null."
           kubectl apply -f kubernetes-manifests/monitoring/loki.yaml
           kubectl apply -f kubernetes-manifests/monitoring/promtail.yaml
           kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
