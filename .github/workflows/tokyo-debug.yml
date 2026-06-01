@@ -30,6 +30,12 @@ jobs:
       - name: Loki / promtail diagnosis (app logs)
         continue-on-error: true
         run: |
+          echo "===== promtail DaemonSet events (why 0 pods?) ====="
+          kubectl -n monitoring describe ds promtail 2>&1 | sed -n '/Events:/,$p' | head -20 | sed 's/^/  /' || true
+          echo "===== recent monitoring events (FailedCreate/forbidden/PodSecurity) ====="
+          kubectl -n monitoring get events --sort-by=.lastTimestamp 2>&1 | grep -iE "promtail|FailedCreate|forbidden|PodSecurity|violate|denied|admission" | tail -12 | sed 's/^/  /' || true
+          echo "===== promtail SA exists? ====="
+          kubectl -n monitoring get sa promtail 2>&1 | sed 's/^/  /' || true
           echo "===== loki + promtail pods ====="
           kubectl -n monitoring get pods -l 'app in (loki,promtail)' -o wide 2>&1 | sed 's/^/  /' || true
           kubectl -n monitoring get ds promtail -o wide 2>&1 | sed 's/^/  /' || true
