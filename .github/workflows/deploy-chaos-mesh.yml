@@ -1,0 +1,75 @@
+name: Deploy Chaos Mesh (Tokyo)
+
+# Installs Chaos Mesh (CNCF chaos engineering) into the Tokyo LKE cluster via
+# Helm. LKE runs containerd + Calico, both supported. The chaos-daemon is a
+# privileged DaemonSet, so it gets its own namespace labelled PSS=privileged.
+# Installing changes NOTHING about running workloads — faults only happen when
+# you create a *Chaos CR (PodChaos / NetworkChaos / ...). Sample experiments
+# live in kubernetes-manifests/chaos/ and are NOT applied here.
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      chart_version:
+        description: "Chaos Mesh chart version (blank = latest)"
+        required: false
+        default: ""
+
+jobs:
+  chaos-mesh:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Tokyo kubeconfig + sanity-check target
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          [ -s "$KC" ] || { echo "::error::empty kubeconfig"; exit 1; }
+          chmod 600 "$KC"; echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"; export KUBECONFIG="$KC"
+          kubectl get nodes -o name | grep -q "lke${{ inputs.cluster_id }}-" \
+            || { echo "::error::nodes don't match cluster ${{ inputs.cluster_id }}"; exit 1; }
+
+      - name: Install Chaos Mesh via Helm (containerd runtime)
+        run: |
+          if ! command -v helm >/dev/null 2>&1; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | HELM_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false bash
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+          export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm-config" HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm-cache" HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm-data"
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
+          # Privileged namespace for the chaos-daemon DaemonSet.
+          kubectl create namespace chaos-mesh --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace chaos-mesh \
+            pod-security.kubernetes.io/enforce=privileged \
+            pod-security.kubernetes.io/warn=privileged \
+            pod-security.kubernetes.io/audit=privileged --overwrite
+          helm repo add chaos-mesh https://charts.chaos-mesh.org
+          helm repo update chaos-mesh
+          VER=""; [ -n "${{ inputs.chart_version }}" ] && VER="--version ${{ inputs.chart_version }}"
+          helm upgrade --install chaos-mesh chaos-mesh/chaos-mesh -n chaos-mesh $VER \
+            --set chaosDaemon.runtime=containerd \
+            --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
+            --set dashboard.create=true \
+            --set dashboard.securityMode=false \
+            --set dashboard.service.type=LoadBalancer \
+            --wait --timeout 6m
+
+      - name: Summary — pods + dashboard IP
+        if: always()
+        run: |
+          echo "===== chaos-mesh pods ====="
+          kubectl -n chaos-mesh get pods -o wide || true
+          echo "===== CRDs ====="
+          kubectl get crd 2>/dev/null | grep -i chaos-mesh | sed 's/^/  /' || true
+          echo "Chaos Dashboard external IP (port 2333):"
+          kubectl -n chaos-mesh get svc chaos-dashboard -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}' || true

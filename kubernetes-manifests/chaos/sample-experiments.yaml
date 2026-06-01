@@ -1,0 +1,64 @@
+# Chaos Mesh sample experiments for the Akamai Store demo.
+#
+# These are NOT applied by any deploy workflow — run them BY HAND during a demo:
+#   kubectl apply -f kubernetes-manifests/chaos/sample-experiments.yaml
+#   kubectl -n chaos-mesh get podchaos,networkchaos,stresschaos
+#   kubectl delete -f kubernetes-manifests/chaos/sample-experiments.yaml   # stop
+#
+# Watch the impact + recovery in Grafana (Operations), Kiali, Vizceral.
+# All target the boutique apps in the `default` namespace.
+---
+# 1) Kill ONE recommendationservice pod (one-shot). Re-apply to repeat.
+#    Shows Kubernetes self-healing + a blip in the service graph.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: kill-recommendation
+  namespace: chaos-mesh
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces: ["default"]
+    labelSelectors:
+      app: recommendationservice
+---
+# 2) Add 200ms±50ms latency to ALL productcatalogservice pods for 2 minutes.
+#    Shows latency propagating through frontend -> productcatalog on the
+#    dashboards / traces, then recovering automatically.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: delay-productcatalog
+  namespace: chaos-mesh
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces: ["default"]
+    labelSelectors:
+      app: productcatalogservice
+  delay:
+    latency: "200ms"
+    jitter: "50ms"
+    correlation: "50"
+  duration: "2m"
+---
+# 3) CPU stress on cartservice for 2 minutes (2 workers).
+#    Shows CPU spike on the node/pod panels + HPA reaction if enabled.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: cpu-stress-cart
+  namespace: chaos-mesh
+spec:
+  mode: one
+  selector:
+    namespaces: ["default"]
+    labelSelectors:
+      app: cartservice
+  stressors:
+    cpu:
+      workers: 2
+      load: 80
+  duration: "2m"
