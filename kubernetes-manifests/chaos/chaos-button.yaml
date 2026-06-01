@@ -1,0 +1,237 @@
+# Chaos Button — a one-click demo panel that injects/clears Chaos Mesh faults.
+#
+# A tiny stdlib-Python web app (no image build) that talks to the in-cluster
+# Kubernetes API with its ServiceAccount token to create/delete Chaos Mesh CRs
+# (PodChaos / NetworkChaos / StressChaos) in the `default` namespace. Press a
+# button -> fault injected; press "Recover all" -> every chaos object deleted.
+#
+# Exposed via LoadBalancer. NOTE: no auth — anyone with the IP can break the
+# store. Fine for a demo; lock down for anything public.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chaos-button
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: chaos-button
+  namespace: default
+rules:
+  - apiGroups: ["chaos-mesh.org"]
+    resources: ["podchaos", "networkchaos", "stresschaos"]
+    verbs: ["get", "list", "create", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: chaos-button
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: chaos-button
+subjects:
+  - kind: ServiceAccount
+    name: chaos-button
+    namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-button-app
+  namespace: default
+data:
+  app.py: |
+    #!/usr/bin/env python3
+    """One-click Chaos Mesh demo panel."""
+    import json, ssl, urllib.request, urllib.error
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    API = "https://kubernetes.default.svc"
+    NS = "default"
+    TOKEN = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
+    CTX = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+
+    # plural resource per kind
+    PLURAL = {"PodChaos": "podchaos", "NetworkChaos": "networkchaos", "StressChaos": "stresschaos"}
+
+    def spec(kind, app, extra):
+        body = {"apiVersion": "chaos-mesh.org/v1alpha1", "kind": kind,
+                "metadata": {"name": "btn-" + app + "-" + kind.lower(), "namespace": NS},
+                "spec": {"selector": {"namespaces": [NS], "labelSelectors": {"app": app}}}}
+        body["spec"].update(extra)
+        return body
+
+    EXPERIMENTS = {
+        "kill-recommendation": spec("PodChaos", "recommendationservice", {"action": "pod-kill", "mode": "one"}),
+        "kill-frontend":       spec("PodChaos", "frontend", {"action": "pod-kill", "mode": "one"}),
+        "delay-catalog":       spec("NetworkChaos", "productcatalogservice",
+                                    {"action": "delay", "mode": "all",
+                                     "delay": {"latency": "300ms", "jitter": "80ms", "correlation": "50"},
+                                     "duration": "3m"}),
+        "stress-cart":         spec("StressChaos", "cartservice",
+                                    {"mode": "one", "stressors": {"cpu": {"workers": 2, "load": 90}},
+                                     "duration": "3m"}),
+    }
+
+    def k8s(method, kind, name=None, body=None):
+        plural = PLURAL[kind]
+        path = "/apis/chaos-mesh.org/v1alpha1/namespaces/%s/%s" % (NS, plural)
+        if name:
+            path += "/" + name
+        req = urllib.request.Request(API + path,
+                                     data=(json.dumps(body).encode() if body else None),
+                                     method=method)
+        req.add_header("Authorization", "Bearer " + TOKEN)
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, context=CTX, timeout=12) as r:
+                return r.status, r.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    def fire(key):
+        body = EXPERIMENTS[key]
+        kind = body["kind"]; name = body["metadata"]["name"]
+        k8s("DELETE", kind, name)            # clear a previous run so it re-fires
+        return k8s("POST", kind, body=body)
+
+    def recover():
+        out = []
+        for kind in PLURAL:
+            c, b = k8s("DELETE", kind, name=None,
+                       body={"kind": "DeleteOptions", "apiVersion": "v1"})  # delete collection
+            out.append("%s:%s" % (kind, c))
+        return 200, ";".join(out)
+
+    INDEX = """<!doctype html><html><head><meta charset=utf-8>
+    <title>Chaos Button — Akamai Store</title>
+    <style>
+    html,body{margin:0;height:100%;background:#0b0e14;color:#e6e6e6;font-family:-apple-system,Inter,sans-serif}
+    .wrap{max-width:720px;margin:0 auto;padding:32px}
+    h1{font-size:24px;margin:0 0 4px}.sub{opacity:.6;font-size:13px;margin-bottom:24px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    button{padding:18px;border:0;border-radius:10px;font-size:15px;font-weight:600;color:#fff;cursor:pointer}
+    .kill{background:#e0245e}.net{background:#f08c00}.cpu{background:#9b59b6}.frontend{background:#c0392b}
+    .recover{background:#2ecc71;grid-column:1/3;margin-top:10px}
+    button:active{transform:translateY(1px)}
+    #log{margin-top:18px;font-size:12px;white-space:pre-wrap;background:#11151f;border-radius:8px;padding:12px;min-height:48px}
+    a{color:#4ea1ff}
+    </style></head><body><div class=wrap>
+    <h1>💥 Chaos Button</h1>
+    <div class=sub>Akamai Store · jp-tyo-3 · inject a fault, watch it in Grafana / Kiali / Vizceral, then Recover.</div>
+    <div class=grid>
+      <button class=kill onclick="fire('kill-recommendation')">🔪 Kill recommendation pod</button>
+      <button class=frontend onclick="fire('kill-frontend')">🔪 Kill frontend pod</button>
+      <button class=net onclick="fire('delay-catalog')">🐌 300ms delay · productcatalog (3m)</button>
+      <button class=cpu onclick="fire('stress-cart')">🔥 CPU stress · cartservice (3m)</button>
+      <button class=recover onclick="rec()">♻️ Recover all</button>
+    </div>
+    <div id=log>ready.</div>
+    </div>
+    <script>
+    const log=(m)=>document.getElementById('log').textContent=m;
+    async function fire(k){log('injecting '+k+' …');const r=await fetch('api/fire?x='+k,{method:'POST'});log(await r.text());}
+    async function rec(){log('recovering …');const r=await fetch('api/recover',{method:'POST'});log(await r.text());}
+    </script></body></html>"""
+
+    class H(BaseHTTPRequestHandler):
+        def _s(self, code, body, ctype="text/plain; charset=utf-8"):
+            b = body.encode() if isinstance(body, str) else body
+            self.send_response(code); self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(b)))
+            self.send_header("Access-Control-Allow-Origin", "*"); self.end_headers()
+            self.wfile.write(b)
+        def do_GET(self):
+            p = self.path.split("?")[0].rstrip("/")
+            if p in ("", "/index.html"):
+                self._s(200, INDEX, "text/html; charset=utf-8")
+            elif p.endswith("healthz"):
+                self._s(200, "ok")
+            else:
+                self._s(404, "not found")
+        def do_POST(self):
+            from urllib.parse import urlparse, parse_qs
+            u = urlparse(self.path); p = u.path.rstrip("/")
+            try:
+                if p.endswith("api/fire"):
+                    x = parse_qs(u.query).get("x", [""])[0]
+                    if x not in EXPERIMENTS:
+                        self._s(400, "unknown experiment"); return
+                    c, b = fire(x)
+                    self._s(200, "%s -> HTTP %s\n%s" % (x, c, ("injected ✓" if c in (200,201) else b[:300])))
+                elif p.endswith("api/recover"):
+                    c, b = recover()
+                    self._s(200, "recover -> %s ✓" % b)
+                else:
+                    self._s(404, "not found")
+            except Exception as e:
+                self._s(500, "error: %s" % e)
+        def log_message(self, *a):
+            pass
+
+    if __name__ == "__main__":
+        print("chaos-button on :8080", flush=True)
+        ThreadingHTTPServer(("0.0.0.0", 8080), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-button
+  namespace: default
+  labels: { app: chaos-button }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: chaos-button }
+  template:
+    metadata:
+      labels: { app: chaos-button }
+    spec:
+      serviceAccountName: chaos-button
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          image: python:3.12-slim
+          command: ["python", "/app/app.py"]
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+      volumes:
+        - name: app
+          configMap:
+            name: chaos-button-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chaos-button
+  namespace: default
+  labels: { app: chaos-button }
+spec:
+  type: LoadBalancer
+  selector: { app: chaos-button }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

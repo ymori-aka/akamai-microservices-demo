@@ -64,7 +64,17 @@ jobs:
             --set dashboard.service.type=LoadBalancer \
             --wait --timeout 6m
 
-      - name: Summary — pods + dashboard IP
+      - name: Deploy one-click Chaos Button panel
+        run: |
+          # Waits for the Chaos Mesh CRDs (installed above) before the button's
+          # RBAC referencing them is applied.
+          kubectl wait --for condition=established --timeout=90s \
+            crd/podchaos.chaos-mesh.org crd/networkchaos.chaos-mesh.org crd/stresschaos.chaos-mesh.org || true
+          kubectl apply -f kubernetes-manifests/chaos/chaos-button.yaml
+          kubectl -n default rollout status deployment/chaos-button --timeout=120s || \
+            kubectl -n default get pods -l app=chaos-button -o wide || true
+
+      - name: Summary — pods + dashboard IP + chaos button IP
         if: always()
         run: |
           echo "===== chaos-mesh pods ====="
@@ -73,3 +83,5 @@ jobs:
           kubectl get crd 2>/dev/null | grep -i chaos-mesh | sed 's/^/  /' || true
           echo "Chaos Dashboard external IP (port 2333):"
           kubectl -n chaos-mesh get svc chaos-dashboard -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}' || true
+          echo "Chaos BUTTON external IP (port 80):"
+          kubectl -n default get svc chaos-button -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}' || true
