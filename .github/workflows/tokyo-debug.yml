@@ -27,6 +27,21 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
+      - name: Loki / promtail diagnosis (app logs)
+        continue-on-error: true
+        run: |
+          echo "===== loki + promtail pods ====="
+          kubectl -n monitoring get pods -l 'app in (loki,promtail)' -o wide 2>&1 | sed 's/^/  /' || true
+          kubectl -n monitoring get ds promtail -o wide 2>&1 | sed 's/^/  /' || true
+          echo "===== promtail logs (push errors / 429 / refused / positions) ====="
+          kubectl -n monitoring logs ds/promtail --tail=40 2>&1 | grep -iE "error|level=warn|429|refused|loki|push|batch|position|no such|denied|tls" | tail -20 | sed 's/^/  /' || true
+          echo "===== loki logs (errors / ready) ====="
+          kubectl -n monitoring logs deployment/loki --tail=50 2>&1 | grep -iE "error|level=warn|ready|caller|panic|wal|retention|flush|rejected|too old" | tail -15 | sed 's/^/  /' || true
+          echo "===== Loki direct: labels + sample query {namespace=default} ====="
+          run_c() { kubectl -n monitoring run lq-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "curl -s \"$1\"" 2>/dev/null; }
+          run_c "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/labels" | sed 's/^/  labels: /' || true
+          run_c 'http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/query?query=count_over_time(%7Bnamespace%3D%22default%22%7D%5B5m%5D)' | python3 -c 'import sys,json;d=json.load(sys.stdin);r=d.get("data",{}).get("result",[]);print("  {namespace=default} 5m streams:",len(r))' 2>/dev/null || echo "  (query failed)"
+
       - name: FULL Grafana data audit (metrics + logs + traces)
         continue-on-error: true
         run: |
