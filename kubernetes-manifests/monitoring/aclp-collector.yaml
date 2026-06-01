@@ -70,30 +70,16 @@ data:
               - nb_active_tcp_backends
               - nb_active_udp_backends
 
-          # objectstorage: jp-tyo-3 (E3) supports Object Storage Cloud Pulse
-          # (jp-osa E1 does not). entity_regions/group_by is the correct schema
-          # per Akamai docs; the 1.6.0-docker image (below) accepts it (the old
-          # ':latest' build rejected the keys). Scoped to jp-tyo-3 so the
-          # unsupported jp-osa region can't error the receiver.
-          - service_type: objectstorage
-            entity_regions: ["jp-tyo-3"]
-            agg_function: sum
-            group_by: ["entity_id"]
-            metric_names:
-              - obj_bucket_size
-              - obj_bucket_num_objects
-              - obj_bytes_uploaded
-              - obj_bytes_downloaded
-              - obj_egress_throughput
-              - obj_ingress_throughput
-              - obj_ttfb_average
-              - obj_requests_num
-              - obj_requests_get
-              - obj_requests_put
-              - obj_requests_delete
-              - obj_responses_2xx
-              - obj_responses_4xx
-              - obj_responses_5xx
+          # objectstorage: DISABLED. jp-tyo-3 supports it and the schema
+          # (entity_regions/group_by) is correct, but the only runnable image
+          # (':latest') rejects those keys and the newer tags (1.6.0 /
+          # 1.6.0-docker) won't start. Re-enable once a runnable image accepts
+          # the objectstorage schema.
+          # - service_type: objectstorage
+          #   entity_regions: ["jp-tyo-3"]
+          #   agg_function: sum
+          #   group_by: ["entity_id"]
+          #   metric_names: [obj_bucket_size, obj_bucket_num_objects, ...]
 
     processors:
       batch: {}
@@ -137,12 +123,12 @@ spec:
           # ':latest' is the known-runnable image (dbaas + nodebalancer work).
           # The '1.6.0' tag gives RunContainerError, so we stay on :latest with
           # objectstorage disabled above until a runnable newer image is found.
-          # 1.6.0-docker = the runnable container build that accepts the
-          # objectstorage schema (entity_regions/group_by). ':latest' is older
-          # and rejects those keys; the plain '1.6.0' tag is not a runnable
-          # image (RunContainerError).
-          image: linode/aclp-collector:1.6.0-docker
-          imagePullPolicy: IfNotPresent
+          # ':latest' is the only RUNNABLE image (1.6.0 and 1.6.0-docker both
+          # fail to start -> Error/CrashLoop). It serves dbaas + nodebalancer
+          # fine; objectstorage stays disabled (its schema needs a newer build
+          # that doesn't run here yet).
+          image: linode/aclp-collector:latest
+          imagePullPolicy: Always
           args: ["--config=/etc/aclp/config.yaml"]
           env:
             - name: LINODE_API_TOKEN
