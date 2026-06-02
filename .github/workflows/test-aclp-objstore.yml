@@ -53,7 +53,7 @@ jobs:
               receivers:
                 akamaicloudpulsereceiver:
                   PAT: ${env:LINODE_API_TOKEN}
-                  polling_interval: 5m
+                  polling_interval: 3600s
                   services:
                     - service_type: objectstorage
                       entity_regions: ["jp-tyo-3"]
