@@ -118,6 +118,9 @@ jobs:
           sleep 25
           echo "===== pod status ====="
           kubectl -n monitoring get pod -l app=aclp-objtest -o wide
+          echo "===== describe (RunContainerError reason / events) ====="
+          kubectl -n monitoring describe pod -l app=aclp-objtest 2>/dev/null | sed -n '/Containers:/,$p' | grep -iE 'Image:|Command:|Args:|State:|Reason:|Message:|Exit Code|Last State|Warning|Error|Mounts:|/etc/aclp|created|started|pulling|pulled|Back-off|cannot|exec' | head -40
+          echo "--- image entrypoint probe (override cmd to print/ls) skipped ---"
           echo "===== logs (start? schema error? objectstorage fetch?) ====="
           kubectl -n monitoring logs deployment/aclp-objtest --tail=60 2>&1 | tail -50
           echo "===== :9464 obj_* sample ====="
