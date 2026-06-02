@@ -1,0 +1,48 @@
+name: Diag Tempo event TraceQL (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: try several event TraceQL forms + show error bodies
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 12); do curl -s -o /dev/null -m5 "http://$FE/"; curl -s -o/dev/null -m5 "http://$FE/cart"; done
+          sleep 40
+          run() { kubectl -n monitoring run eq-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+          B="http://tempo.monitoring.svc.cluster.local:3200"
+          NOW=$(date +%s); AGO=$((NOW-1800))
+          # url-encode helper inline per query
+          q() {
+            local Q="$1"; local ENC
+            ENC=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$Q")
+            echo "----- TraceQL: $Q -----"
+            run "curl -s -w '\nHTTP %{http_code}\n' '$B/api/search?q=${ENC}&start=${AGO}&end=${NOW}&limit=3'" | sed -e 's/{"traces".*/<traces returned>/' | head -c 500
+            echo ""
+          }
+          q '{ event:name = "Sent" }'
+          q '{ event:name = "exception" }'
+          q '{ event.name = "Sent" }'
+          q '{ span.event:name != nil }'
+          q '{ event:name != nil }'
+          q '{ name = "frontend" } | select(event:name)'
+          echo "===== tempo config: any traceql/search flags + vParquet version ====="
+          kubectl -n monitoring get configmap tempo-config -o jsonpath='{.data.tempo\.yaml}' 2>/dev/null | grep -iE 'vparquet|version|traceql|search|dedicated|event' | head
+          echo "===== tempo logs around the 500 ====="
+          kubectl -n monitoring logs deploy/tempo --tail=120 2>/dev/null | grep -iE 'event|error|panic|unsupported|parse|500' | tail -20
