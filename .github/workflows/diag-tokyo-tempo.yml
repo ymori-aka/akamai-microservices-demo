@@ -1,0 +1,62 @@
+name: Diag Tokyo Tempo/collector spans (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: collector internal telemetry + Tempo storage/search
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          COL=$(kubectl -n monitoring get pod -l app=otel-collector -o name 2>/dev/null | head -1)
+
+          echo "===== generate a little frontend traffic ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 10); do curl -s -o /dev/null -m 5 "http://$FE/"; curl -s -o /dev/null -m5 "http://$FE/cart" ; done
+          sleep 20
+
+          echo "===== collector :8888 — ALL span/trace/exporter lines (raw) ====="
+          kubectl -n monitoring exec "$COL" -- wget -qO- http://localhost:8888/metrics 2>/dev/null \
+            | grep -iE 'span|trace|tempo|exporter_send|receiver_accepted|receiver_refused|queue' | grep -v '#' | head -40
+
+          echo ""
+          echo "===== is collector :8888 even scraped by Prometheus? (up) ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          kubectl -n monitoring exec "$PROM" -- wget -qO- 'http://localhost:9090/api/v1/query?query=up%7Bjob=~%22.*otel.*%22%7D' 2>/dev/null
+
+          echo ""
+          echo "===== Tempo pod + logs (errors / flush / storage / ingester) ====="
+          kubectl -n monitoring get pod -l app=tempo -o wide 2>/dev/null
+          kubectl -n monitoring logs deployment/tempo --tail=120 2>/dev/null \
+            | grep -iE 'error|warn|flush|block|wal|storage|complete|trace too|live traces|max|overrides|metrics-generator|fail|panic|level=error' | tail -30
+
+          echo ""
+          echo "===== Tempo search APIs (with time range) ====="
+          NOW=$(date +%s); AGO=$((NOW-3600))
+          echo "--- /api/search/tags ---"
+          kubectl -n monitoring exec "$COL" -- wget -qO- "http://tempo.monitoring.svc.cluster.local:3200/api/search/tags" 2>/dev/null | head -c 300; echo ""
+          echo "--- /api/v2/search/tag/.service.name/values ---"
+          kubectl -n monitoring exec "$COL" -- wget -qO- "http://tempo.monitoring.svc.cluster.local:3200/api/v2/search/tag/.service.name/values" 2>/dev/null | head -c 400; echo ""
+          echo "--- /api/search?tags=&start&end (recent traces) ---"
+          kubectl -n monitoring exec "$COL" -- wget -qO- "http://tempo.monitoring.svc.cluster.local:3200/api/search?start=${AGO}&end=${NOW}&limit=5" 2>/dev/null | head -c 500; echo ""
+          echo "--- Tempo /status/config storage backend ---"
+          kubectl -n monitoring exec "$COL" -- wget -qO- "http://tempo.monitoring.svc.cluster.local:3200/api/status/config" 2>/dev/null | grep -iE 'backend|path|local|s3|wal' | head
+
+          echo ""
+          echo "===== Tempo as a Grafana datasource? (Tokyo Grafana provisioning) ====="
+          GPOD=$(kubectl -n monitoring get pod -l app=grafana -o name | head -1)
+          kubectl -n monitoring exec "$GPOD" -- sh -c 'cat /etc/grafana/provisioning/datasources/*.y*ml 2>/dev/null' 2>/dev/null | grep -iE 'name:|type:|url:|tempo|uid:' | head -30
