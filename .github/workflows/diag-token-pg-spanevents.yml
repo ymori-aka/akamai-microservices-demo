@@ -20,16 +20,9 @@ jobs:
           echo "===== this LINODE_PAT: is it valid right now? (whoami) ====="
           curl -s -o /dev/null -w "  GET /profile -> HTTP %{http_code}\n" -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/profile"
           echo ""
-          echo "===== ALL personal access tokens (label / created / expiry / scopes) ====="
+          echo "===== ALL personal access tokens (id / expiry / created / label) ====="
           curl -s -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/profile/tokens" \
-            | python3 -c '
-import sys,json
-d=json.load(sys.stdin).get("data",[])
-for t in sorted(d,key=lambda x:str(x.get("expiry"))):
-    print("  id=%-10s expiry=%-22s created=%-22s label=%s"%(t.get("id"),t.get("expiry"),t.get("created"),t.get("label")))
-    sc=t.get("scopes","")
-    print("      scopes:", (sc[:160]+"...") if len(sc)>160 else sc)
-'
+            | python3 -c "import sys,json; d=json.load(sys.stdin)['data']; [print('  id=%-10s expiry=%-22s created=%-22s scopes=%-10s label=%s'%(t['id'],str(t.get('expiry')),str(t.get('created')),str(t.get('scopes'))[:8],t.get('label'))) for t in sorted(d,key=lambda x:str(x.get('expiry')))]"
           echo "(expiry=null => 無期限。直近で切れるものが PG 断の原因候補)"
 
       - name: Tokyo aclp current state (PG up now? 401?)
