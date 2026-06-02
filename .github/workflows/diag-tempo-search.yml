@@ -32,12 +32,12 @@ jobs:
               sh -c "curl -s -w '\nHTTP %{http_code}\n' \"$1\"" 2>/dev/null
           }
           B="http://tempo.monitoring.svc.cluster.local:3200"
-          NOW=$(date +%s); AGO=$((NOW-1800))
-          echo "===== /ready ====="; run "$B/ready"
-          echo "===== /api/echo ====="; run "$B/api/echo"
-          echo "===== /api/search/tags ====="; run "$B/api/search/tags"
-          echo "===== /api/search/tag/service.name/values ====="; run "$B/api/search/tag/service.name/values"
-          echo "===== TraceQL search {} last30m ====="; run "$B/api/search?q=%7B%7D&start=${AGO}&end=${NOW}&limit=5"
+          NOW=$(date +%s); AGO=$((NOW-21600))
+          echo "===== /api/search/tag/service.name/values (no range) ====="; run "$B/api/search/tag/service.name/values"
+          echo "===== /api/search/tag/service.name/values (6h range) ====="; run "$B/api/search/tag/service.name/values?start=${AGO}&end=${NOW}"
+          echo "===== /api/v2/search/tag/resource.service.name/values (6h) ====="; run "$B/api/v2/search/tag/resource.service.name/values?start=${AGO}&end=${NOW}"
+          echo "===== TraceQL {} last6h FULL ====="; run "$B/api/search?q=%7B%7D&start=${AGO}&end=${NOW}&limit=3"
+          echo "===== TraceQL frontend last6h ====="; run "$B/api/search?q=%7Bresource.service.name%3D%22frontend%22%7D&start=${AGO}&end=${NOW}&limit=3"
           echo "===== metrics_generator: traces_spanmetrics in prom (sanity) ====="
           PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
           kubectl -n monitoring exec "$PROM" -- wget -qO- 'http://localhost:9090/api/v1/query?query=sum(rate(traces_spanmetrics_calls_total%5B5m%5D))' 2>/dev/null
