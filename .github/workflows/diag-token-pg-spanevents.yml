@@ -1,0 +1,84 @@
+name: Diag token expiry + PG + span events (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Linode token expiry (why PG drops periodically)
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          echo "===== this LINODE_PAT: is it valid right now? (whoami) ====="
+          curl -s -o /dev/null -w "  GET /profile -> HTTP %{http_code}\n" -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/profile"
+          echo ""
+          echo "===== ALL personal access tokens (label / created / expiry / scopes) ====="
+          curl -s -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/profile/tokens" \
+            | python3 -c '
+import sys,json
+d=json.load(sys.stdin).get("data",[])
+for t in sorted(d,key=lambda x:str(x.get("expiry"))):
+    print("  id=%-10s expiry=%-22s created=%-22s label=%s"%(t.get("id"),t.get("expiry"),t.get("created"),t.get("label")))
+    sc=t.get("scopes","")
+    print("      scopes:", (sc[:160]+"...") if len(sc)>160 else sc)
+'
+          echo "(expiry=null => 無期限。直近で切れるものが PG 断の原因候補)"
+
+      - name: Tokyo aclp current state (PG up now? 401?)
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "===== aclp-collector pod (age/restarts) ====="
+          kubectl -n monitoring get pod -l app=aclp-collector -o wide
+          echo "===== recent aclp logs (401 / success) ====="
+          kubectl -n monitoring logs deploy/aclp-collector --tail=60 2>/dev/null | grep -iE 'dbaas|401|unauthor|error|ready' | tail -15
+          echo "===== avg_cpu_usage present now? ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for E in 470692 481207; do
+            echo -n "  entity $E: "
+            kubectl -n monitoring exec "$PROM" -- wget -qO- "http://localhost:9090/api/v1/query?query=avg_cpu_usage%7Bentity_id%3D%22${E}%22%7D" 2>/dev/null | grep -oE '"value":\[[0-9.]+,"[0-9.]+"\]' | head -1 || echo NONE
+            echo ""
+          done
+          echo "===== is there an aclp healer cronjob in Tokyo? (could mask/cycle) ====="
+          kubectl -n monitoring get cronjob 2>/dev/null
+          echo "===== who/what manages linode-pat secret (age) ====="
+          kubectl -n monitoring get secret linode-pat -o jsonpath='{.metadata.creationTimestamp}{"\n"}' 2>/dev/null
+
+      - name: Span events — present in traces? Tempo version capability
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          export KUBECONFIG="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          echo "===== Tempo image/version (TraceQL event:{} needs 2.5+; span_events block needs config) ====="
+          kubectl -n monitoring get deploy tempo -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+          run() { kubectl -n monitoring run sev-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 12); do curl -s -o /dev/null -m5 "http://$FE/"; curl -s -o/dev/null -m5 "http://$FE/cart"; done
+          sleep 35
+          B="http://tempo.monitoring.svc.cluster.local:3200"
+          NOW=$(date +%s); AGO=$((NOW-1800))
+          TID=$(run "curl -s '$B/api/search?q=%7B%7D&start=${AGO}&end=${NOW}&limit=1'" | tr ',' '\n' | grep -m1 traceID | sed -E 's/.*"traceID":"([a-f0-9]+)".*/\1/')
+          echo "sample traceID=$TID"
+          echo "===== does the trace JSON contain span events? (count of \"events\"/\"timeUnixNano\" event markers) ====="
+          BODY=$(run "curl -s '$B/api/traces/$TID'")
+          echo "  occurrences of '\"events\"': $(echo "$BODY" | grep -oE '"events"' | wc -l)"
+          echo "  occurrences of '\"name\":\"exception\"': $(echo "$BODY" | grep -oE '\"name\":\"exception\"' | wc -l)"
+          echo "  sample event names:"
+          echo "$BODY" | grep -oE '"events":\[[^]]*' | head -c 500; echo ""
+          echo "===== TraceQL span-event query support test ({ event:name != \"\" }) ====="
+          run "curl -s -o /dev/null -w '  event-scope query HTTP %{http_code}\n' '$B/api/search?q=%7B%20event%3Aname%20!%3D%20%22%22%20%7D&start=${AGO}&end=${NOW}&limit=1'"
