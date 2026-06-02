@@ -7,7 +7,7 @@ name: Deploy Spin Apps (Tokyo OTel endpoint)
 # jp-osa.
 #
 # Endpoint is the GitHub secret OTEL_PUBLIC_ENDPOINT (set it to the Tokyo
-# collector LB, http://172.233.70.69:4319). spin.toml allowed_outbound_hosts
+# collector LB, http://172.237.3.147:4319). spin.toml allowed_outbound_hosts
 # has already been pointed at that IP.
 on:
   workflow_dispatch: {}

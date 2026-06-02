@@ -1,0 +1,50 @@
+name: Verify Spin OTel — TOKYO
+
+# Generates traffic to the 3 Spin functions then checks the TOKYO cluster's
+# Prometheus (610031) for boutique_spin_* (functions push to the Tokyo
+# collector 172.237.3.147:4319). default runner kubectl = Osaka, so we fetch
+# the Tokyo kubeconfig.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  verify:
+    runs-on: self-hosted
+    steps:
+      - name: Generate traffic to all 3 Spin functions
+        run: |
+          set +e
+          SA="https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
+          PI="https://b0ff4a59-2449-4385-9f5c-03f471fd9392.fwf.app"
+          RC="https://bc53a68a-dfd1-4144-a8b9-ed72f049bd8a.fwf.app"
+          curl -s -m 30 -X POST "$SA/chat" -H "Content-Type: application/json" \
+            -d '{"messages":[{"role":"user","content":"Tell me a fun fact about cats"}],"max_tokens":40}' \
+            -w "\nshopping-assistant HTTP %{http_code}\n" -o /dev/null
+          curl -s -m 30 "$PI/intro?product_id=AKMT001&lang=en" -w "product-intro HTTP %{http_code}\n" -o /dev/null
+          curl -s -m 30 "$RC/recommendations?product_id=AKMT001" -w "recommendation HTTP %{http_code}\n" -o /dev/null
+          echo "Waiting 30s for OTel pipeline..."
+          sleep 30
+
+      - name: Query TOKYO Prometheus for spin_* metrics
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for METRIC in boutique_spin_requests_total boutique_spin_llm_tokens_total; do
+            echo "===== ${METRIC} (TOKYO) ====="
+            kubectl -n monitoring exec "$PROM" -- \
+              wget -qO- "http://localhost:9090/api/v1/query?query=${METRIC}" 2>/dev/null \
+              | tr '},' '\n' | grep -E 'exported_job|service_version|value' | head -20
+            echo ""
+          done

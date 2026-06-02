@@ -1,0 +1,56 @@
+name: Fix ACLP collector — TOKYO (refresh PAT + apply config)
+
+# The Tokyo cluster (610031) has its OWN aclp-collector. Its in-cluster
+# linode-pat secret had drifted (401 on dbaas+nodebalancer). This re-syncs
+# the GitHub LINODE_PAT into the Tokyo secret, re-applies the ConfigMap
+# (entity_ids incl Tokyo DB 481207), restarts, and verifies in TOKYO
+# Prometheus. (default runner kubectl = Osaka, so we fetch Tokyo kubeconfig.)
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh Tokyo linode-pat + apply aclp config + restart + verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          if [ -z "$LINODE_PAT" ]; then echo "LINODE_PAT missing"; exit 1; fi
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== recreate linode-pat secret (Tokyo) ====="
+          kubectl -n monitoring delete secret linode-pat --ignore-not-found
+          kubectl -n monitoring create secret generic linode-pat --from-literal=TOKEN="$LINODE_PAT"
+
+          echo "===== apply aclp-collector.yaml (ConfigMap entity_ids) ====="
+          kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
+
+          kubectl -n monitoring rollout restart deployment/aclp-collector
+          kubectl -n monitoring rollout status deployment/aclp-collector --timeout=120s
+          echo "waiting 100s for first poll cycle..."
+          sleep 100
+
+          echo "===== Tokyo aclp logs (401 vs success) ====="
+          kubectl -n monitoring logs deployment/aclp-collector --tail=30 2>/dev/null \
+            | grep -iE 'dbaas|nodebalancer|401|error|ready|success' | tail -20
+
+          echo ""
+          echo "===== Tokyo Prometheus DBaaS check ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for E in 470692 481207; do
+            echo "--- avg_cpu_usage entity_id=$E ---"
+            kubectl -n monitoring exec "$PROM" -- \
+              wget -qO- "http://localhost:9090/api/v1/query?query=avg_cpu_usage%7Bentity_id%3D%22${E}%22%7D" 2>/dev/null | head -c 320; echo ""
+          done

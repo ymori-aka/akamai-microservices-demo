@@ -15,7 +15,7 @@ source = "dist/shopping-assistant-service.wasm"
 exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = [
   "https://chat-ai-ai-gateway-34777e2.zuplo.app",
-  "http://172.233.70.69:4319",
+  "http://172.237.3.147:4319",
 ]
 
 [component.shopping-assistant-service.build]
