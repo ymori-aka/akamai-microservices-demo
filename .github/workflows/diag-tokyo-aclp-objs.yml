@@ -1,0 +1,66 @@
+name: Diag Tokyo aclp + ObjectStorage (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Tokyo aclp-collector logs + config + grafana datasource
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== Tokyo aclp-collector pod + image ====="
+          kubectl -n monitoring get pod -l app=aclp-collector -o wide 2>/dev/null
+          echo "===== Tokyo aclp-collector logs (errors / 401 / dbaas / objectstorage) ====="
+          kubectl -n monitoring logs deployment/aclp-collector --tail=120 2>/dev/null \
+            | grep -iE 'error|401|unauthor|dbaas|nodebalancer|objectstorage|obj_|entity|invalid|unknown field|cannot|ready|start' | tail -40
+          echo ""
+          echo "===== Tokyo live aclp ConfigMap dbaas/objectstorage block ====="
+          kubectl -n monitoring get configmap aclp-collector-config -o jsonpath='{.data.config\.yaml}' 2>/dev/null \
+            | grep -nE 'service_type|entity_ids|entity_regions|objectstorage|obj_bucket|DISABLED|PAT' | head -30
+          echo ""
+          echo "===== Tokyo aclp env (which token var) ====="
+          kubectl -n monitoring set env deployment/aclp-collector --list 2>/dev/null | grep -iE 'TOKEN|PAT' | sed -E 's/=.*/=***/'
+          echo "===== Tokyo linode-pat secret present? ====="
+          kubectl -n monitoring get secret linode-pat 2>/dev/null
+
+          echo ""
+          echo "===== Tokyo Grafana datasource Prometheus URL ====="
+          GPOD=$(kubectl -n monitoring get pod -l app=grafana -o name 2>/dev/null | head -1)
+          kubectl -n monitoring exec "$GPOD" -- sh -c 'cat /etc/grafana/provisioning/datasources/*.y*ml 2>/dev/null; cat /etc/grafana/provisioning/datasources/*/*.y*ml 2>/dev/null' 2>/dev/null | grep -iE 'name:|url:|type:|uid:' | head -30
+
+      - name: ObjectStorage Cloud Pulse availability (account/token)
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          echo "===== Cloud Pulse service availability per token (metric-definitions) ====="
+          for svc in dbaas nodebalancer objectstorage; do
+            CODE=$(curl -s -o /tmp/o.json -w "%{http_code}" -H "Authorization: Bearer $LINODE_PAT" \
+              "https://api.linode.com/v4/monitor/services/$svc/metric-definitions")
+            echo "  $svc -> HTTP $CODE"
+            [ "$CODE" = "200" ] && head -c 160 /tmp/o.json && echo ""
+          done
+          echo ""
+          echo "===== Cloud Pulse: list monitorable services ====="
+          curl -s -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/monitor/services" \
+            | head -c 600; echo ""
+          echo ""
+          echo "===== Object Storage endpoints/buckets (token scope check) ====="
+          curl -s -o /tmp/b.json -w "buckets HTTP %{http_code}\n" -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/object-storage/buckets"
+          head -c 500 /tmp/b.json; echo ""
