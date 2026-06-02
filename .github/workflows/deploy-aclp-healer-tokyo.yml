@@ -1,0 +1,34 @@
+name: Deploy ACLP healer — TOKYO
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply Tokyo healer + one immediate self-check
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          kubectl apply -f kubernetes-manifests/monitoring/aclp-collector-healer-tokyo.yaml
+          echo "===== CronJob ====="
+          kubectl -n monitoring get cronjob aclp-collector-healer
+          JOB="aclp-healer-tyo-manual-$(date +%s)"
+          kubectl -n monitoring create job "$JOB" --from=cronjob/aclp-collector-healer
+          kubectl -n monitoring wait --for=condition=complete --timeout=120s job/"$JOB"
+          echo "===== healer job logs ====="
+          kubectl -n monitoring logs job/"$JOB" --tail=20

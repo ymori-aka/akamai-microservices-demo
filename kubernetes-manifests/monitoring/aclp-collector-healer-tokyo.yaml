@@ -1,0 +1,101 @@
+# Self-healing for the ACLP (Cloud Pulse) collector — TOKYO (jp-tyo-3) variant.
+#
+# Same rationale as aclp-collector-healer.yaml (Osaka): the aclp-collector
+# silently stops emitting DBaaS metrics after its short-lived Cloud Pulse JWT
+# can no longer be refreshed (pod stays Running). A `rollout restart` recovers
+# it. Osaka had this healer; Tokyo did not, so Tokyo PG dropped every few hours
+# and stayed down until a manual fix. This deploys the same remediation to the
+# Tokyo cluster, watching the Tokyo DB (entity_id 481207) every 5 minutes.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aclp-healer
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aclp-healer
+  namespace: monitoring
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aclp-healer
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: aclp-healer
+subjects:
+  - kind: ServiceAccount
+    name: aclp-healer
+    namespace: monitoring
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: aclp-collector-healer
+  namespace: monitoring
+  labels:
+    app: aclp-collector-healer
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 120
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app: aclp-collector-healer
+        spec:
+          serviceAccountName: aclp-healer
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: healer
+              image: alpine/k8s:1.31.0
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: "10m", memory: "32Mi" }
+                limits: { cpu: "100m", memory: "128Mi" }
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  PROM="http://prometheus.monitoring.svc.cluster.local:9090/api/v1/query"
+                  # Tokyo DB is entity_id 481207 (the one the dashboards query).
+                  Q='present_over_time(avg_cpu_usage{entity_id="481207"}[12m])'
+                  R=$(curl -s --max-time 10 --data-urlencode "query=${Q}" "${PROM}" || true)
+                  echo "prometheus response: ${R}"
+                  if ! echo "${R}" | grep -q '"status":"success"'; then
+                    echo "Prometheus not reachable / not success — skipping (no action)."
+                    exit 0
+                  fi
+                  if echo "${R}" | grep -q '"result":\[\]'; then
+                    echo "avg_cpu_usage{481207} ABSENT for >=12m — restarting aclp-collector"
+                    kubectl -n monitoring rollout restart deployment/aclp-collector
+                    echo "restart issued."
+                  else
+                    echo "avg_cpu_usage{481207} present — collector healthy, no action."
+                  fi
