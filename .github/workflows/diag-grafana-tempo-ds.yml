@@ -1,0 +1,58 @@
+name: Diag Grafana live Tempo datasource (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: live grafana datasources + proxy trace fetch
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          U=$(kubectl -n monitoring get secret grafana-secret -o jsonpath='{.data.admin-user}' | base64 -d)
+          P=$(kubectl -n monitoring get secret grafana-secret -o jsonpath='{.data.admin-password}' | base64 -d)
+          echo "admin user=$U (pass len ${#P})"
+          G="http://grafana.monitoring.svc.cluster.local:3000"
+          run() { kubectl -n monitoring run gq-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+
+          echo "===== LIVE datasources (name / type / uid / isDefault) ====="
+          run "curl -s -u '$U:$P' '$G/api/datasources'" | tr '}' '\n' | grep -oE '"name":"[^"]*"|"type":"[^"]*"|"uid":"[^"]*"' | paste - - - 2>/dev/null
+
+          echo ""
+          echo "===== LIVE Tempo datasource detail (by uid tempo-uid) ====="
+          run "curl -s -u '$U:$P' '$G/api/datasources/uid/tempo-uid'" | head -c 700; echo ""
+
+          echo ""
+          echo "===== get a fresh traceID from Tempo ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 10); do curl -s -o /dev/null -m5 "http://$FE/"; done
+          sleep 30
+          NOW=$(date +%s); AGO=$((NOW-1800))
+          TID=$(run "curl -s 'http://tempo.monitoring.svc.cluster.local:3200/api/search?q=%7B%7D&start=${AGO}&end=${NOW}&limit=1'" | tr ',' '\n' | grep -m1 traceID | sed -E 's/.*"traceID":"([a-f0-9]+)".*/\1/')
+          echo "traceID=$TID (len ${#TID})"
+
+          echo ""
+          echo "===== fetch trace THROUGH Grafana proxy (what the UI actually does) ====="
+          if [ -n "$TID" ]; then
+            run "curl -s -u '$U:$P' -w 'HTTPCODE=%{http_code};BYTES=%{size_download}' '$G/api/datasources/proxy/uid/tempo-uid/api/traces/$TID'" \
+              | grep -oE 'HTTPCODE=[0-9]+;BYTES=[0-9]+|"resourceSpans"|"batches"|error|not found'
+          fi
+
+          echo ""
+          echo "===== Grafana pod version + recent errors ====="
+          kubectl -n monitoring get pod -l app=grafana -o wide
+          kubectl -n monitoring logs deploy/grafana --tail=200 2>/dev/null | grep -iE 'tempo|trace|datasource|error|level=error|failed' | tail -20
