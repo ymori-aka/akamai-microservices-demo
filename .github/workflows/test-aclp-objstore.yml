@@ -97,7 +97,6 @@ jobs:
                 containers:
                   - name: collector
                     image: linode/aclp-collector:__TAG__
-                    command: ["/aclp-collector"]
                     args: ["--config=/etc/aclp/config.yaml"]
                     env:
                       - name: LINODE_API_TOKEN
