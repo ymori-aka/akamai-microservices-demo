@@ -97,13 +97,13 @@ jobs:
                 containers:
                   - name: collector
                     image: linode/aclp-collector:__TAG__
-                    args: ["--config=/etc/otel/config.yaml"]
+                    args: ["--config=/etc/aclp/config.yaml"]
                     env:
                       - name: LINODE_API_TOKEN
                         valueFrom: { secretKeyRef: { name: linode-pat, key: TOKEN } }
                     ports: [{ containerPort: 9464 }]
                     volumeMounts:
-                      - { name: cfg, mountPath: /etc/otel }
+                      - { name: cfg, mountPath: /etc/aclp }
                 volumes:
                   - name: cfg
                     configMap: { name: aclp-objtest-config }
