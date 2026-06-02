@@ -81,6 +81,13 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # Tempo single-binary uses a ReadWriteOnce PVC. RollingUpdate spins up a 2nd
+  # pod that cannot mount the RWO volume (Multi-Attach) -> stuck ContainerCreating
+  # while the old pod keeps the lock, and the dual-pod state corrupts the block
+  # index ("failed to poll or create index ... no such file"). Recreate ensures
+  # the old pod is torn down (releasing the PVC) before the new one starts.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: tempo
@@ -115,8 +122,8 @@ spec:
               cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 1Gi
+              cpu: "1"
+              memory: 2Gi
           readinessProbe:
             httpGet:
               path: /ready

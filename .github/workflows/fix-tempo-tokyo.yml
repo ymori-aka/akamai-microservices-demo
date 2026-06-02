@@ -1,0 +1,72 @@
+name: Fix Tempo — TOKYO (Recreate + clean single-pod restart)
+
+# Tokyo Tempo had 2 pods on one RWO PVC (one stuck ContainerCreating 18h, one
+# restarting 35x) -> blocklist poller "failed to poll or create index ... no
+# such file" -> trace search returns empty (spans ingested but not queryable).
+# Apply Recreate strategy + memory bump, then force a clean single-pod restart.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      wipe_storage:
+        description: "wipe /var/tempo blocks if index still broken (true/false)"
+        required: true
+        default: "false"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply tempo.yaml + clean restart + verify search
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== apply tempo.yaml (Recreate strategy + mem 2Gi) ====="
+          kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
+
+          echo "===== force clean single-pod restart (scale 0 -> release RWO PVC -> 1) ====="
+          kubectl -n monitoring scale deploy tempo --replicas=0
+          for i in $(seq 1 30); do
+            N=$(kubectl -n monitoring get pod -l app=tempo --no-headers 2>/dev/null | wc -l)
+            [ "$N" = "0" ] && break; echo "  waiting pods to terminate ($N left)..."; sleep 5
+          done
+
+          if [ "${{ inputs.wipe_storage }}" = "true" ]; then
+            echo "===== wipe_storage=true: clearing /var/tempo via throwaway pod ====="
+            kubectl -n monitoring delete pod tempo-wipe --ignore-not-found
+            kubectl -n monitoring run tempo-wipe --restart=Never --image=busybox:1.36 \
+              --overrides='{"spec":{"containers":[{"name":"w","image":"busybox:1.36","command":["sh","-c","rm -rf /var/tempo/blocks/* /var/tempo/wal/* /var/tempo/generator/* 2>/dev/null; echo wiped; ls -la /var/tempo"],"volumeMounts":[{"name":"data","mountPath":"/var/tempo"}]}],"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"tempo-data"}}]}}' \
+              -i --rm 2>/dev/null
+          fi
+
+          kubectl -n monitoring scale deploy tempo --replicas=1
+          kubectl -n monitoring rollout status deploy/tempo --timeout=150s
+          echo "===== pods now ====="
+          kubectl -n monitoring get pod -l app=tempo -o wide
+
+          echo "===== generate frontend traffic ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 20); do curl -s -o /dev/null -m 5 "http://$FE/"; curl -s -o /dev/null -m5 "http://$FE/product/OLJCESPC7Z"; done
+          echo "waiting 45s for spans to flush + be queryable..."
+          sleep 45
+
+          echo "===== Tempo health + recent errors ====="
+          kubectl -n monitoring logs deploy/tempo --tail=40 2>/dev/null | grep -iE 'error|no such file|ready|started|level=error' | tail -15
+          echo ""
+          echo "===== Tempo search (service.name values) ====="
+          COL=$(kubectl -n monitoring get pod -l app=otel-collector -o name | head -1)
+          kubectl -n monitoring exec "$COL" -- wget -qO- "http://tempo.monitoring.svc.cluster.local:3200/api/search/tag/service.name/values" 2>/dev/null | head -c 600; echo ""
+          NOW=$(date +%s); AGO=$((NOW-1800))
+          echo "--- recent traces count ---"
+          kubectl -n monitoring exec "$COL" -- wget -qO- "http://tempo.monitoring.svc.cluster.local:3200/api/search?start=${AGO}&end=${NOW}&limit=5" 2>/dev/null | python3 -c 'import sys,json;d=json.load(sys.stdin);print("  traces returned:",len(d.get("traces",[])));[print("   ",t.get("rootServiceName"),t.get("rootTraceName")) for t in d.get("traces",[])[:5]]' 2>/dev/null || echo "  (parse failed / empty)"
