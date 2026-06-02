@@ -1,0 +1,50 @@
+name: Diag Tempo search raw + Grafana datasource (Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: raw Tempo search responses + grafana tempo datasource
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 10); do curl -s -o /dev/null -m5 "http://$FE/"; done
+          sleep 30
+
+          run() {
+            kubectl -n monitoring run tq-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- \
+              sh -c "curl -s -w '\nHTTP %{http_code}\n' \"$1\"" 2>/dev/null
+          }
+          B="http://tempo.monitoring.svc.cluster.local:3200"
+          NOW=$(date +%s); AGO=$((NOW-1800))
+          echo "===== /ready ====="; run "$B/ready"
+          echo "===== /api/echo ====="; run "$B/api/echo"
+          echo "===== /api/search/tags ====="; run "$B/api/search/tags"
+          echo "===== /api/search/tag/service.name/values ====="; run "$B/api/search/tag/service.name/values"
+          echo "===== TraceQL search {} last30m ====="; run "$B/api/search?q=%7B%7D&start=${AGO}&end=${NOW}&limit=5"
+          echo "===== metrics_generator: traces_spanmetrics in prom (sanity) ====="
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          kubectl -n monitoring exec "$PROM" -- wget -qO- 'http://localhost:9090/api/v1/query?query=sum(rate(traces_spanmetrics_calls_total%5B5m%5D))' 2>/dev/null
+
+          echo ""
+          echo "===== Grafana datasources (look for Tempo type + url) ====="
+          GPOD=$(kubectl -n monitoring get pod -l app=grafana -o name | head -1)
+          kubectl -n monitoring exec "$GPOD" -- sh -c 'for f in $(find /etc/grafana /etc/grafana-* /var/lib/grafana 2>/dev/null -name "*.yaml" -o -name "*.yml" 2>/dev/null | grep -i datasource); do echo "--- $f ---"; cat "$f"; done' 2>/dev/null | grep -iE 'name:|type:|url:|uid:|tempo|prometheus|loki' | head -40
+          echo "--- grafana datasource dir listing ---"
+          kubectl -n monitoring exec "$GPOD" -- sh -c 'ls -la /etc/grafana/provisioning/datasources/ 2>/dev/null' 2>/dev/null
