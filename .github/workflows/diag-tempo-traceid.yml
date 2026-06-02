@@ -12,7 +12,7 @@ jobs:
   diag:
     runs-on: self-hosted
     steps:
-      - name: search -> pick traceID -> GET /api/traces/{id}
+      - name: search then GET trace by id
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
@@ -24,55 +24,43 @@ jobs:
           export KUBECONFIG="$KC"
 
           FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-          for i in $(seq 1 15); do curl -s -o /dev/null -m5 "http://$FE/"; curl -s -o/dev/null -m5 "http://$FE/product/OLJCESPC7Z"; done
+          for i in $(seq 1 15); do curl -s -o /dev/null -m5 "http://$FE/"; curl -s -o /dev/null -m5 "http://$FE/product/OLJCESPC7Z"; done
           echo "waiting 40s..."; sleep 40
 
           run() { kubectl -n monitoring run tq-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
           B="http://tempo.monitoring.svc.cluster.local:3200"
           NOW=$(date +%s); AGO=$((NOW-3600))
 
-          echo "===== TraceQL search to grab a traceID ====="
+          echo "===== TraceQL search ====="
           SR=$(run "curl -s '$B/api/search?q=%7B%7D&start=${AGO}&end=${NOW}&limit=5'")
-          echo "$SR" | head -c 400; echo ""
-          TID=$(echo "$SR" | python3 -c 'import sys,json;d=json.load(sys.stdin);t=d.get("traces",[]);print(t[0]["traceID"] if t else "")' 2>/dev/null)
+          echo "$SR" | head -c 500; echo ""
+          TID=$(echo "$SR" | tr ',' '\n' | grep -m1 traceID | sed -E 's/.*"traceID":"([a-f0-9]+)".*/\1/')
           echo "picked traceID=$TID"
 
           echo ""
-          echo "===== GET /api/traces/$TID  (full trace by ID) ====="
+          echo "===== GET /api/traces/$TID ====="
           if [ -n "$TID" ]; then
-            TR=$(run "curl -s -w '\nHTTP %{http_code}\n' '$B/api/traces/$TID'")
-            echo "$TR" | tail -3
-            echo "--- span count / services / attrs in returned trace ---"
-            echo "$TR" | python3 -c '
-import sys,json
-raw=sys.stdin.read()
-raw=raw.split("\nHTTP")[0]
-try:
-    d=json.loads(raw)
-except Exception as e:
-    print("  parse error:",e); print("  raw head:",raw[:200]); sys.exit()
-bs=d.get("batches") or d.get("resourceSpans") or []
-spans=0; svcs=set(); attrs=0
-for b in bs:
-    rsa=(b.get("resource",{}) or {}).get("attributes",[])
-    for a in rsa:
-        if a.get("key")=="service.name": svcs.add(a.get("value",{}).get("stringValue"))
-    for ss in (b.get("scopeSpans") or b.get("instrumentationLibrarySpans") or []):
-        for sp in ss.get("spans",[]):
-            spans+=1; attrs+=len(sp.get("attributes",[]))
-print("  batches:",len(bs)," spans:",spans," services:",sorted(s for s in svcs if s)," total span-attrs:",attrs)
-' 2>/dev/null
+            BODY=$(run "curl -s -w 'HTTPCODE=%{http_code};BYTES=%{size_download}' '$B/api/traces/$TID'")
+            echo "$BODY" | grep -oE 'HTTPCODE=[0-9]+;BYTES=[0-9]+'
+            echo "  span objects (count of spanId):  $(echo "$BODY" | grep -oE '"spanId"' | wc -l)"
+            echo "  span names    (count of name):   $(echo "$BODY" | grep -oE '"name":' | wc -l)"
+            echo "  service.name values present:"
+            echo "$BODY" | grep -oE '"stringValue":"[a-z-]+service"|"stringValue":"frontend"' | sort -u | sed 's/^/      /' | head
+            echo "  --- first 600 bytes of trace body ---"
+            echo "$BODY" | sed 's/HTTPCODE=.*//' | head -c 600; echo ""
+            echo "  --- also try v1 trace endpoint (?start&end) ---"
+            run "curl -s -w '\nHTTPv2=%{http_code}\n' '$B/api/v2/traces/$TID?start=${AGO}&end=${NOW}'" | tail -2
           fi
 
           echo ""
-          echo "===== Tempo trace-by-id config (querier/query_frontend, find_traces) ====="
+          echo "===== Tempo config: query_frontend / trace_by_id / max ====="
           kubectl -n monitoring get configmap tempo-config -o jsonpath='{.data.tempo\.yaml}' 2>/dev/null \
-            | grep -iE 'query_frontend|querier|search|max_duration|max_bytes|trace_by_id|find|backend|complete_block_timeout|blocklist_poll' | head -30
+            | grep -iE 'query_frontend|trace_by_id|querier|max_duration|duration_slo|hedge|concurrent|complete_block_timeout|blocklist_poll|backend|wal|local' | head -30
 
           echo ""
-          echo "===== Tempo recent errors (trace lookup / failed to find) ====="
-          kubectl -n monitoring logs deploy/tempo --tail=120 2>/dev/null | grep -iE 'trace|find|error|no such|failed|not found|context|timeout' | tail -20
+          echo "===== Tempo recent errors ====="
+          kubectl -n monitoring logs deploy/tempo --tail=150 2>/dev/null | grep -iE 'error|no such|not found|failed|trace|context deadline|panic' | tail -20
 
           echo ""
-          echo "===== Grafana Tempo datasource jsonData (traceQuery / nodeGraph / lokiSearch) ====="
-          kubectl -n monitoring get configmap grafana-datasources -o jsonpath='{.data.datasources\.yaml}' 2>/dev/null | sed -n '/Tempo/,/uid:/p' | head -40
+          echo "===== Grafana Tempo datasource block ====="
+          kubectl -n monitoring get configmap grafana-datasources -o jsonpath='{.data.datasources\.yaml}' 2>/dev/null | sed -n '/Tempo/,/^      - name:/p' | head -45
