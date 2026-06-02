@@ -1,0 +1,54 @@
+name: Diag OTel + Postgres (read-only)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Postgres / Cloud Pulse — entity_id 481207 vs 470692
+        run: |
+          set +e
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          echo "===== aclp-collector pod + env entity_ids ====="
+          kubectl -n monitoring get pod -l app=aclp-collector -o wide
+          kubectl -n monitoring get deploy aclp-collector -o yaml 2>/dev/null | grep -iE 'entity|image:' | head
+          echo ""
+          echo "===== which entity_ids actually present in Prometheus (avg_cpu_usage) ====="
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- 'http://localhost:9090/api/v1/query?query=avg_cpu_usage' 2>/dev/null \
+            | tr '},' '\n' | grep -E 'entity_id|node_id|"value"'
+          echo ""
+          for E in 470692 481207; do
+            echo "----- entity_id=$E present_over_time 30m -----"
+            kubectl -n monitoring exec "$PROM" -- \
+              wget -qO- "http://localhost:9090/api/v1/query?query=present_over_time(avg_cpu_usage%7Bentity_id%3D%22${E}%22%7D%5B30m%5D)" 2>/dev/null
+            echo ""
+          done
+
+      - name: aclp-collector recent logs (errors for 481207)
+        run: |
+          set +e
+          kubectl -n monitoring logs deploy/aclp-collector --tail=80 2>/dev/null \
+            | grep -iE '481207|470692|error|fail|404|401|403|no data|not found' | tail -40
+          echo "--- (if empty above, dumping last 30 raw lines) ---"
+          kubectl -n monitoring logs deploy/aclp-collector --tail=30 2>/dev/null
+
+      - name: OTel — collector receive + spin metrics
+        run: |
+          set +e
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          COL=$(kubectl -n monitoring get pod -l app=otel-collector -o name | head -1)
+          echo "COL=$COL"
+          echo "===== collector :8889 boutique_spin_* (what it would export) ====="
+          kubectl -n monitoring exec "$COL" -- wget -qO- http://localhost:8889/metrics 2>/dev/null \
+            | grep -E '^boutique_spin' | head -20
+          echo ""
+          echo "===== collector :8888 internal accepted/refused/sent ====="
+          kubectl -n monitoring exec "$COL" -- wget -qO- http://localhost:8888/metrics 2>/dev/null \
+            | grep -E 'otelcol_receiver_accepted|otelcol_receiver_refused|otelcol_exporter_sent|otelcol_processor' | grep -v '#' | head -30
+          echo ""
+          echo "===== Prometheus scrape of otel-collector (up) ====="
+          kubectl -n monitoring exec "$PROM" -- \
+            wget -qO- 'http://localhost:9090/api/v1/query?query=up%7Bjob=~%22.*otel.*%22%7D' 2>/dev/null
