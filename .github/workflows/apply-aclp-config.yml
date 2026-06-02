@@ -1,0 +1,45 @@
+name: Apply ACLP collector config (entity_ids)
+
+# The aclp-collector ConfigMap (entity_ids for dbaas/nodebalancer) is NOT
+# applied by deploy-tokyo.yml (treated as osa-specific, SKIPPED) nor by
+# deploy.yml on push (Deploy-to-LKE job is gated/skipped). So git changes to
+# kubernetes-manifests/monitoring/aclp-collector.yaml (e.g. adding the Tokyo
+# DB 481207) never reach the live cluster. This workflow applies that
+# manifest to the same cluster the collector runs in (default runner kubectl,
+# same as fix-aclp-collector) and restarts it.
+on:
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply aclp-collector.yaml + restart + verify entity_ids
+        run: |
+          set +e
+          kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
+          kubectl -n monitoring rollout restart deployment/aclp-collector
+          kubectl -n monitoring rollout status deployment/aclp-collector --timeout=120s
+
+          echo "===== live ConfigMap dbaas entity_ids ====="
+          kubectl -n monitoring get configmap aclp-collector-config -o yaml 2>/dev/null \
+            | grep -iE 'entity_ids|service_type' | head
+          # fallback: some setups inline config differently
+          kubectl -n monitoring get cm -o name | grep -i aclp
+
+          echo "waiting 100s for first 5-min poll cycle to emit..."
+          sleep 100
+
+          echo "===== collector logs (dbaas errors for 481207?) ====="
+          kubectl -n monitoring logs deployment/aclp-collector --tail=40 2>/dev/null \
+            | grep -iE 'dbaas|481207|470692|401|error|Unauthorized' | tail -20
+
+          echo ""
+          PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
+          for E in 470692 481207; do
+            echo "----- entity_id=$E present? -----"
+            kubectl -n monitoring exec "$PROM" -- \
+              wget -qO- "http://localhost:9090/api/v1/query?query=avg_cpu_usage%7Bentity_id%3D%22${E}%22%7D" 2>/dev/null \
+              | head -c 320; echo ""
+          done
