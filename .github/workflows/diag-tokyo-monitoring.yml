@@ -1,0 +1,66 @@
+name: Diag Tokyo monitoring (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Tokyo cluster — collector health, prometheus contents, aclp presence
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          k(){ kubectl "$@"; }
+
+          echo "===== monitoring deployments (is there an aclp-collector in Tokyo?) ====="
+          k -n monitoring get deploy -o wide 2>/dev/null
+          echo ""
+          echo "===== otel-collector pod + public LB ====="
+          k -n monitoring get pod -l app=otel-collector -o wide 2>/dev/null
+          k -n monitoring get svc otel-collector-public -o wide 2>/dev/null
+
+          PROM=$(k -n monitoring get pod -l app=prometheus -o name 2>/dev/null | head -1)
+          echo "PROM=$PROM"
+          echo ""
+          echo "===== Tokyo Prometheus: Spin / DBaaS / otel presence ====="
+          q(){ k -n monitoring exec "$PROM" -- wget -qO- "http://localhost:9090/api/v1/query?query=$1" 2>/dev/null | python3 -c 'import sys,json;r=json.load(sys.stdin)["data"]["result"];print(r[0]["value"][1] if r else "NONE")' 2>/dev/null; }
+          printf "  %-40s %s\n" "count(boutique_spin_requests_total)"  "$(q 'count(boutique_spin_requests_total)')"
+          printf "  %-40s %s\n" "count(boutique_spin_llm_tokens_total)" "$(q 'count(boutique_spin_llm_tokens_total)')"
+          printf "  %-40s %s\n" "count(avg_cpu_usage)"                 "$(q 'count(avg_cpu_usage)')"
+          printf "  %-40s %s\n" "avg_cpu_usage entity 481207"          "$(q 'avg_cpu_usage%7Bentity_id%3D%22481207%22%7D')"
+          printf "  %-40s %s\n" "avg_cpu_usage entity 470692"          "$(q 'avg_cpu_usage%7Bentity_id%3D%22470692%22%7D')"
+          printf "  %-40s %s\n" "count(nb_ingress_traffic_rate)"       "$(q 'count(nb_ingress_traffic_rate)')"
+          printf "  %-40s %s\n" "count(obj_bucket_size)"               "$(q 'count(obj_bucket_size)')"
+          echo ""
+          echo "===== Tokyo Prometheus: when did boutique_spin last appear? (15m present) ====="
+          k -n monitoring exec "$PROM" -- wget -qO- "http://localhost:9090/api/v1/query?query=present_over_time(boutique_spin_requests_total%5B6h%5D)" 2>/dev/null | head -c 400; echo ""
+          echo ""
+          echo "===== Tokyo otel-collector :8888 accepted metric points (recent traffic?) ====="
+          COL=$(k -n monitoring get pod -l app=otel-collector -o name 2>/dev/null | head -1)
+          k -n monitoring exec "$COL" -- wget -qO- http://localhost:8888/metrics 2>/dev/null | grep -E 'otelcol_receiver_accepted_metric_points|otelcol_exporter_sent_metric_points' | grep -v '#' | head
+          echo ""
+          echo "===== Tokyo otel-collector-public smoke (no-auth=401 expected) ====="
+          curl -s -o /dev/null -w "  no-auth HTTP %{http_code}\n" -m 10 -X POST "http://172.237.3.147:4319/v1/metrics"
+
+      - name: Which Prometheus does the Tokyo Grafana DBaaS dashboard rely on?
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          export KUBECONFIG="$KC"
+          echo "===== Tokyo Grafana datasources (Prometheus URL) ====="
+          GPOD=$(kubectl -n monitoring get pod -l app=grafana -o name 2>/dev/null | head -1)
+          kubectl -n monitoring exec "$GPOD" -- sh -c 'cat /etc/grafana/provisioning/datasources/*.y*ml 2>/dev/null' 2>/dev/null | grep -iE 'name:|url:|type:' | head -20
