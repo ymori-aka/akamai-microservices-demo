@@ -1,0 +1,132 @@
+name: Test ACLP objectstorage image (Tokyo, isolated)
+
+# Spins up a SEPARATE throwaway aclp-collector (aclp-objtest) in the Tokyo
+# monitoring ns with ONLY the objectstorage service enabled, using a chosen
+# image tag, to find one that (a) starts and (b) accepts the objectstorage
+# schema / fetches obj_* metrics. Does NOT touch the production aclp-collector.
+# Auto-deletes the test resources at the end unless keep=true.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      image_tag:
+        description: "linode/aclp-collector tag to test"
+        required: true
+        default: "1.5.0"
+      keep:
+        description: "keep test resources (true) or auto-delete (false)"
+        required: true
+        default: "false"
+
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - name: Deploy isolated test collector with objectstorage + verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          TAG="${{ inputs.image_tag }}"
+
+          echo "===== objectstorage metric-definitions (exact metric names) ====="
+          curl -s -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/monitor/services/objectstorage/metric-definitions" \
+            | python3 -c 'import sys,json;[print("   ",m["metric"]) for m in json.load(sys.stdin).get("data",[])]' 2>/dev/null
+
+          cat > /tmp/objtest.yaml <<'YAML'
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: aclp-objtest-config
+            namespace: monitoring
+          data:
+            config.yaml: |
+              receivers:
+                akamaicloudpulsereceiver:
+                  PAT: ${env:LINODE_API_TOKEN}
+                  polling_interval: 5m
+                  services:
+                    - service_type: objectstorage
+                      entity_regions: ["jp-tyo-3"]
+                      agg_function: sum
+                      group_by: ["entity_id"]
+                      metric_names:
+                        - obj_bucket_size
+                        - obj_bucket_num_objects
+                        - obj_egress_throughput
+                        - obj_ingress_throughput
+              processors:
+                batch: {}
+              exporters:
+                prometheus:
+                  endpoint: 0.0.0.0:9464
+                  resource_to_telemetry_conversion:
+                    enabled: true
+              service:
+                telemetry:
+                  logs:
+                    level: info
+                pipelines:
+                  metrics:
+                    receivers: [akamaicloudpulsereceiver]
+                    processors: [batch]
+                    exporters: [prometheus]
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: aclp-objtest
+            namespace: monitoring
+            labels: { app: aclp-objtest }
+          spec:
+            replicas: 1
+            selector: { matchLabels: { app: aclp-objtest } }
+            template:
+              metadata:
+                labels: { app: aclp-objtest }
+              spec:
+                containers:
+                  - name: collector
+                    image: linode/aclp-collector:__TAG__
+                    args: ["--config=/etc/otel/config.yaml"]
+                    env:
+                      - name: LINODE_API_TOKEN
+                        valueFrom: { secretKeyRef: { name: linode-pat, key: TOKEN } }
+                    ports: [{ containerPort: 9464 }]
+                    volumeMounts:
+                      - { name: cfg, mountPath: /etc/otel }
+                volumes:
+                  - name: cfg
+                    configMap: { name: aclp-objtest-config }
+          YAML
+          sed -i "s/__TAG__/$TAG/" /tmp/objtest.yaml
+          kubectl apply -f /tmp/objtest.yaml
+
+          echo "===== wait for rollout (image=$TAG) ====="
+          kubectl -n monitoring rollout status deployment/aclp-objtest --timeout=120s
+          RC=$?
+          echo "rollout rc=$RC"
+          sleep 25
+          echo "===== pod status ====="
+          kubectl -n monitoring get pod -l app=aclp-objtest -o wide
+          echo "===== logs (start? schema error? objectstorage fetch?) ====="
+          kubectl -n monitoring logs deployment/aclp-objtest --tail=60 2>&1 | tail -50
+          echo "===== :9464 obj_* sample ====="
+          P=$(kubectl -n monitoring get pod -l app=aclp-objtest -o name | head -1)
+          [ -n "$P" ] && kubectl -n monitoring exec "$P" -- sh -c 'wget -qO- http://localhost:9464/metrics 2>/dev/null | grep -iE "obj_" | head -20' 2>/dev/null
+
+          if [ "${{ inputs.keep }}" != "true" ]; then
+            echo "===== cleanup (keep=false) ====="
+            kubectl delete -f /tmp/objtest.yaml --ignore-not-found
+          else
+            echo "===== keeping test resources (keep=true) ====="
+          fi
