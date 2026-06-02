@@ -222,13 +222,11 @@ jobs:
             # Clear any OTEL_PROPAGATORS left over from a previous run.
             kubectl set env deployment/$d OTEL_PROPAGATORS- 2>/dev/null || true
           done
-          # EXCEPTION: the custom currencyservice (Node.js) image has broken
-          # OpenTelemetry-JS init code — it calls provider.addSpanProcessor(),
-          # which was removed in its bundled SDK, so ENABLE_TRACING=1 makes it
-          # crash at boot (TypeError: provider.addSpanProcessor is not a
-          # function) and the store returns HTTP 500. Disable tracing just for
-          # it; it still shows in the service graph as a target of its callers.
-          kubectl set env deployment/currencyservice ENABLE_TRACING=0 || true
+          # currencyservice (Node.js) previously crashed at boot with
+          # ENABLE_TRACING=1 because its OTel-JS init called the removed
+          # provider.addSpanProcessor() API. Fixed 2026-06-02: server.js now
+          # uses NodeSDK (sdk-node) + exporter-trace-otlp-grpc, so tracing is
+          # enabled for it like every other service (the loop above sets =1).
           kubectl rollout restart deployment $APPS || true
 
       - name: Attach ghcr-secret to all ServiceAccounts (fix private-image 401)

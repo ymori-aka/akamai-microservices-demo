@@ -1,0 +1,81 @@
+name: Enable currencyservice tracing — TOKYO (image + verify, revertable)
+
+# currencyservice tracing was disabled because its OTel-JS init used the
+# removed provider.addSpanProcessor() (crash -> store 500). server.js is fixed
+# to use NodeSDK + exporter-trace-otlp-grpc. This pins the rebuilt image
+# (sha-<commit>) on Tokyo, sets ENABLE_TRACING=1, and verifies the store stays
+# up and currencyservice shows in Tempo. revert=true puts ENABLE_TRACING=0 back.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      image_tag:
+        description: "currencyservice image tag to pin (e.g. sha-<commit>)"
+        required: true
+        default: "latest"
+      revert:
+        description: "revert to ENABLE_TRACING=0 (true/false)"
+        required: true
+        default: "false"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: Pin image + toggle tracing + verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          if [ "${{ inputs.revert }}" = "true" ]; then
+            echo "===== REVERT: ENABLE_TRACING=0 ====="
+            kubectl set env deployment/currencyservice ENABLE_TRACING=0
+            kubectl rollout status deployment/currencyservice --timeout=120s
+            kubectl -n monitoring get pod -l app=currencyservice 2>/dev/null
+            kubectl get pod -l app=currencyservice -o wide
+            exit 0
+          fi
+
+          echo "===== pin image currencyservice:${{ inputs.image_tag }} + ENABLE_TRACING=1 ====="
+          kubectl set image deployment/currencyservice server=ghcr.io/ymori-aka/currencyservice:${{ inputs.image_tag }}
+          kubectl set env deployment/currencyservice \
+            ENABLE_TRACING=1 \
+            COLLECTOR_SERVICE_ADDR=otel-collector.monitoring.svc.cluster.local:4317 \
+            OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.monitoring.svc.cluster.local:4317 \
+            OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+            OTEL_SERVICE_NAME=currencyservice
+          kubectl rollout status deployment/currencyservice --timeout=150s
+          RC=$?
+
+          echo "===== currencyservice pod + logs (Tracing enabled? crash?) ====="
+          kubectl get pod -l app=currencyservice -o wide
+          kubectl logs deployment/currencyservice --tail=40 2>&1 | grep -iE 'tracing|error|addSpanProcessor|TypeError|listening|started|exception' | tail -20
+
+          echo ""
+          echo "===== STORE health (frontend should stay 200, not 500) ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 8); do
+            curl -s -o /dev/null -w "  / -> HTTP %{http_code}\n" -m 8 "http://$FE/"
+            # exercise a currency conversion path (cart/checkout uses currency)
+            curl -s -o /dev/null -w "  /cart -> HTTP %{http_code}\n" -m 8 "http://$FE/cart"
+          done
+
+          echo ""
+          echo "===== generate traffic + check currencyservice in Tempo ====="
+          for i in $(seq 1 15); do curl -s -o /dev/null -m5 "http://$FE/"; curl -s -o/dev/null -m5 "http://$FE/cart"; done
+          sleep 35
+          COL=$(kubectl -n monitoring get pod -l app=otel-collector -o name | head -1)
+          NOW=$(date +%s); AGO=$((NOW-1800))
+          echo "--- Tempo service.name values (look for currencyservice) ---"
+          kubectl -n monitoring exec "$COL" -- wget -qO- "http://tempo.monitoring.svc.cluster.local:3200/api/search/tag/service.name/values?start=${AGO}&end=${NOW}" 2>/dev/null | head -c 600; echo ""
+          echo ""
+          echo "rollout rc=$RC (non-zero => likely crash; rerun with revert=true)"

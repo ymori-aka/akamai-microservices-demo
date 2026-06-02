@@ -49,22 +49,21 @@ registerInstrumentations({
 
 if(process.env.ENABLE_TRACING == "1") {
   logger.info("Tracing enabled.")
-  const { NodeTracerProvider } = require('@opentelemetry/sdk-trace-node');
-  const { SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base');
-  const { OTLPTraceExporter } = require("@opentelemetry/exporter-otlp-grpc");
-  const { Resource } = require('@opentelemetry/resources');
-  const { SemanticResourceAttributes } = require('@opentelemetry/semantic-conventions');
+  // NOTE: this image's OpenTelemetry-JS deps are modern (sdk-trace-base 1.30,
+  // sdk-node 0.200). The old NodeTracerProvider.addSpanProcessor() API was
+  // removed, which used to crash this service at boot. Use NodeSDK (already a
+  // dependency) which wires the provider + batch processor + exporter with the
+  // current API and reads OTEL_SERVICE_NAME / resource from the environment.
+  const { NodeSDK } = require('@opentelemetry/sdk-node');
+  const { OTLPTraceExporter } = require('@opentelemetry/exporter-trace-otlp-grpc');
 
-  const provider = new NodeTracerProvider({
-    resource: new Resource({
-      [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || 'currencyservice',
-    }),
+  const addr = process.env.COLLECTOR_SERVICE_ADDR || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '';
+  const collectorUrl = addr.startsWith('http') ? addr : `http://${addr}`;
+
+  const sdk = new NodeSDK({
+    traceExporter: new OTLPTraceExporter({ url: collectorUrl }),
   });
-
-  const collectorUrl = process.env.COLLECTOR_SERVICE_ADDR
-
-  provider.addSpanProcessor(new SimpleSpanProcessor(new OTLPTraceExporter({url: collectorUrl})));
-  provider.register();
+  sdk.start();
 }
 else {
   logger.info("Tracing disabled.")
