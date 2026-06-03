@@ -26,6 +26,9 @@ jobs:
 
           kubectl -n monitoring delete configmap grafana-dashboards --ignore-not-found
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          # grafana.yaml carries the Deployment env (e.g. GF_USERS_VIEWERS_CAN_EDIT)
+          # + datasource provisioning. Apply it too so env changes take effect.
+          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
           kubectl -n monitoring rollout restart deployment/grafana
           kubectl -n monitoring rollout status deployment/grafana --timeout=150s
           echo "===== grafana pod ====="

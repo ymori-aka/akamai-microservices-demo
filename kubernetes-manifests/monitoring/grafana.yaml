@@ -147,6 +147,13 @@ spec:
               value: "Main Org."
             - name: GF_AUTH_ANONYMOUS_ORG_ROLE
               value: "Viewer"
+            # Viewers (incl. anonymous demo users) cannot open Explore by
+            # default, so clicking a trace's "Open trace in Explore" data link
+            # bounced them to the Home dashboard. viewers_can_edit lets Viewers
+            # use Explore + make in-session (non-persisted) edits. Required for
+            # the Frontend/Checkout Traces panels' trace drill-down to work.
+            - name: GF_USERS_VIEWERS_CAN_EDIT
+              value: "true"
           ports:
             - containerPort: 3000
           volumeMounts:
