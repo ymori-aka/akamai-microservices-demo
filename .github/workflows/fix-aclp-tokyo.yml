@@ -13,9 +13,9 @@ on:
         required: true
         default: "610031"
       aclp_image:
-        description: "aclp-collector image (revert with linode/aclp-collector:latest)"
+        description: "aclp-collector image. KEEP :latest — 1.5.0-docker needs config migration (group_by required for dbaas/nb), crashes otherwise."
         required: true
-        default: "linode/aclp-collector:1.5.0-docker"
+        default: "linode/aclp-collector:latest"
 
 jobs:
   fix:
