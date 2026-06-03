@@ -1,0 +1,52 @@
+name: Diag traceID padding lookup (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      trace_id:
+        description: "trace id from the panel (as displayed)"
+        required: true
+        default: "ec81808a29526b4abe02fc738d10994"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: lookup trace id raw vs zero-padded
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          run() { kubectl -n monitoring run tp-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+          B="http://tempo.monitoring.svc.cluster.local:3200"
+          TID="${{ inputs.trace_id }}"
+          PAD=$(printf '%032s' "$TID" | tr ' ' '0')
+          echo "raw='$TID' (len ${#TID})"
+          echo "pad='$PAD' (len ${#PAD})"
+          for ID in "$TID" "$PAD"; do
+            echo "----- GET /api/traces/$ID -----"
+            run "curl -s -o /dev/null -w 'HTTP %{http_code} bytes=%{size_download}\n' '$B/api/traces/$ID'"
+          done
+          echo ""
+          echo "----- via Grafana proxy (what Explore uses), both forms -----"
+          U=$(kubectl -n monitoring get secret grafana-secret -o jsonpath='{.data.admin-user}' | base64 -d)
+          P=$(kubectl -n monitoring get secret grafana-secret -o jsonpath='{.data.admin-password}' | base64 -d)
+          G="http://grafana.monitoring.svc.cluster.local:3000"
+          for ID in "$TID" "$PAD"; do
+            echo "raw proxy $ID:"
+            run "curl -s -o /dev/null -w '  HTTP %{http_code} bytes=%{size_download}\n' -u '$U:$P' '$G/api/datasources/proxy/uid/tempo-uid/api/traces/$ID'"
+          done
+          echo ""
+          echo "----- do panel search IDs come back short? sample 5 frontend trace IDs + lengths -----"
+          NOW=$(date +%s); AGO=$((NOW-3600))
+          run "curl -s '$B/api/search?q=%7Bresource.service.name%3D%22frontend%22%7D&start=${AGO}&end=${NOW}&limit=10'" \
+            | tr ',' '\n' | grep traceID | sed -E 's/.*"traceID":"([a-f0-9]+)".*/\1/' | awk '{print "  "$0"  len="length($0)}'
