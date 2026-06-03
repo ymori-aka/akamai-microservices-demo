@@ -110,6 +110,13 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # grafana uses a ReadWriteOnce PVC (grafana-data). With the default
+  # RollingUpdate, a new pod is created before the old one is torn down and
+  # cannot mount the RWO volume (Multi-Attach) -> stuck ContainerCreating while
+  # the old pod keeps serving, so env/config changes never take effect. Recreate
+  # tears down the old pod first. (Same fix as tempo.yaml.)
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: grafana
