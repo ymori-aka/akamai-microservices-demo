@@ -61,10 +61,15 @@ spec:
         resources:
           requests:
             cpu: 100m
-            memory: 64Mi
+            memory: 128Mi
+          # 128Mi was enough WITHOUT tracing, but ENABLE_TRACING=1 adds the
+          # OpenTelemetry NodeSDK + OTLP/gRPC exporter (span batching), pushing
+          # the Node.js heap over 128Mi under load -> OOMKilled (exit 137) every
+          # few hours, briefly making currencyservice a "no healthy upstream"
+          # for the frontend. Bumped to 256Mi to fit tracing overhead.
           limits:
             cpu: 200m
-            memory: 128Mi
+            memory: 256Mi
 ---
 apiVersion: v1
 kind: Service

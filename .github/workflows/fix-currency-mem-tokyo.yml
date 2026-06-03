@@ -1,0 +1,56 @@
+name: Fix currencyservice memory (OOM) — TOKYO
+
+# currencyservice OOMKilled (limit 128Mi) every few hours after ENABLE_TRACING=1
+# (OTel NodeSDK + OTLP exporter overhead). Each OOM -> brief "no healthy
+# upstream" for the frontend. Bump memory limit to 256Mi.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      mem_limit:
+        description: "currencyservice memory limit"
+        required: true
+        default: "256Mi"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: Bump currencyservice memory + verify no OOM + currency works
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== set resources (limit ${{ inputs.mem_limit }}, request 128Mi) ====="
+          kubectl set resources deployment/currencyservice \
+            --limits=memory=${{ inputs.mem_limit }} --requests=memory=128Mi
+          kubectl rollout status deployment/currencyservice --timeout=150s
+
+          echo "===== pod (restarts should stop climbing) ====="
+          kubectl get pod -l app=currencyservice -o wide
+          kubectl get deploy currencyservice -o jsonpath='  limits={.spec.template.spec.containers[0].resources.limits}{"\n"}'
+
+          echo "===== endpoints ready? ====="
+          kubectl get endpoints currencyservice -o wide
+
+          echo "===== drive store traffic; frontend /cart should be 200 (currency ok) ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 12); do
+            curl -s -o /dev/null -w "  /cart -> HTTP %{http_code}\n" -m 8 "http://$FE/cart"
+          done
+
+          echo "===== watch ~90s for OOM/restart recurrence ====="
+          sleep 90
+          kubectl get pod -l app=currencyservice -o wide
+          kubectl describe pod -l app=currencyservice 2>/dev/null | grep -iE 'Last State|Reason|OOM|Restart Count' | head
+          echo "===== current memory usage vs limit (if metrics-server) ====="
+          kubectl top pod -l app=currencyservice 2>/dev/null || echo "(metrics-server n/a)"
