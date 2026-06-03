@@ -12,6 +12,10 @@ on:
         description: "Tokyo LKE cluster id"
         required: true
         default: "610031"
+      aclp_image:
+        description: "aclp-collector image (revert with linode/aclp-collector:latest)"
+        required: true
+        default: "linode/aclp-collector:1.5.0-docker"
 
 jobs:
   fix:
@@ -21,6 +25,7 @@ jobs:
       - name: Refresh Tokyo linode-pat + apply aclp config + restart + verify
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
+          ACLP_IMAGE: ${{ inputs.aclp_image }}
         run: |
           set +e
           if [ -z "$LINODE_PAT" ]; then echo "LINODE_PAT missing"; exit 1; fi
@@ -36,6 +41,14 @@ jobs:
 
           echo "===== apply aclp-collector.yaml (ConfigMap entity_ids) ====="
           kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
+
+          # Pin the collector image (Tokyo only). The shared manifest stays on
+          # :latest (2025-09 build, JWT-refresh bug). 1.5.0-docker is the newer
+          # build; testing whether it refreshes the Cloud Pulse JWT correctly so
+          # dbaas stops dropping. Same entrypoint (/aclp-collector) + same args.
+          ACLP_IMAGE="${ACLP_IMAGE:-linode/aclp-collector:1.5.0-docker}"
+          echo "===== pin aclp image = $ACLP_IMAGE ====="
+          kubectl -n monitoring set image deployment/aclp-collector collector="$ACLP_IMAGE"
 
           kubectl -n monitoring rollout restart deployment/aclp-collector
           kubectl -n monitoring rollout status deployment/aclp-collector --timeout=120s
