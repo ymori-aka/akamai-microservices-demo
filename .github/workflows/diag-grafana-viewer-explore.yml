@@ -1,0 +1,47 @@
+name: Diag Grafana viewer Explore access (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      trace_id:
+        description: "a recent short trace id"
+        required: true
+        default: "ec81808a29526b4abe02fc738d10994"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: env + anon ds/query (Explore path)
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== grafana pod (age = restarted?) + VIEWERS_CAN_EDIT env ====="
+          kubectl -n monitoring get pod -l app=grafana -o wide
+          kubectl -n monitoring exec deploy/grafana -- sh -c 'env | grep -i VIEWERS_CAN_EDIT' 2>/dev/null || echo "(env not found)"
+
+          G="http://grafana.monitoring.svc.cluster.local:3000"
+          run() { kubectl -n monitoring run gv-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+          TID="${{ inputs.trace_id }}"
+          NOWMS=$(( $(date +%s) * 1000 )); AGOMS=$(( ($(date +%s)-3600) * 1000 ))
+          BODY="{\"queries\":[{\"refId\":\"A\",\"datasource\":{\"type\":\"tempo\",\"uid\":\"tempo-uid\"},\"queryType\":\"traceId\",\"query\":\"${TID}\"}],\"from\":\"${AGOMS}\",\"to\":\"${NOWMS}\"}"
+
+          echo ""
+          echo "===== ANON POST /api/ds/query (what Explore does for the trace) ====="
+          run "curl -s -o /dev/null -w 'anon ds/query HTTP %{http_code}\n' -H 'Content-Type: application/json' -X POST '$G/api/ds/query' -d '$BODY'"
+
+          echo "===== ANON whoami (role) ====="
+          run "curl -s '$G/api/user' | head -c 120"; echo ""
+          echo "===== ANON GET /explore (SPA returns 200; routing is client-side) ====="
+          run "curl -s -o /dev/null -w 'anon /explore HTTP %{http_code}\n' '$G/explore'"
