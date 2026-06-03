@@ -39,7 +39,13 @@ data:
     storage:
       trace:
         backend: local
+        # vParquet4 is required for TraceQL span-event querying ({ event:name=... }).
+        # vParquet3 (the old default) returns "intrinsic 'event:name' not supported".
+        # New blocks are written in v4; existing v3 blocks age out via retention.
+        block:
+          version: vParquet4
         wal:
+          version: vParquet4
           path: /var/tempo/wal
         local:
           path: /var/tempo/blocks
