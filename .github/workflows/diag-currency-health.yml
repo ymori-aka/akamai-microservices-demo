@@ -1,0 +1,63 @@
+name: Diag currencyservice health (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: currencyservice pods / restarts / logs / endpoints / error frequency
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== currencyservice deploy + pods (ready/restarts/age) ====="
+          kubectl get deploy currencyservice -o wide 2>/dev/null
+          kubectl get pod -l app=currencyservice -o wide 2>/dev/null
+          echo "===== image + ENABLE_TRACING + resources ====="
+          kubectl get deploy currencyservice -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}' 2>/dev/null
+          kubectl set env deploy/currencyservice --list 2>/dev/null | grep -iE 'ENABLE_TRACING|OTEL|COLLECTOR|CURRENCY_API'
+          kubectl get deploy currencyservice -o jsonpath='  resources={.spec.template.spec.containers[0].resources}{"\n"}' 2>/dev/null
+          echo "===== restart reasons (last state / OOM / probe) ====="
+          kubectl describe pod -l app=currencyservice 2>/dev/null | grep -iE 'Last State|Reason|Exit Code|Restart Count|Liveness|Readiness|OOM|Killed|Started|Back-off|Unhealthy|probe failed' | head -25
+          echo "===== currencyservice recent logs (crash/otel/error) ====="
+          kubectl logs deploy/currencyservice --tail=60 2>/dev/null | tail -30
+          echo "===== previous container logs (if it restarted) ====="
+          kubectl logs deploy/currencyservice --previous --tail=30 2>/dev/null | tail -30
+
+          echo ""
+          echo "===== Service endpoints (are there ready currency endpoints?) ====="
+          kubectl get endpoints currencyservice -o wide 2>/dev/null
+          kubectl get endpointslices -l kubernetes.io/service-name=currencyservice -o wide 2>/dev/null
+
+          echo ""
+          echo "===== mesh: is currency behind a waypoint? istio/ambient labels ====="
+          kubectl get ns default --show-labels 2>/dev/null | grep -iE 'istio|ambient|NAME'
+          kubectl get deploy currencyservice -o jsonpath='  pod-labels={.spec.template.metadata.labels}{"\n"}' 2>/dev/null
+          kubectl get gateway,httproute -A 2>/dev/null | grep -iE 'waypoint|currency|NAME' | head
+          kubectl -n default get pod -l app=waypoint -o wide 2>/dev/null
+          kubectl -n istio-system get pod 2>/dev/null | grep -iE 'waypoint|ztunnel|istiod|NAME' | head
+
+          echo ""
+          echo "===== how often is 'no healthy upstream' happening? (Loki last 2h) ====="
+          run() { kubectl -n monitoring run lq-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+          NOW=$(date +%s)000000000; AGO=$(( $(date +%s) - 7200 ))000000000
+          run "curl -s 'http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/query_range?query=$(python3 -c "import urllib.parse;print(urllib.parse.quote('count_over_time({app=\"frontend\"} |~ `no healthy upstream` [10m])'))")&start=${AGO}&end=${NOW}&step=600' " \
+            | tr '}' '\n' | grep -oE '\[[0-9.]+,"[0-9]+"\]' | tail -20
+          echo "(各 [ts,count] = 10分窓あたりの発生数。ゼロや空なら今は出ていない)"
+
+          echo ""
+          echo "===== frontend currency-related env (which currency target) ====="
+          kubectl set env deploy/frontend --list 2>/dev/null | grep -iE 'CURRENCY'
