@@ -1,0 +1,34 @@
+name: Apply Grafana dashboards — TOKYO
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  apply:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply grafana-dashboards ConfigMap to Tokyo + restart grafana
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          kubectl -n monitoring delete configmap grafana-dashboards --ignore-not-found
+          kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          kubectl -n monitoring rollout restart deployment/grafana
+          kubectl -n monitoring rollout status deployment/grafana --timeout=150s
+          echo "===== grafana pod ====="
+          kubectl -n monitoring get pod -l app=grafana -o wide
+          echo "===== confirm data links now use queryType traceId ====="
+          kubectl -n monitoring get configmap grafana-dashboards -o yaml 2>/dev/null | grep -oE 'queryType%22:%22trace(ql|Id)%22' | sort | uniq -c
