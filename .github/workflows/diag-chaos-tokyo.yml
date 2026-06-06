@@ -1,0 +1,74 @@
+name: Diag Chaos Mesh (Tokyo, read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: chaos-mesh components + experiments status
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== chaos-mesh ns pods (controller / daemon / dashboard) ====="
+          kubectl -n chaos-mesh get pods -o wide 2>&1
+          echo "===== daemonset (chaos-daemon) desired vs ready ====="
+          kubectl -n chaos-mesh get ds 2>&1
+          echo "===== dashboard svc (LB IP / port) ====="
+          kubectl -n chaos-mesh get svc 2>&1 | grep -iE 'dashboard|LoadBalancer|NAME'
+
+          echo ""
+          echo "===== Chaos CRDs installed? ====="
+          kubectl get crd 2>/dev/null | grep -i chaos-mesh | head
+
+          echo ""
+          echo "===== chaos experiments (all namespaces) + phase ====="
+          for k in podchaos networkchaos stresschaos iochaos httpchaos schedule workflow; do
+            OUT=$(kubectl get $k -A 2>/dev/null)
+            [ -n "$OUT" ] && { echo "--- $k ---"; echo "$OUT"; }
+          done
+
+          echo ""
+          echo "===== experiment .status (conditions: Selected / AllInjected / phase) ====="
+          for k in podchaos networkchaos stresschaos; do
+            for nm in $(kubectl get $k -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+              ns=${nm%/*}; name=${nm#*/}
+              echo "--- $k $ns/$name ---"
+              kubectl -n "$ns" get $k "$name" -o jsonpath='  desiredPhase={.status.experiment.desiredPhase} conditions={.status.conditions}{"\n"}' 2>/dev/null
+              kubectl -n "$ns" get $k "$name" -o jsonpath='  records={range .status.experiment.containerRecords[*]}{.id}:{.phase} {end}{"\n"}' 2>/dev/null
+            done
+          done
+
+          echo ""
+          echo "===== selector namespaces in the sample experiments (target = default?) ====="
+          kubectl get podchaos,networkchaos,stresschaos -A -o jsonpath='{range .items[*]}{.kind}{" "}{.metadata.name}{" -> selector.namespaces="}{.spec.selector.namespaces}{" labels="}{.spec.selector.labelSelectors}{"\n"}{end}' 2>/dev/null
+
+          echo ""
+          echo "===== controller-manager recent logs (errors / no pod / rbac) ====="
+          kubectl -n chaos-mesh logs deploy/chaos-controller-manager --tail=120 2>/dev/null | grep -iE 'error|fail|no pod|forbidden|denied|selector|cannot|panic|inject' | tail -25
+
+          echo ""
+          echo "===== chaos-daemon recent logs ====="
+          kubectl -n chaos-mesh logs ds/chaos-daemon --tail=40 2>/dev/null | grep -iE 'error|fail|panic|refused|cannot' | tail -15
+
+          echo ""
+          echo "===== chaos-button (default ns) present? ====="
+          kubectl -n default get deploy,svc -l app=chaos-button -o wide 2>&1 | head
+          kubectl -n default get pod -l app=chaos-button -o wide 2>&1 | head
+
+          echo ""
+          echo "===== recent events in chaos-mesh ns ====="
+          kubectl -n chaos-mesh get events --sort-by=.lastTimestamp 2>&1 | tail -15
