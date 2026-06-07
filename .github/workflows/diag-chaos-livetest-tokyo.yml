@@ -1,0 +1,72 @@
+name: Diag Chaos Mesh live test (Tokyo)
+
+# Confirms the chaos engine actually injects + recovers, by applying a short
+# 40s NetworkChaos delay on adservice (non-critical), polling its status, then
+# deleting it. Also inspects the lingering pod-kill experiment + frontend pods.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: live inject + recover, inspect lingering experiments
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== current frontend pods (pod-kill target recreated?) ====="
+          kubectl -n default get pod -l app=frontend -o wide 2>&1
+
+          echo ""
+          echo "===== lingering btn-frontend-podchaos (action / duration / events) ====="
+          kubectl -n default get podchaos btn-frontend-podchaos -o jsonpath='action={.spec.action} duration={.spec.duration} desiredPhase={.status.experiment.desiredPhase}{"\n"}' 2>&1
+          kubectl -n default describe podchaos btn-frontend-podchaos 2>/dev/null | sed -n '/Events:/,$p' | head -15
+
+          echo ""
+          echo "===== LIVE TEST: apply 40s NetworkChaos delay on adservice ====="
+          cat <<'YAML' | kubectl apply -f - 2>&1
+          apiVersion: chaos-mesh.org/v1alpha1
+          kind: NetworkChaos
+          metadata:
+            name: diag-livetest-adservice
+            namespace: default
+          spec:
+            action: delay
+            mode: all
+            selector:
+              namespaces: [default]
+              labelSelectors:
+                app: adservice
+            delay:
+              latency: "200ms"
+              jitter: "50ms"
+            duration: "40s"
+YAML
+          echo "--- poll status (inject -> recover) ---"
+          for i in $(seq 1 12); do
+            sleep 8
+            C=$(kubectl -n default get networkchaos diag-livetest-adservice -o jsonpath='{.status.conditions}' 2>/dev/null)
+            R=$(kubectl -n default get networkchaos diag-livetest-adservice -o jsonpath='{range .status.experiment.containerRecords[*]}{.id}:{.phase} {end}' 2>/dev/null)
+            echo "  t+$((i*8))s  conds=$C  rec=$R"
+            echo "$C" | grep -q '"type":"AllRecovered","status":"True"' && { echo "  -> RECOVERED"; break; }
+          done
+
+          echo ""
+          echo "===== cleanup live test ====="
+          kubectl -n default delete networkchaos diag-livetest-adservice --ignore-not-found 2>&1
+
+          echo ""
+          echo "===== all chaos objects currently in default (pile-up?) ====="
+          kubectl -n default get podchaos,networkchaos,stresschaos 2>&1
