@@ -83,12 +83,15 @@ spec:
             value: "adservice:9555"
           - name: SHOPPING_ASSISTANT_SERVICE_ADDR
             value: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
-          # Kong AI Gateway endpoint (in-cluster ClusterIP). The frontend appends
-          # /v1/chat/completions and speaks the OpenAI chat API; Kong's ai-proxy
-          # plugin forwards to the self-hosted Gemma LLM. Non-empty enables the
-          # Kong radio in the chat UI.
-          - name: SHOPPING_ASSISTANT_KONG_ADDR
-            value: "http://kong-kong-proxy.kong.svc.cluster.local"
+          # Kong AI Gateway endpoint (in-cluster ClusterIP). Non-empty makes Kong
+          # the DEFAULT chat backend (UI radio + handler default).
+          # DISABLED 2026-06-08: the Kong AI route is broken ("no Route matched
+          # with those values") which broke the default chat. Unset => chat
+          # defaults to the working Zuplo / Akamai Functions lane
+          # (SHOPPING_ASSISTANT_SERVICE_ADDR). Re-enable once the Kong ai-proxy
+          # route is restored (deploy-kong.yml / kong-plugins.yml).
+          # - name: SHOPPING_ASSISTANT_KONG_ADDR
+          #   value: "http://kong-kong-proxy.kong.svc.cluster.local"
           # Akamai Firewall for AI (FAI) — screens the user prompt in front of
           # Kong on the "kong" chat lane. FAI_API_KEY comes from the
           # fai-credentials secret; optional=true so the frontend still rolls
