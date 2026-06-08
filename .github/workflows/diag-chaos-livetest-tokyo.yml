@@ -36,24 +36,8 @@ jobs:
 
           echo ""
           echo "===== LIVE TEST: apply 40s NetworkChaos delay on adservice ====="
-          cat <<'YAML' | kubectl apply -f - 2>&1
-          apiVersion: chaos-mesh.org/v1alpha1
-          kind: NetworkChaos
-          metadata:
-            name: diag-livetest-adservice
-            namespace: default
-          spec:
-            action: delay
-            mode: all
-            selector:
-              namespaces: [default]
-              labelSelectors:
-                app: adservice
-            delay:
-              latency: "200ms"
-              jitter: "50ms"
-            duration: "40s"
-YAML
+          python3 -c "import json;open('/tmp/nc.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'NetworkChaos','metadata':{'name':'diag-livetest-adservice','namespace':'default'},'spec':{'action':'delay','mode':'all','selector':{'namespaces':['default'],'labelSelectors':{'app':'adservice'}},'delay':{'latency':'200ms','jitter':'50ms'},'duration':'40s'}}))"
+          kubectl apply -f /tmp/nc.json 2>&1
           echo "--- poll status (inject -> recover) ---"
           for i in $(seq 1 12); do
             sleep 8
