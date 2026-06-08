@@ -1,0 +1,56 @@
+name: Fix chat -> Zuplo default (Tokyo)
+
+# Kong AI Gateway route is broken ("no Route matched"). The frontend defaults
+# the chat backend to Kong whenever SHOPPING_ASSISTANT_KONG_ADDR is set (UI
+# radio pre-checks Kong; handler default also picks Kong). Removing that env
+# makes the UI default to Zuplo and the handler fall back to the (working)
+# Akamai Functions / Zuplo Spin endpoint. Env-only change, no image rebuild.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+      assistant_addr:
+        description: "Zuplo/Spin shopping-assistant base URL"
+        required: true
+        default: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: drop KONG_ADDR, ensure Zuplo addr, rollout, verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== BEFORE: frontend assistant env ====="
+          kubectl set env deploy/frontend --list 2>/dev/null | grep -iE 'ASSISTANT|KONG'
+
+          echo "===== set Zuplo addr + ENABLE_ASSISTANT, REMOVE KONG_ADDR ====="
+          kubectl set env deploy/frontend \
+            ENABLE_ASSISTANT=true \
+            SHOPPING_ASSISTANT_SERVICE_ADDR="${{ inputs.assistant_addr }}"
+          kubectl set env deploy/frontend SHOPPING_ASSISTANT_KONG_ADDR-
+          kubectl rollout status deploy/frontend --timeout=150s
+
+          echo "===== AFTER: frontend assistant env ====="
+          kubectl set env deploy/frontend --list 2>/dev/null | grep -iE 'ASSISTANT|KONG'
+
+          echo "===== verify: assistant page default backend (expect zuplo checked) ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          curl -s -m 15 "http://$FE/assistant" 2>/dev/null | grep -oE 'value="(kong|zuplo)"[^>]*' | head
+
+          echo "===== verify: default /bot (no backend) should hit Zuplo, NOT 'no Route matched' ====="
+          for i in 1 2 3; do
+            curl -s -m 30 -X POST "http://$FE/bot" -H "Content-Type: application/json" \
+              -d '{"message":"hi","history":[]}' -w "  [HTTP %{http_code}]\n" | head -c 200; echo ""
+          done
