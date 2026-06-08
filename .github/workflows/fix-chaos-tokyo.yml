@@ -1,0 +1,53 @@
+name: Fix Chaos Mesh - cleanup + live verify (Tokyo)
+
+# Clears stale/lingering chaos experiments (incl. pod-kill objects stuck in
+# "Injected") for a clean demo slate, then proves the engine works by applying
+# a 40s NetworkChaos delay on adservice and watching it inject -> recover.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: cleanup stale chaos + live inject/recover test
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== BEFORE: chaos CRs in default ====="
+          kubectl -n default get podchaos,networkchaos,stresschaos 2>&1
+
+          echo "===== cleanup (clean demo slate) ====="
+          kubectl -n default delete podchaos --all 2>&1
+          kubectl -n default delete networkchaos --all 2>&1
+          kubectl -n default delete stresschaos --all 2>&1
+
+          echo "===== LIVE TEST: NetworkChaos delay 40s on adservice ====="
+          python3 -c "import json;open('/tmp/nc.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'NetworkChaos','metadata':{'name':'verify-adservice','namespace':'default'},'spec':{'action':'delay','mode':'all','selector':{'namespaces':['default'],'labelSelectors':{'app':'adservice'}},'delay':{'latency':'200ms','jitter':'50ms'},'duration':'40s'}}))"
+          kubectl apply -f /tmp/nc.json 2>&1
+          for i in $(seq 1 11); do
+            sleep 8
+            C=$(kubectl -n default get networkchaos verify-adservice -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>/dev/null)
+            echo "  t+$((i*8))s  $C"
+            echo "$C" | grep -q 'AllRecovered=True' && { echo "  -> INJECTED then RECOVERED = engine OK"; break; }
+          done
+
+          echo "===== cleanup live test ====="
+          kubectl -n default delete networkchaos verify-adservice --ignore-not-found 2>&1
+
+          echo "===== AFTER: chaos CRs in default (clean) ====="
+          kubectl -n default get podchaos,networkchaos,stresschaos 2>&1
+          echo "===== chaos-mesh components (still healthy?) ====="
+          kubectl -n chaos-mesh get pods --no-headers 2>/dev/null | awk '{print $1, $3, "restarts="$4}'
