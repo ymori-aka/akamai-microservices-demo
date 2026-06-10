@@ -1,0 +1,336 @@
+[slides]
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akamai Functions 競合分析</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <style>
+        /* 2. 基本スタイルとリセット */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #f1f5f9;
+            display: grid;
+            gap: 40px;
+            grid-template-columns: 1fr;
+            place-items: center;
+            padding: 40px 0;
+        }
+
+        /* 3. スライドコンテナの共通設定 */
+        .slide-container {
+            width: 1280px;
+            height: 720px;
+            background-color: #ffffff;
+            font-family: 'Noto Sans JP', sans-serif;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            padding: 60px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            border-radius: 12px;
+        }
+
+        /* アカマイ・ブランドカラーの背景デザイン (グラデーション・シェイプ) */
+        .slide-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #002856 0%, #004d80 100%);
+            z-index: 0;
+        }
+
+        /* コンテンツを背景の上に配置 */
+        .slide-container > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* 4. タイポグラフィ */
+        h1, h2, h3 {
+            font-family: 'Poppins', 'Noto Sans JP', sans-serif;
+            color: #ffffff;
+        }
+
+        h1 { font-size: 64px; font-weight: 700; line-height: 1.1; }
+        .slide-title { font-size: 42px; font-weight: 600; margin-bottom: 40px; width: 100%; text-align: left; }
+        p, li { font-size: 20px; color: #e2e8f0; line-height: 1.6; }
+
+        .accent-text { color: #ff9933; } /* Neon Carrot accent */
+
+        /* 5. レイアウト・クラス */
+        .content-area {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            width: 100%;
+        }
+
+        /* Title Slide Layout */
+        .title-layout {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+        .title-layout h1 { margin-bottom: 20px; }
+        .title-layout .subtitle { font-size: 28px; max-width: 900px; color: #0099cc; font-weight: 400; }
+
+        /* Tiled Icons Layout */
+        .tiled-content {
+            display: flex;
+            gap: 30px;
+            width: 100%;
+        }
+        .tile {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            padding: 35px;
+            text-align: center;
+        }
+        .tile .icon { font-size: 48px; color: #0099cc; margin-bottom: 20px; }
+        .tile h3 { font-size: 24px; margin-bottom: 15px; }
+        .tile p { font-size: 16px; text-align: left; }
+
+        /* Bleed Image Layout */
+        .slide-container.bleed-image-layout {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            padding: 0;
+            align-items: start;
+        }
+        .bleed-image-layout .content-container { padding: 60px; display: flex; flex-direction: column; justify-content: center; height: 100%; }
+        .bleed-image-layout .image-container { height: 720px; overflow: hidden; }
+        .bleed-image-layout .bleed-image-side { width: 100%; height: 720px; object-fit: cover; }
+
+        /* Bar Chart Layout */
+        .chart-container { width: 100%; display: flex; flex-direction: column; gap: 30px; }
+        .bar-row { display: flex; align-items: center; gap: 20px; }
+        .bar-label { flex: 0 0 250px; text-align: right; font-weight: 700; color: #ffffff; }
+        .bar-outer { flex-grow: 1; height: 50px; background: rgba(255, 255, 255, 0.1); border-radius: 25px; overflow: hidden; position: relative; }
+        .bar-fill { height: 100%; background: linear-gradient(90deg, #0099cc, #ff9933); border-radius: 25px; display: flex; align-items: center; padding-left: 20px; color: #fff; font-weight: 700; }
+
+        /* Two Column Layout */
+        .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; width: 100%; }
+        .column-box { background: rgba(255, 255, 255, 0.05); padding: 30px; border-radius: 12px; }
+        .column-box h3 { margin-bottom: 20px; border-left: 5px solid #ff9933; padding-left: 15px; }
+        .column-box ul { list-style: none; }
+        .column-box li { margin-bottom: 12px; position: relative; padding-left: 30px; font-size: 18px; }
+        .column-box li::before { content: '✓'; position: absolute; left: 0; color: #00b050; font-weight: bold; }
+        .column-box li.lag::before { content: '⚠'; color: #ff9933; }
+
+        /* Table Layout */
+        .table-layout table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .table-layout th { background: rgba(0, 153, 204, 0.3); color: #ffffff; padding: 20px; text-align: left; font-size: 22px; }
+        .table-layout td { border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding: 18px 20px; color: #e2e8f0; font-size: 18px; }
+
+        /* Q&A Layout */
+        .qa-layout { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        .qa-layout h2 { font-size: 80px; margin-bottom: 20px; color: #ff9933; }
+
+        /* Generic Helper */
+        .subtitle-text { font-size: 20px; margin-top: -30px; margin-bottom: 40px; color: #0099cc; }
+    </style>
+</head>
+<body>
+
+    <div class="slide-container" id="slide1">
+        <div class="title-layout">
+            <h1>Akamai Functions<br><span class="accent-text">競合分析</span></h1>
+            <p class="subtitle">パフォーマンス、柔軟性、およびエンタープライズ・スケールの分析</p>
+            <div style="margin-top: 60px; color: rgba(255,255,255,0.5);">© 2025 Akamai | Confidential</div>
+        </div>
+    </div>
+
+    <div class="slide-container" id="slide2">
+        <h2 class="slide-title">Akamai vs. Cloudflare Workers</h2>
+        <p class="subtitle-text">優れたパフォーマンスと柔軟性</p>
+        <div class="content-area">
+            <div class="tiled-content">
+                <div class="tile">
+                    <div class="icon"><i class="fa-solid fa-code"></i></div>
+                    <h3>優れた言語とランタイム</h3>
+                    <p>JavaScript, TypeScript, Rust, Python, Go, .NETに対応。標準ベースのWebAssembly経由でフルサポート。</p>
+                </div>
+                <div class="tile">
+                    <div class="icon"><i class="fa-solid fa-microchip"></i></div>
+                    <h3>大容量リソース</h3>
+                    <p>128MB～256MBメモリ、30秒以上の実行、50MB以上のアプリサイズ。カスタムAIモデルの運用が可能。</p>
+                </div>
+                <div class="tile">
+                    <div class="icon"><i class="fa-solid fa-layer-group"></i></div>
+                    <h3>エンタープライズの柔軟性</h3>
+                    <p>1アプリあたり複数関数に対応。アプリ分割によるモジュール化や、データ主権のためのカスタムリージョン配置が可能。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="slide-container bleed-image-layout" id="slide3">
+        <div class="content-container">
+            <h2 class="slide-title">ネットワークの優位性</h2>
+            <div class="content-area">
+                <ul style="list-style: none; color: white;">
+                    <li style="margin-bottom: 25px;"><strong style="color: #ff9933;">世界最大のエッジネットワーク:</strong> 実証済みの安定性とセキュリティ。</li>
+                    <li style="margin-bottom: 25px;"><strong style="color: #ff9933;">卓越したパフォーマンス:</strong> 予備テストでRTTが10〜15%高速。</li>
+                    <li style="margin-bottom: 25px;"><strong style="color: #ff9933;">ポータビリティ:</strong> 特定のDBスタックへのロックインなし。「Run Spin anywhere」を実現。</li>
+                </ul>
+            </div>
+        </div>
+        <div class="image-container">
+            <img class="bleed-image-side" src="http://googleusercontent.com/image_collection/image_retrieval/3944124235895910289" alt="Akamai Global Edge Network Map">
+        </div>
+    </div>
+
+    <div class="slide-container" id="slide4">
+        <h2 class="slide-title">Akamai vs. AWS Lambda</h2>
+        <p class="subtitle-text">500倍高速なコールドスタートとグローバル展開</p>
+        <div class="content-area">
+            <div class="chart-container">
+                <div class="bar-row">
+                    <div class="bar-label">Akamai コールドスタート</div>
+                    <div class="bar-outer">
+                        <div class="bar-fill" style="width: 5%;">0.5ms</div>
+                    </div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label">AWS Lambda コールドスタート</div>
+                    <div class="bar-outer">
+                        <div class="bar-fill" style="width: 90%; background: #64748b;">200-500ms</div>
+                    </div>
+                </div>
+                <div class="bar-row" style="margin-top: 40px;">
+                    <div class="bar-label">グローバル展開速度</div>
+                    <div class="bar-outer">
+                        <div class="bar-fill" style="width: 15%; background: #ff9933;">15秒未満</div>
+                    </div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-label">AWS 展開速度</div>
+                    <div class="bar-outer">
+                        <div class="bar-fill" style="width: 80%; background: #64748b;">2〜5分</div>
+                    </div>
+                </div>
+            </div>
+            <p style="margin-top: 30px; text-align: center; font-style: italic;">Akamaiは、エグレス料金無料のシンプルなリクエスト単価制を採用しています。</p>
+        </div>
+    </div>
+
+    <div class="slide-container" id="slide5">
+        <h2 class="slide-title">開発者体験とエコシステムの比較</h2>
+        <div class="content-area">
+            <div class="two-column">
+                <div class="column-box">
+                    <h3>優れた開発者体験 (DX)</h3>
+                    <ul>
+                        <li>完全なローカルテスト環境をサポート</li>
+                        <li>アプリ分割とサービスチェーン機能</li>
+                        <li>カスタムマルチリージョン・デプロイ</li>
+                        <li>GitHubとの統合による自動化</li>
+                    </ul>
+                </div>
+                <div class="column-box">
+                    <h3>今後の強化ポイント</h3>
+                    <ul>
+                        <li class="lag">AWSのような深いエコシステム統合（S3, DynamoDB等）</li>
+                        <li class="lag">Durable Objects（状態管理）への対応</li>
+                        <li class="lag">マルチスレッド・ライブラリの組み込み</li>
+                        <li class="lag">15分以上の長時間実行プロセス</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="slide-container" id="slide6">
+        <div class="title-layout">
+            <div style="background: #ff9933; width: 100px; height: 5px; margin-bottom: 30px;"></div>
+            <h1>Akamai vs. Fastly</h1>
+            <p class="subtitle">圧倒的なネットワーク規模とエンタープライズ向けの深度</p>
+            <div style="margin-top: 40px; width: 600px;">
+                <img src="http://googleusercontent.com/image_collection/image_retrieval/9836448838143135871" style="width: 100%; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2);" alt="Enterprise Infrastructure">
+            </div>
+        </div>
+    </div>
+
+    <div class="slide-container" id="slide7">
+        <h2 class="slide-title">ハードウェア・コスト・移行の優位性</h2>
+        <div class="content-area">
+            <div class="table-layout">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>機能項目</th>
+                            <th>Akamai Functions</th>
+                            <th>Fastly Compute@Edge</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>ハードウェア加速</td>
+                            <td>GPU搭載Linode統合 (AI/ML最適化)</td>
+                            <td>限定的 または なし</td>
+                        </tr>
+                        <tr>
+                            <td>価格体系</td>
+                            <td>リクエスト単価 + エグレス無料</td>
+                            <td>基本料$50 + 変動する使用量指標</td>
+                        </tr>
+                        <tr>
+                            <td>エンタープライズ制御</td>
+                            <td>管理済み隔離インスタンス / LKE</td>
+                            <td>標準プランでは提供なし</td>
+                        </tr>
+                        <tr>
+                            <td>データ主権</td>
+                            <td>カスタムリージョン・マッピング</td>
+                            <td>限定的なオプション</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 40px; display: flex; gap: 30px; align-items: center;">
+                <div style="flex: 0 0 300px;">
+                    <img src="http://googleusercontent.com/image_collection/image_retrieval/13947839670493893670" style="width: 100%; border-radius: 12px;" alt="AI Edge Computing">
+                </div>
+                <div>
+                    <p><strong style="color: #0099cc;">移行パス:</strong> Fastlyの関数は、Akamai上のFermyonへ簡単に移植可能です。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="slide-container" id="slide8">
+        <div class="qa-layout">
+            <h2>ご質問はありますか？</h2>
+            <p style="font-size: 24px; margin-bottom: 40px;">Akamai Functionsで、次世代のエッジコンピューティングを実現しましょう。</p>
+            <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 12px; width: 500px;">
+                <p style="color: #0099cc; margin-bottom: 10px;">主要ユースケース:</p>
+                <p style="font-size: 16px;">A/Bテスト, AI推論, 認証(AuthZ), 動的キャッシュ, SSR, GraphQL, LLMs, マイクロサービス</p>
+            </div>
+            <div style="margin-top: 50px; opacity: 0.7;">www.akamai.com</div>
+        </div>
+    </div>
+
+</body>
+</html>
+

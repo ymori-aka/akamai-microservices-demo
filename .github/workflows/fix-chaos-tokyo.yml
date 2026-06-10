@@ -30,9 +30,22 @@ jobs:
           kubectl -n default get podchaos,networkchaos,stresschaos 2>&1
 
           echo "===== cleanup (clean demo slate) ====="
-          kubectl -n default delete podchaos --all 2>&1
-          kubectl -n default delete networkchaos --all 2>&1
-          kubectl -n default delete stresschaos --all 2>&1
+          # NOTE: chaos CRs carry the chaos-mesh.org finalizer; if the target
+          # pod is already gone (pod-kill) the controller may never finish
+          # recovery and a plain `kubectl delete` (which waits) hangs forever.
+          # So: delete without waiting, then strip finalizers off anything
+          # still stuck in Terminating.
+          for k in podchaos networkchaos stresschaos; do
+            kubectl -n default delete $k --all --wait=false 2>&1
+          done
+          sleep 10
+          for k in podchaos networkchaos stresschaos; do
+            for n in $(kubectl -n default get $k -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+              echo "  stripping finalizers: $k/$n"
+              kubectl -n default patch $k "$n" --type=merge -p '{"metadata":{"finalizers":[]}}' 2>&1
+            done
+          done
+          sleep 5
 
           echo "===== LIVE TEST: NetworkChaos delay 40s on adservice ====="
           python3 -c "import json;open('/tmp/nc.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'NetworkChaos','metadata':{'name':'verify-adservice','namespace':'default'},'spec':{'action':'delay','mode':'all','selector':{'namespaces':['default'],'labelSelectors':{'app':'adservice'}},'delay':{'latency':'200ms','jitter':'50ms'},'duration':'40s'}}))"
