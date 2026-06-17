@@ -1,0 +1,56 @@
+name: Diag Chaos inject failure logs (Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: controller + daemon logs around inject failure
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== apply a fresh NetworkChaos to generate live errors ====="
+          python3 -c "import json;open('/tmp/nc.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'NetworkChaos','metadata':{'name':'dbg-pcs','namespace':'default'},'spec':{'action':'delay','mode':'all','selector':{'namespaces':['default'],'labelSelectors':{'app':'productcatalogservice'}},'delay':{'latency':'150ms'},'duration':'120s'}}))"
+          kubectl apply -f /tmp/nc.json 2>&1
+          echo "wait 40s for inject attempt..."; sleep 40
+
+          echo "===== networkchaos dbg-pcs status (records + conditions) ====="
+          kubectl -n default get networkchaos dbg-pcs -o jsonpath='conds={range .status.conditions[*]}{.type}={.status} {end}{"\n"}records={.status.experiment.containerRecords}{"\n"}' 2>&1
+
+          echo ""
+          echo "===== controller-manager logs (inject / apply / daemon / error / dbg-pcs) ====="
+          for p in $(kubectl -n chaos-mesh get pod -l app.kubernetes.io/component=controller-manager -o name 2>/dev/null); do
+            kubectl -n chaos-mesh logs "$p" --tail=200 2>/dev/null | grep -iE 'dbg-pcs|productcatalog|inject|apply|daemon|grpc|error|failed|netns|chaos-daemon' | tail -20
+          done
+
+          echo ""
+          echo "===== chaos-daemon logs (apply/netns/tc/error) on all daemon pods ====="
+          for p in $(kubectl -n chaos-mesh get pod -l app.kubernetes.io/component=chaos-daemon -o name 2>/dev/null); do
+            echo "--- $p ---"
+            kubectl -n chaos-mesh logs "$p" --tail=120 2>/dev/null | grep -iE 'apply|netem|tc |netns|error|fail|set net|container|runtime|productcatalog' | tail -15
+          done
+
+          echo ""
+          echo "===== chaos-daemon volume/runtime mounts (containerd sock?) ====="
+          kubectl -n chaos-mesh get ds chaos-daemon -o jsonpath='{range .spec.template.spec.volumes[*]}{.name}={.hostPath.path} {end}{"\n"}' 2>&1
+          kubectl -n chaos-mesh get ds chaos-daemon -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}' 2>&1
+
+          echo ""
+          echo "===== cleanup ====="
+          kubectl -n default delete networkchaos dbg-pcs --wait=false 2>&1
+          sleep 5
+          kubectl -n default patch networkchaos dbg-pcs --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null
