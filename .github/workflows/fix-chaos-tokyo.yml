@@ -47,18 +47,25 @@ jobs:
           done
           sleep 5
 
-          echo "===== LIVE TEST: NetworkChaos delay 40s on adservice ====="
-          python3 -c "import json;open('/tmp/nc.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'NetworkChaos','metadata':{'name':'verify-adservice','namespace':'default'},'spec':{'action':'delay','mode':'all','selector':{'namespaces':['default'],'labelSelectors':{'app':'adservice'}},'delay':{'latency':'200ms','jitter':'50ms'},'duration':'40s'}}))"
+          echo "===== target pods (frontend / productcatalog ready?) ====="
+          kubectl -n default get pod -l app=productcatalogservice -o wide 2>&1
+          echo "===== LIVE TEST: NetworkChaos delay 90s on productcatalogservice ====="
+          python3 -c "import json;open('/tmp/nc.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'NetworkChaos','metadata':{'name':'verify-pcs','namespace':'default'},'spec':{'action':'delay','mode':'all','selector':{'namespaces':['default'],'labelSelectors':{'app':'productcatalogservice'}},'delay':{'latency':'200ms','jitter':'50ms'},'duration':'90s'}}))"
           kubectl apply -f /tmp/nc.json 2>&1
-          for i in $(seq 1 11); do
+          INJECTED=no
+          for i in $(seq 1 18); do
             sleep 8
-            C=$(kubectl -n default get networkchaos verify-adservice -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>/dev/null)
+            C=$(kubectl -n default get networkchaos verify-pcs -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>/dev/null)
             echo "  t+$((i*8))s  $C"
-            echo "$C" | grep -q 'AllRecovered=True' && { echo "  -> INJECTED then RECOVERED = engine OK"; break; }
+            echo "$C" | grep -q 'AllInjected=True' && INJECTED=yes
+            echo "$C" | grep -q 'AllRecovered=True' && { echo "  -> RECOVERED"; break; }
           done
+          echo "  RESULT: injected=$INJECTED  (engine OK if injected=yes then recovered)"
 
           echo "===== cleanup live test ====="
-          kubectl -n default delete networkchaos verify-adservice --ignore-not-found 2>&1
+          kubectl -n default delete networkchaos verify-pcs --wait=false --ignore-not-found 2>&1
+          sleep 5
+          kubectl -n default patch networkchaos verify-pcs --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null
 
           echo "===== AFTER: chaos CRs in default (clean) ====="
           kubectl -n default get podchaos,networkchaos,stresschaos 2>&1
