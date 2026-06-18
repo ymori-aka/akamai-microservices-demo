@@ -1,0 +1,54 @@
+name: Diag Chaos - ambient vs pod-kill (Tokyo)
+
+# Hypothesis: NetworkChaos/StressChaos stall at AllInjected=False because the
+# target (default ns) pods are in Istio ambient; ztunnel rewrites the pod netns
+# so chaos-daemon's tc/netem can't complete. PodChaos pod-kill needs no netns
+# work, so it should inject fine. This checks default-ns ambient enrollment and
+# runs a pod-kill to compare.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: default ns ambient? + pod-kill inject test
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== default ns labels (istio.io/dataplane-mode=ambient?) ====="
+          kubectl get ns default -o jsonpath='{.metadata.labels}{"\n"}' 2>&1
+          echo "===== adservice pod: ztunnel/ambient redirect annotations? ====="
+          kubectl -n default get pod -l app=adservice -o jsonpath='{range .items[*]}{.metadata.name}{" ann="}{.metadata.annotations.ambient\.istio\.io/redirection}{" "}{.metadata.labels.istio\.io/dataplane-mode}{"\n"}{end}' 2>&1
+          kubectl -n istio-system get pod -l app=ztunnel -o wide 2>/dev/null | head
+
+          echo ""
+          echo "===== PodChaos pod-kill on adservice (no netns work needed) ====="
+          OLD=$(kubectl -n default get pod -l app=adservice -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          echo "  adservice pod before: $OLD"
+          python3 -c "import json;open('/tmp/pk.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'PodChaos','metadata':{'name':'verify-kill','namespace':'default'},'spec':{'action':'pod-kill','mode':'one','selector':{'namespaces':['default'],'labelSelectors':{'app':'adservice'}}}}))"
+          kubectl apply -f /tmp/pk.json 2>&1
+          for i in $(seq 1 10); do
+            sleep 6
+            C=$(kubectl -n default get podchaos verify-kill -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>/dev/null)
+            echo "  t+$((i*6))s  $C"
+            echo "$C" | grep -q 'AllInjected=True' && { echo "  -> POD-KILL INJECTED OK"; break; }
+          done
+          echo "  adservice pod after: $(kubectl -n default get pod -l app=adservice -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) (changed = kill worked)"
+
+          echo "===== cleanup ====="
+          kubectl -n default delete podchaos verify-kill --wait=false 2>&1
+          sleep 4
+          kubectl -n default patch podchaos verify-kill --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null
