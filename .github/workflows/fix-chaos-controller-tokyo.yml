@@ -1,0 +1,70 @@
+name: Fix Chaos controller (ambient/leader-election) + retest (Tokyo)
+
+# chaos-controller-manager hits intermittent "Error retrieving lease lock ...
+# context deadline exceeded" to the API server (10.128.0.1), so injections
+# stall at Selected=True/AllInjected=False. Tokyo runs Istio ambient; if the
+# chaos-mesh namespace is enrolled in the mesh, ztunnel can break the
+# controller's API access. This removes any ambient enrollment from chaos-mesh,
+# restarts controller + daemon, and retests a live injection.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: inspect ambient enrollment, exclude chaos-mesh, restart, retest
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== chaos-mesh namespace labels (ambient/istio?) ====="
+          kubectl get ns chaos-mesh -o jsonpath='{.metadata.labels}{"\n"}' 2>&1
+          echo "===== chaos-mesh pods: are they in ambient? (istio.io/dataplane-mode on pods / ztunnel) ====="
+          kubectl -n chaos-mesh get pods -L istio.io/dataplane-mode 2>&1 | head
+
+          echo ""
+          echo "===== exclude chaos-mesh from ambient mesh (idempotent) ====="
+          kubectl label ns chaos-mesh istio.io/dataplane-mode- 2>&1
+          kubectl label ns chaos-mesh istio.io/dataplane-mode=none --overwrite 2>&1
+
+          echo "===== restart controller-manager + chaos-daemon ====="
+          kubectl -n chaos-mesh rollout restart deploy/chaos-controller-manager 2>&1
+          kubectl -n chaos-mesh rollout restart ds/chaos-daemon 2>&1
+          kubectl -n chaos-mesh rollout status deploy/chaos-controller-manager --timeout=150s 2>&1
+          kubectl -n chaos-mesh rollout status ds/chaos-daemon --timeout=150s 2>&1
+          sleep 10
+
+          echo "===== controller can reach API now? (recent leaderelection errors) ====="
+          kubectl -n chaos-mesh logs deploy/chaos-controller-manager --tail=40 2>/dev/null | grep -iE 'lease|leaderelection|deadline|elected|started leading' | tail -8
+          echo "(no recent 'deadline exceeded' = API reachable)"
+
+          echo ""
+          echo "===== LIVE RETEST: NetworkChaos delay 90s on productcatalogservice ====="
+          python3 -c "import json;open('/tmp/nc.json','w').write(json.dumps({'apiVersion':'chaos-mesh.org/v1alpha1','kind':'NetworkChaos','metadata':{'name':'verify-pcs','namespace':'default'},'spec':{'action':'delay','mode':'all','selector':{'namespaces':['default'],'labelSelectors':{'app':'productcatalogservice'}},'delay':{'latency':'200ms','jitter':'50ms'},'duration':'90s'}}))"
+          kubectl apply -f /tmp/nc.json 2>&1
+          INJECTED=no
+          for i in $(seq 1 16); do
+            sleep 8
+            C=$(kubectl -n default get networkchaos verify-pcs -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}' 2>/dev/null)
+            echo "  t+$((i*8))s  $C"
+            echo "$C" | grep -q 'AllInjected=True' && { INJECTED=yes; echo "  -> INJECTED OK"; }
+            echo "$C" | grep -q 'AllRecovered=True' && { echo "  -> RECOVERED"; break; }
+          done
+          echo "  RESULT: injected=$INJECTED"
+
+          echo "===== cleanup ====="
+          kubectl -n default delete networkchaos verify-pcs --wait=false 2>&1
+          sleep 5
+          kubectl -n default patch networkchaos verify-pcs --type=merge -p '{"metadata":{"finalizers":[]}}' 2>/dev/null
