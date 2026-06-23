@@ -1,0 +1,47 @@
+name: Diag store 500 (Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: frontend 500 cause + downstream pods + leftover chaos
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== all default pods (NotReady / restarts / down?) ====="
+          kubectl -n default get pods -o wide 2>&1 | grep -viE 'Running|Completed' ; echo "--- full ---"; kubectl -n default get pods 2>&1 | awk 'NR==1 || $3!="Running" || $4+0>3'
+
+          echo ""
+          echo "===== frontend recent error logs (500 cause) ====="
+          kubectl -n default logs deploy/frontend --tail=80 2>&1 | grep -iE 'error|500|rpc|failed|panic|unavailable|deadline|currency|productcatalog|recommend|ad |cart' | tail -25
+
+          echo ""
+          echo "===== leftover chaos CRs (orphaned netem from forced finalizer delete?) ====="
+          kubectl -n default get podchaos,networkchaos,stresschaos 2>&1
+
+          echo ""
+          echo "===== quick gRPC-ish health: describe non-running default pods ====="
+          for p in $(kubectl -n default get pods --no-headers 2>/dev/null | awk '$3!="Running"{print $1}'); do
+            echo "--- $p ---"; kubectl -n default describe pod "$p" 2>/dev/null | grep -iE 'State|Reason|Exit|Last|Restart|OOM|Back-off|Unhealthy|Killed|Error' | head -8
+          done
+
+          echo ""
+          echo "===== currency/productcatalog/ad pods (home deps) ====="
+          for a in currencyservice productcatalogservice adservice recommendationservice cartservice; do
+            kubectl -n default get pod -l app=$a -o jsonpath="$a: {range .items[*]}{.status.phase} restarts={.status.containerStatuses[0].restartCount} ready={.status.containerStatuses[0].ready} {end}{\"\n\"}" 2>/dev/null
+          done
