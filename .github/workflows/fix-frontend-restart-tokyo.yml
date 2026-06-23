@@ -1,0 +1,39 @@
+name: Restart frontend -> restore store (Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: restart frontend, re-verify home, show fresh error if any
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== currencyservice direct gRPC reachability (from a pod) ====="
+          kubectl -n default get pod -l app=currencyservice -o wide 2>&1
+          kubectl -n default get endpoints currencyservice 2>&1
+
+          echo "===== rollout restart frontend (force fresh gRPC conns) ====="
+          kubectl -n default rollout restart deploy/frontend 2>&1
+          kubectl -n default rollout status deploy/frontend --timeout=150s 2>&1
+
+          echo "===== VERIFY store home ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 6); do curl -s -o /dev/null -w "  / -> HTTP %{http_code}\n" -m 12 "http://$FE/"; sleep 2; done
+
+          echo "===== if still failing: fresh frontend error ====="
+          kubectl -n default logs deploy/frontend --tail=40 2>&1 | grep -iE 'error|rpc|unavailable|reset|could not|deadline' | tail -10
