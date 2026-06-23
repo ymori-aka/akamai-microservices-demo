@@ -1,0 +1,19 @@
+name: chk-nb
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: check
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          run(){ kubectl -n default run nbchk-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+          echo "=== in-cluster: frontend ClusterIP home ==="; run "curl -s -o /dev/null -w 'clusterip / HTTP %{http_code}\n' -m 10 http://frontend.default.svc.cluster.local:80/"
+          echo "=== in-cluster: LB external IP (hairpin) ==="; run "curl -s -o /dev/null -w 'LBIP / HTTP %{http_code}\n' -m 10 http://172.237.1.139/"
+          echo "=== svc annotations (NB id / health) ==="; kubectl -n default get svc frontend-external -o jsonpath='{.metadata.annotations}{"\n"}' 2>&1 | head -c 600; echo ""
+          echo "=== Linode NodeBalancers (this account) ==="
+          curl -s -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/nodebalancers" | python3 -c 'import sys,json; [print("  id=%s ipv4=%s label=%s"%(n["id"],n.get("ipv4"),n.get("label"))) for n in json.load(sys.stdin).get("data",[]) if "172.237.1.139" in str(n.get("ipv4"))]' 2>/dev/null
