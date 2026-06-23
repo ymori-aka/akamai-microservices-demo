@@ -1,0 +1,21 @@
+name: chk-cni
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: check
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== kube-system CNI/proxy/dns pods (restarts/status) ==="
+          kubectl -n kube-system get pods -o wide 2>&1 | grep -iE 'cilium|calico|kube-proxy|coredns|NAME' | head -40
+          echo "=== recent kube-system events (network/FailedCreatePodSandBox/CNI) ==="
+          kubectl -n kube-system get events --sort-by=.lastTimestamp 2>&1 | grep -iE 'cni|network|sandbox|cilium|calico|fail' | tail -15
+          echo "=== pods across cluster NOT Running (sandbox/network errors?) ==="
+          kubectl get pods -A 2>&1 | awk '$4!="Running" && $4!="Completed" && NR>1' | head -30
+          echo "=== test pod basic net (DNS + API) ==="
+          kubectl -n monitoring run cnit-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c 'echo dns:; nslookup kubernetes.default 2>&1 | tail -3; echo api:; curl -s -o /dev/null -w "api %{http_code}\n" -m 8 -k https://10.128.0.1:443/healthz' 2>&1 | tail -8
