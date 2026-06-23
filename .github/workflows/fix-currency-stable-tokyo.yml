@@ -1,0 +1,51 @@
+name: Fix currencyservice stability -> restore store (Tokyo)
+
+# Store home 500s: frontend -> currencyservice:7000 "connection reset by peer".
+# currencyservice has ~56 restarts (crash loop, OTel/OOM). Restore store: bump
+# memory + disable tracing (OTel SDK is the instability source) + verify home.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - name: diagnose + stabilize currencyservice + verify store
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== DIAGNOSE: currencyservice restart reason / limit / env / image ====="
+          kubectl -n default describe pod -l app=currencyservice 2>/dev/null | grep -iE 'Last State|Reason|Exit Code|Restart Count|OOM|memory|Killed' | head
+          kubectl -n default get deploy currencyservice -o jsonpath='image={.spec.template.spec.containers[0].image}{"\n"}limits={.spec.template.spec.containers[0].resources.limits}{"\n"}' 2>/dev/null
+          kubectl -n default set env deploy/currencyservice --list 2>/dev/null | grep -iE 'ENABLE_TRACING|OTEL|CURRENCY_API'
+
+          echo ""
+          echo "===== STABILIZE: memory 512Mi + ENABLE_TRACING=0 (store stability first) ====="
+          kubectl -n default set resources deploy/currencyservice --limits=memory=512Mi --requests=memory=128Mi 2>&1
+          kubectl -n default set env deploy/currencyservice ENABLE_TRACING=0 2>&1
+          kubectl -n default rollout status deploy/currencyservice --timeout=150s 2>&1
+
+          echo "===== new currency pod (restarts should be 0) ====="
+          kubectl -n default get pod -l app=currencyservice -o wide 2>&1
+
+          echo ""
+          echo "===== VERIFY: store home (was 500) ====="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 6); do
+            curl -s -o /dev/null -w "  / -> HTTP %{http_code}\n" -m 10 "http://$FE/"
+            sleep 2
+          done
+          echo "  /bot (chat still ok?):"
+          curl -s -m 30 -X POST "http://$FE/bot" -H "Content-Type: application/json" -d '{"message":"hi","history":[]}' -w " [HTTP %{http_code}]\n" | head -c 120
