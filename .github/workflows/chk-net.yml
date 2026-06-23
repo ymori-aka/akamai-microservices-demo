@@ -1,0 +1,21 @@
+name: chk-net
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: check
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== nodes ==="; kubectl get nodes -o wide 2>&1
+          echo "=== ztunnel / istiod / waypoint ==="; kubectl -n istio-system get pods -o wide 2>&1 | grep -iE 'ztunnel|istiod|NAME'; kubectl -n default get pods -l 'gateway.networking.k8s.io/gateway-name' 2>&1 | head; kubectl -n default get pod -l app=waypoint -o wide 2>&1 | head
+          FEPOD=$(kubectl -n default get pod -l app=frontend -o jsonpath='{.items[0].status.podIP}' 2>/dev/null); echo "frontend podIP=$FEPOD"
+          echo "=== from MONITORING ns (NON-ambient) curl pod ==="
+          run(){ kubectl -n monitoring run nt-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- sh -c "$1" 2>/dev/null; }
+          run "curl -s -o /dev/null -w 'mon->frontend ClusterIP / HTTP %{http_code}\n' -m 8 http://frontend.default.svc.cluster.local/"
+          run "curl -s -o /dev/null -w 'mon->frontend podIP:8080 / HTTP %{http_code}\n' -m 8 http://$FEPOD:8080/_healthz"
+          run "curl -s -o /dev/null -w 'mon->currency:7000 (tcp) %{http_code}\n' -m 8 http://currencyservice.default.svc.cluster.local:7000/"
