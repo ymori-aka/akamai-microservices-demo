@@ -1,0 +1,26 @@
+name: fix-calico
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: restart calico-node, recover BGP, verify store
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== BEFORE calico-node ==="; kubectl -n kube-system get pod -l k8s-app=calico-node -o wide 2>&1
+          echo "=== crashing pod last logs (why BIRD down) ==="; kubectl -n kube-system logs calico-node-f44rd -c calico-node --tail=25 2>&1 | grep -iE 'bird|bgp|error|fatal|felix|fail|panic|warning' | tail -15
+          echo "=== rollout restart calico-node ==="; kubectl -n kube-system rollout restart ds/calico-node 2>&1
+          kubectl -n kube-system rollout status ds/calico-node --timeout=180s 2>&1
+          sleep 20
+          echo "=== AFTER calico-node ==="; kubectl -n kube-system get pod -l k8s-app=calico-node -o wide 2>&1
+          echo "=== BGP peering (expect >0) ==="
+          for p in $(kubectl -n kube-system get pod -l k8s-app=calico-node -o name 2>/dev/null); do
+            echo -n "$p ready="; kubectl -n kube-system get $p -o jsonpath='{.status.containerStatuses[0].ready}'; echo ""
+          done
+          echo "=== VERIFY store home ==="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          for i in $(seq 1 6); do curl -s -o /dev/null -w "  / -> HTTP %{http_code}\n" -m 12 "http://$FE/"; sleep 3; done
