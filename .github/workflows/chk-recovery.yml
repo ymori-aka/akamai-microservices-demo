@@ -1,0 +1,17 @@
+name: chk-recovery
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: recovery status
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC" 2>/dev/null
+          export KUBECONFIG="$KC"
+          echo "=== nodes (AGE small = recycled) ==="; kubectl get nodes 2>&1
+          echo "=== calico-node ready ==="; kubectl -n kube-system get pod -l k8s-app=calico-node 2>&1 | awk '{print $1,$2,$3,$4}'
+          echo "=== frontend ==="; kubectl -n default get pod -l app=frontend 2>&1 | tail -2
+          echo "=== store home ==="; FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); for i in 1 2 3; do curl -s -o /dev/null -w "  / HTTP %{http_code}\n" -m 10 "http://$FE/"; sleep 2; done
