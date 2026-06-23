@@ -1,0 +1,18 @@
+name: chk-frontend
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: check
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== frontend pods ==="; kubectl -n default get pod -l app=frontend -o wide
+          echo "=== frontend-external svc ==="; kubectl -n default get svc frontend-external -o wide
+          echo "=== endpoints ==="; kubectl -n default get endpoints frontend frontend-external 2>&1
+          echo "=== frontend describe (not ready reason) ==="; kubectl -n default describe pod -l app=frontend 2>/dev/null | grep -iE 'State|Reason|Ready|Exit|Restart|Back-off|Unhealthy|Liveness|Readiness|Killed|Error|Events' | head -20
+          echo "=== frontend logs tail ==="; kubectl -n default logs deploy/frontend --tail=25 2>&1 | tail -25
