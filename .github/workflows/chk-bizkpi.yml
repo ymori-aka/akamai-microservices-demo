@@ -1,0 +1,22 @@
+name: chk-bizkpi
+on: { workflow_dispatch: {} }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: checkout/chat success?
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          PP=$(kubectl -n monitoring get pod 2>/dev/null | grep -i prometheus | awk '{print $1}' | head -1)
+          q(){ kubectl -n monitoring exec "$PP" -c prometheus -- wget -qO- "http://localhost:9090/api/v1/query?query=$1" 2>/dev/null | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"]["result"];print("  ",len(d),"series");[print("   ",r["metric"].get("name",r["metric"].get("status","")),r["metric"].get("scenario",""),"=",r["value"][1]) for r in d[:12]]' 2>/dev/null; }
+          echo "=== akamai_checkouts_total ==="; q 'akamai_checkouts_total'
+          echo "=== akamai_chats_total ==="; q 'akamai_chats_total'
+          echo "=== checkout endpoint reqs by status ==="; q 'sum%20by%20(name,status)(k6_http_reqs_total%7Bname%3D~%22.*checkout.*%22%7D)'
+          echo "=== /bot reqs by status ==="; q 'sum%20by%20(status)(k6_http_reqs_total%7Bname%3D%22POST%20%2Fbot%22%7D)'
+          echo "=== k6 checks pass/fail (checkout/chat) ==="; q 'sum%20by%20(scenario,check)(k6_checks_total)'
+          echo "=== k6 logs: recent check failures / errors ==="
+          kubectl -n default logs deploy/k6 --tail=120 2>&1 | grep -iE 'level=warn|level=err|✗|checkout|bot|chat|no Route|backend' | tail -15
