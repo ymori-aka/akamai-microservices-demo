@@ -714,33 +714,32 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.WithError(err).Warn("chatbot: failed to fetch product catalog, using empty catalog")
 	}
+	// COMPACT catalog: the Zuplo "Firewall for AI" LLM-DOS-IN rule blocks any
+	// request body over ~600B as a DoS risk, so the full 29-product catalog
+	// (with prices + descriptions) gets blocked (HTTP 400). We send ID + a
+	// short name only, within a small byte budget, so the prompt stays under
+	// the firewall limit. Trade-off: only the first ~8-10 products are known to
+	// the assistant. Restore the full catalog by raising the LLM-DOS-IN input
+	// limit in the Zuplo gateway, then revert this block.
+	const catalogBudget = 220
 	var catalogLines strings.Builder
 	for _, p := range products {
-		price := float64(p.GetPriceUsd().GetUnits()) + float64(p.GetPriceUsd().GetNanos())/1e9
-		catalogLines.WriteString(fmt.Sprintf(
-			"- [%s] %s — $%.2f — %s\n",
-			p.GetId(), p.GetName(), price, p.GetDescription(),
-		))
+		name := strings.TrimPrefix(p.GetName(), "Akamai ")
+		if len(name) > 24 {
+			name = strings.TrimSpace(name[:24])
+		}
+		entry := fmt.Sprintf("[%s] %s / ", p.GetId(), name)
+		if catalogLines.Len()+len(entry) > catalogBudget {
+			break
+		}
+		catalogLines.WriteString(entry)
 	}
 
-	var systemPrompt string
-	if req.Lang == "ja" {
-		systemPrompt = fmt.Sprintf(`あなたはAkamai Storeのショッピングアシスタントです。
-お客様の質問に日本語で答えてください。商品の推薦を行う際は、必ず以下のカタログから選び、
-商品IDを [AKMT001] のような形式でメッセージ内に含めてください（最大3件）。
-カタログにない商品は絶対に作らないでください。
-
-【商品カタログ】
-%s`, catalogLines.String())
-	} else {
-		systemPrompt = fmt.Sprintf(`You are a helpful shopping assistant for the Akamai Store.
-Answer the customer's questions in English. When recommending products, choose from the catalog below
-and include the product ID in [AKMT001] format in your message (up to 3 items).
-Never invent products that are not in the catalog.
-
-[Product Catalog]
-%s`, catalogLines.String())
-	}
+	// Short, byte-cheap instruction (English keeps it small even for JA chats;
+	// the model still replies in the user's language).
+	systemPrompt := fmt.Sprintf("You are the Akamai Store assistant. Reply in the user's language. "+
+		"When recommending, pick up to 3 items from this catalog and include each [AKMT___] ID. "+
+		"Do not invent items. Catalog: %s", catalogLines.String())
 
 	// --- build OpenAI messages array ---
 	type LLMMessage struct {
