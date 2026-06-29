@@ -65,14 +65,14 @@ data:
       scenarios: {
         browse: {
           executor: 'constant-vus',
-          vus: 4,
+          vus: 2,
           duration: '24h',
           exec: 'browse',
           tags: { scenario: 'browse' },
         },
         shop: {
           executor: 'constant-vus',
-          vus: 3,
+          vus: 2,
           duration: '24h',
           exec: 'shop',
           tags: { scenario: 'shop' },
@@ -80,7 +80,7 @@ data:
         },
         checkout: {
           executor: 'constant-vus',
-          vus: 3,
+          vus: 1,
           duration: '24h',
           exec: 'checkout',
           tags: { scenario: 'checkout' },
@@ -93,11 +93,11 @@ data:
           // constant-arrival-rate keeps the LLM call rate fixed regardless of
           // response latency.
           executor: 'constant-arrival-rate',
-          rate: 5,
+          rate: 2,
           timeUnit: '1m',
           duration: '24h',
-          preAllocatedVUs: 2,
-          maxVUs: 5,
+          preAllocatedVUs: 1,
+          maxVUs: 3,
           exec: 'chat',
           tags: { scenario: 'chat' },
           startTime: '20s',

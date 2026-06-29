@@ -1,0 +1,21 @@
+name: apply-k6-tokyo
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: apply k6 configmap + restart
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          kubectl apply -f kubernetes-manifests/k6.yaml 2>&1
+          kubectl -n default rollout restart deploy/k6 2>&1
+          kubectl -n default rollout status deploy/k6 --timeout=120s 2>&1
+          sleep 8
+          echo "=== k6 pod ==="; kubectl -n default get pod -l app=k6 -o wide 2>&1
+          echo "=== k6 scenarios (should show reduced VUs) ==="
+          kubectl -n default logs deploy/k6 --tail=60 2>&1 | grep -iE 'scenarios|browse|shop|checkout|chat|orders|vus|VUs|iterations|looping' | head -20
