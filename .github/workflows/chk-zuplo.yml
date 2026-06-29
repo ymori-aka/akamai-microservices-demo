@@ -1,0 +1,19 @@
+name: chk-zuplo
+on: { workflow_dispatch: {} }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: probe Zuplo gateway with api key (small vs large)
+        env: { ZK: "${{ secrets.ZUPLO_API_KEY }}" }
+        run: |
+          set +e
+          Z="https://chat-ai-ai-gateway-34777e2.zuplo.app/v1/chat/completions"
+          [ -z "$ZK" ] && echo "WARN: ZUPLO_API_KEY secret empty"
+          echo "=== SMALL prompt ==="
+          curl -s -m 40 -X POST "$Z" -H "Content-Type: application/json" -H "Authorization: Bearer $ZK" -d '{"model":"gemma","messages":[{"role":"user","content":"hi"}],"max_tokens":16}' -w "\n[HTTP %{http_code}]\n" | head -c 400
+          echo ""
+          echo "=== LARGE prompt (10-line catalog system) ==="
+          CAT=$(python3 -c "print('\n'.join('- [AKMT%03d] Akamai Product %d - merch.'%(i,i) for i in range(10)))")
+          BODY=$(python3 -c "import json,sys; print(json.dumps({'model':'gemma','messages':[{'role':'system','content':'You are a shopping assistant. Catalog:\n'+sys.argv[1]},{'role':'user','content':'osusume'}],'max_tokens':64}))" "$CAT")
+          curl -s -m 60 -X POST "$Z" -H "Content-Type: application/json" -H "Authorization: Bearer $ZK" -d "$BODY" -w "\n[HTTP %{http_code}]\n" | head -c 600
