@@ -1,0 +1,28 @@
+name: chk-k6metrics
+on: { workflow_dispatch: {} }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: k6 rw + prometheus series
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== k6 pod logs (remote-write / output / errors) ==="
+          kubectl -n default logs deploy/k6 --tail=80 2>&1 | grep -iE 'output|prometheus|remote|write|error|warn|level=err|refused|cannot|fail|output:' | head -20
+          echo "=== prometheus svc & remote-write-receiver flag ==="
+          kubectl -n monitoring get svc 2>&1 | grep -iE 'prometheus' | head
+          kubectl -n monitoring get deploy,statefulset 2>&1 | grep -i prometheus
+          kubectl -n monitoring describe pod -l app.kubernetes.io/name=prometheus 2>/dev/null | grep -iE 'enable-remote-write|web.enable' | head
+          kubectl -n monitoring get pod -l app=prometheus -o name 2>/dev/null; kubectl -n monitoring get pod 2>&1 | grep -i prometheus
+          echo "=== query Prometheus for business metrics ==="
+          PP=$(kubectl -n monitoring get pod 2>/dev/null | grep -i prometheus | awk '{print $1}' | head -1)
+          echo "prom pod=$PP"
+          for m in akamai_checkouts_total akamai_chats_total k6_http_reqs_total; do
+            echo "--- $m ---"
+            kubectl -n monitoring exec "$PP" -c prometheus -- wget -qO- "http://localhost:9090/api/v1/query?query=$m" 2>/dev/null | head -c 400 || kubectl -n monitoring exec "$PP" -- wget -qO- "http://localhost:9090/api/v1/query?query=$m" 2>/dev/null | head -c 400
+            echo ""
+          done
