@@ -1,0 +1,17 @@
+name: chk-fepod
+on: { workflow_dispatch: {} }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: why pending
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          P=$(kubectl -n default get pod -l app=frontend --no-headers 2>/dev/null | grep -iv Running | awk '{print $1}' | head -1)
+          echo "pending pod: $P"
+          kubectl -n default describe pod "$P" 2>&1 | grep -iE 'Image|State|Reason|Message|Events|Warning|Failed|Pull|schedul|Insufficient|memory|cpu|Back-off|Error|node' | tail -30
+          echo "=== node alloc ==="; kubectl top nodes 2>/dev/null; kubectl get nodes 2>&1 | tail -5
