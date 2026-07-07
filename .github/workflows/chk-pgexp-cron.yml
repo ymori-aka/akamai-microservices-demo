@@ -1,0 +1,40 @@
+name: CHK - postgres-exporter-hourly-restart CronJob status (read-only, Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: inspect cronjob + latest job + pod
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== cronjob ====="
+          kubectl -n monitoring get cronjob postgres-exporter-hourly-restart -o wide 2>&1
+          echo ""
+          echo "===== jobs ====="
+          kubectl -n monitoring get jobs -l job-name --no-headers 2>&1 | grep hourly-restart
+          kubectl -n monitoring get jobs 2>&1 | grep hourly-restart
+          echo ""
+          echo "===== pods for those jobs ====="
+          kubectl -n monitoring get pods 2>&1 | grep hourly-restart
+          echo ""
+          echo "===== describe stuck pod (if any) ====="
+          POD=$(kubectl -n monitoring get pods 2>/dev/null | grep hourly-restart | awk '{print $1}' | head -1)
+          if [ -n "$POD" ]; then
+            kubectl -n monitoring describe pod "$POD" 2>&1 | grep -iE 'image:|reason:|message:|status' | head -20
+          fi
