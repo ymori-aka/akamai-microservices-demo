@@ -1,0 +1,54 @@
+name: CHK - Chaos Mesh controller status (read-only, Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: inspect controller health, leader-election, recent experiments
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== chaos-mesh pods ====="
+          kubectl -n chaos-mesh get pods -o wide 2>&1
+
+          echo ""
+          echo "===== chaos-mesh namespace ambient label ====="
+          kubectl get ns chaos-mesh -o jsonpath='{.metadata.labels}{"\n"}' 2>&1
+
+          echo ""
+          echo "===== controller-manager recent logs (lease/leaderelection/deadline) ====="
+          kubectl -n chaos-mesh logs deploy/chaos-controller-manager --tail=200 2>&1 | grep -iE 'lease|leaderelection|deadline|elected|started leading' | tail -20
+          echo "(empty above = no recent errors in this tail window)"
+
+          echo ""
+          echo "===== any existing chaos experiments + their conditions ====="
+          for kind in podchaos networkchaos stresschaos iochaos; do
+            echo "--- $kind ---"
+            kubectl get $kind -A 2>&1
+          done
+
+          echo ""
+          echo "===== conditions detail for any found experiments ====="
+          for kind in podchaos networkchaos stresschaos iochaos; do
+            for ns_name in $(kubectl get $kind -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+              ns=$(echo "$ns_name" | cut -d/ -f1)
+              name=$(echo "$ns_name" | cut -d/ -f2)
+              echo "-- $kind $ns/$name --"
+              kubectl -n "$ns" get $kind "$name" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}{"\n"}' 2>&1
+            done
+          done
