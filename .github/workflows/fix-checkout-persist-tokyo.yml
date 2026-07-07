@@ -1,0 +1,31 @@
+name: fix-checkout-persist-tokyo
+on: { workflow_dispatch: {} }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: restart checkoutservice + verify DB ping + fresh order write
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== rollout restart checkoutservice ==="
+          kubectl -n default rollout restart deploy/checkoutservice 2>&1
+          kubectl -n default rollout status deploy/checkoutservice --timeout=120s 2>&1
+          sleep 5
+          echo "=== fresh boot logs: DB ping result ==="
+          kubectl -n default logs deploy/checkoutservice --tail=30 2>&1 | grep -iE 'orders DB|ping|persist|error|dial'
+          echo "=== drive one checkout via frontend to confirm write ==="
+          FE=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          curl -s -m 20 "http://$FE/product/OLJCESPC7Z" -c /tmp/c.txt -o /dev/null
+          curl -s -m 20 -b /tmp/c.txt -c /tmp/c.txt -X POST "http://$FE/cart" -d "product_id=OLJCESPC7Z&quantity=1" -o /dev/null
+          curl -s -m 20 -b /tmp/c.txt -X POST "http://$FE/cart/checkout" \
+            -d "email=verify@example.com&street_address=1 Test St&zip_code=94105&city=SF&state=CA&country=US&credit_card_number=4111111111111111&credit_card_expiration_month=1&credit_card_expiration_year=2027&credit_card_cvv=672" \
+            -o /tmp/co.txt -w "checkout HTTP %{http_code}\n"
+          echo "=== confirm new row landed in orders table ==="
+          DSN=$(kubectl -n monitoring get secret orders-db-credentials -o jsonpath='{.data.DSN}' 2>/dev/null | base64 -d)
+          kubectl -n monitoring run psql-verify --rm -i --restart=Never --image=postgres:16 \
+            --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":999,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"psql-verify","image":"postgres:16","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+            --env="PGCONNSTR=$DSN" -- bash -c 'psql "$PGCONNSTR" -c "select count(*) as total_rows, max(created_at) as latest, now() as now from orders;"' 2>&1 | grep -vE '^Warning:'
