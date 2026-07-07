@@ -1,0 +1,28 @@
+name: chk-checkoutwrite
+on: { workflow_dispatch: {} }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: checkoutservice health + write-path errors since 06-23
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== checkoutservice pod age/restarts ==="
+          kubectl -n default get pod -l app=checkoutservice -o wide 2>&1
+          echo "=== checkoutservice deploy image/env ==="
+          kubectl -n default get deploy checkoutservice -o jsonpath='image={.spec.template.spec.containers[0].image}{"\n"}' 2>&1
+          echo "=== checkoutservice logs: order/db/insert/error keywords (last 400 lines) ==="
+          kubectl -n default logs deploy/checkoutservice --tail=400 2>&1 | grep -iE 'order|db|insert|error|fail|panic|postgres|dsn|connect' | tail -40
+          echo "=== previous (crashed?) container logs ==="
+          kubectl -n default logs deploy/checkoutservice --tail=100 -p 2>&1 | tail -40
+          echo "=== is there a separate order-writer/persister deployment? ==="
+          kubectl -n default get deploy 2>&1 | grep -iE 'order|persist|writer'
+          echo "=== rows per day last 20 days (confirm exact stop point) ==="
+          DSN=$(kubectl -n monitoring get secret orders-db-credentials -o jsonpath='{.data.DSN}' 2>/dev/null | base64 -d)
+          kubectl -n monitoring run psql-diag2 --rm -i --restart=Never --image=postgres:16 --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":999,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"psql-diag2","image":"postgres:16","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' --env="PGCONNSTR=$DSN" -- bash -c '
+            psql "$PGCONNSTR" -c "select date_trunc(\'day\', created_at) d, count(*) from orders where created_at > now() - interval \'20 days\' group by 1 order by 1 desc;"
+          ' 2>&1 | grep -vE '^Warning:'
