@@ -1,0 +1,31 @@
+name: chk-ordersdb
+on: { workflow_dispatch: {} }
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: compare DB targets + row counts + checkout errors
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "=== postgres-exporter DATA_SOURCE_NAME (host/db, mask pw) ==="
+          kubectl -n monitoring set env deploy/postgres-exporter --list 2>/dev/null | grep -iE 'DATA_SOURCE_NAME|PGHOST|PGDATABASE' | sed -E 's#(://[^:]+:)[^@]+(@)#\1***\2#'
+          echo "=== checkoutservice DB env ==="
+          kubectl -n default get deploy checkoutservice -o jsonpath='{.spec.template.spec.containers[0].env}' 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);[print(' ',e.get('name'),'=',(e.get('value') or '<secret/valueFrom>')) for e in d if any(k in e.get('name','').upper() for k in ['PG','POSTGRES','DB','ORDER'])]"
+          echo "=== checkoutservice recent errors ==="
+          kubectl -n default logs deploy/checkoutservice --tail=100 2>&1 | grep -iE 'error|fail|panic|orders|insert|postgres|pq:' | tail -20
+          echo "=== direct psql: row count + latest order + column list ==="
+          DSN=$(kubectl -n monitoring get deploy postgres-exporter -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DATA_SOURCE_NAME")].value}' 2>/dev/null)
+          if [ -z "$DSN" ]; then
+            SECNAME=$(kubectl -n monitoring get deploy postgres-exporter -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DATA_SOURCE_NAME")].valueFrom.secretKeyRef.name}' 2>/dev/null)
+            SECKEY=$(kubectl -n monitoring get deploy postgres-exporter -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="DATA_SOURCE_NAME")].valueFrom.secretKeyRef.key}' 2>/dev/null)
+            echo "DSN from secret $SECNAME/$SECKEY"
+            DSN=$(kubectl -n monitoring get secret "$SECNAME" -o jsonpath="{.data.$SECKEY}" 2>/dev/null | base64 -d)
+          fi
+          kubectl -n monitoring run psql-diag --rm -i --restart=Never --image=postgres:16 --env="PGCONNSTR=$DSN" -- bash -c '
+            psql "$PGCONNSTR" -c "select count(*) as total_rows, max(created_at) as latest, now() as now from orders;" 2>&1
+            psql "$PGCONNSTR" -c "select order_id, created_at, total_currency, total_units from orders order by created_at desc limit 5;" 2>&1
+          ' 2>&1
