@@ -213,7 +213,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: kubectl
-              image: bitnami/kubectl:1.30
+              image: rancher/kubectl:v1.33.13
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

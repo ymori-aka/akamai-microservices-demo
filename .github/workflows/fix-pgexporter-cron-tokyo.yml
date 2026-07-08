@@ -1,0 +1,60 @@
+name: Fix postgres-exporter-hourly-restart CronJob (bitnami tag removed, Tokyo)
+
+# The CronJob's `bitnami/kubectl:1.30` image tag was removed from Docker
+# Hub (Bitnami dropped version-pinned tags from the free repo), so every
+# run has been stuck in ImagePullBackOff for weeks and blocking new runs
+# (concurrencyPolicy: Forbid). This re-applies the manifest (now pointing
+# at rancher/kubectl:v1.33.13) and deletes the stuck Job so the CronJob
+# can schedule again at the next hour.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: apply manifest, clear stuck job, verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== apply updated manifest (new image tag) ====="
+          kubectl apply -f kubernetes-manifests/monitoring/postgres-exporter.yaml
+
+          echo "===== delete stuck job(s) ====="
+          kubectl -n monitoring get jobs 2>&1 | grep hourly-restart
+          for j in $(kubectl -n monitoring get jobs -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep hourly-restart); do
+            kubectl -n monitoring delete job "$j" --wait=false
+          done
+          sleep 5
+
+          echo "===== manually trigger one run to verify the image pulls ====="
+          kubectl -n monitoring create job --from=cronjob/postgres-exporter-hourly-restart pgexp-verify-$(date +%s) 2>&1
+          JOB=$(kubectl -n monitoring get jobs -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep pgexp-verify | tail -1)
+          echo "verify job: $JOB"
+          for i in $(seq 1 18); do
+            sleep 5
+            STATUS=$(kubectl -n monitoring get job "$JOB" -o jsonpath='{.status.succeeded}')
+            POD_STATUS=$(kubectl -n monitoring get pods -l job-name="$JOB" -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
+            echo "  t+$((i*5))s job.succeeded=$STATUS pod.phase=$POD_STATUS"
+            [ "$STATUS" = "1" ] && { echo "  -> SUCCEEDED"; break; }
+          done
+
+          echo "===== cronjob final state ====="
+          kubectl -n monitoring get cronjob postgres-exporter-hourly-restart -o wide
+          kubectl -n monitoring get jobs 2>&1 | grep -E 'hourly-restart|pgexp-verify'
+
+          echo "===== cleanup verify job ====="
+          kubectl -n monitoring delete job "$JOB" --wait=false 2>&1
