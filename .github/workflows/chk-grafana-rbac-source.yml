@@ -1,0 +1,63 @@
+name: CHK - find source of tampered Grafana RBAC (live cluster vs git, Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: inspect live deployment/configmaps/pv for RBAC tampering
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+          NEW_PW: ${{ secrets.GRAFANA_NEW_ADMIN_PW }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== live grafana deployment full env ====="
+          kubectl -n monitoring get deploy grafana -o jsonpath='{.spec.template.spec.containers[0].env}' | python3 -m json.tool
+
+          echo ""
+          echo "===== all configmaps in monitoring ns mentioning grafana ====="
+          kubectl -n monitoring get configmap -o name | grep -i grafana
+
+          echo ""
+          echo "===== grafana pod mounted volumes ====="
+          kubectl -n monitoring get deploy grafana -o jsonpath='{.spec.template.spec.volumes}' | python3 -m json.tool
+
+          echo ""
+          echo "===== search every grafana-related configmap for access-control / rbac / permission keywords ====="
+          for cm in $(kubectl -n monitoring get configmap -o name | grep -i grafana); do
+            echo "--- $cm ---"
+            kubectl -n monitoring get $cm -o yaml | grep -iE "rbac|permission|role|access-control|access_control"
+          done
+
+          echo ""
+          echo "===== is there a provisioning/access-control mount at all? ====="
+          kubectl -n monitoring get deploy grafana -o yaml | grep -iE "access-control|access_control"
+
+          echo ""
+          echo "===== grafana pod: list actual files under /etc/grafana/provisioning ====="
+          POD=$(kubectl -n monitoring get pods -l app=grafana -o jsonpath='{.items[0].metadata.name}')
+          echo "pod: $POD"
+          kubectl -n monitoring exec "$POD" -- find /etc/grafana/provisioning -type f 2>&1
+
+          echo ""
+          echo "===== org role of the admin user itself, via API ====="
+          GRAFANA_IP=$(kubectl -n monitoring get svc grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/user"
+          echo ""
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/user/orgs"
+          echo ""
+          echo "===== grafana version + build info (rules out an OSS/feature mismatch) ====="
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/frontend/settings" | python3 -c "import sys,json; d=json.load(sys.stdin); print('version:', d.get('buildInfo',{}).get('version')); print('rbacEnabled feature toggles:', {k:v for k,v in d.get('featureToggles',{}).items() if 'rbac' in k.lower() or 'accesscontrol' in k.lower()})"
