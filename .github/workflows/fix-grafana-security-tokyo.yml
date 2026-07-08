@@ -57,12 +57,7 @@ jobs:
           curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/datasources" > /tmp/ds.json
           TOTAL_BEFORE=$(python3 -c "import json;print(len(json.load(open('/tmp/ds.json'))))")
           echo "total datasources before: $TOTAL_BEFORE"
-          python3 -c "
-import json
-ds = json.load(open('/tmp/ds.json'))
-uids = [d['uid'] for d in ds if d['name'].startswith('_phx_')]
-print('\n'.join(uids))
-" > /tmp/phx_uids.txt
+          python3 -c "import json; ds=json.load(open('/tmp/ds.json')); print('\n'.join(d['uid'] for d in ds if d['name'].startswith('_phx_')))" > /tmp/phx_uids.txt
           echo "phx datasources to delete: $(wc -l < /tmp/phx_uids.txt)"
           while read -r UID_; do
             [ -z "$UID_" ] && continue
@@ -75,8 +70,4 @@ print('\n'.join(uids))
           TOTAL_AFTER=$(python3 -c "import json;print(len(json.load(open('/tmp/ds_after.json'))))")
           PHX_AFTER=$(python3 -c "import json;print(len([d for d in json.load(open('/tmp/ds_after.json')) if d['name'].startswith('_phx_')]))")
           echo "total datasources after: $TOTAL_AFTER (phx remaining: $PHX_AFTER)"
-          python3 -c "
-import json
-for d in json.load(open('/tmp/ds_after.json')):
-    print(' -', d['name'], d['type'])
-"
+          python3 -c "import json; [print(' -', d['name'], d['type']) for d in json.load(open('/tmp/ds_after.json'))]"
