@@ -1,0 +1,64 @@
+name: CHK - why phx datasource DELETE failed + inspect pwn/perf-monitor (Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: inspect
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+          NEW_PW: ${{ secrets.GRAFANA_NEW_ADMIN_PW }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          GRAFANA_IP=$(kubectl -n monitoring get svc grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "grafana IP: $GRAFANA_IP"
+
+          echo "===== confirm current admin password works ====="
+          curl -s -o /dev/null -w 'HTTP %{http_code}\n' -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/org"
+
+          echo ""
+          echo "===== try ONE delete verbosely ====="
+          UID1=$(curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/datasources" | python3 -c "import sys,json; ds=json.load(sys.stdin); print([d['uid'] for d in ds if d['name'].startswith('_phx_')][0])")
+          echo "target uid: $UID1"
+          curl -sS -u "admin:${NEW_PW}" -X DELETE "http://${GRAFANA_IP}:3000/api/datasources/uid/${UID1}" -w '\nHTTP_CODE=%{http_code}\n'
+
+          echo ""
+          echo "===== delete by ID instead (older API) as fallback test ====="
+          ID1=$(curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/datasources" | python3 -c "import sys,json; ds=json.load(sys.stdin); print([d['id'] for d in ds if d['uid']=='$UID1'][0])")
+          echo "target id: $ID1"
+          curl -sS -u "admin:${NEW_PW}" -X DELETE "http://${GRAFANA_IP}:3000/api/datasources/${ID1}" -w '\nHTTP_CODE=%{http_code}\n'
+
+          echo ""
+          echo "===== check if it's actually gone now ====="
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/datasources/uid/${UID1}" -w '\nHTTP_CODE=%{http_code}\n'
+
+          echo ""
+          echo "===== pwn datasource full detail ====="
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/datasources/name/pwn"
+
+          echo ""
+          echo "===== perf-monitor datasource full detail ====="
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/datasources/name/perf-monitor"
+
+          echo ""
+          echo "===== org users ====="
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/org/users" | python3 -c "import sys,json; [print(u['login'], u['email'], u['role']) for u in json.load(sys.stdin)]"
+
+          echo ""
+          echo "===== service accounts / API keys ====="
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/serviceaccounts/search" 2>&1
+          echo ""
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/auth/keys" 2>&1
