@@ -19,7 +19,10 @@ jobs:
           # Also apply grafana.yaml (provisioning provider paths /
           # disableDeletion changes) so Istio dashboard duplicates get
           # cleaned up and not re-created.
-          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
+          # admin-password is a placeholder — substitute the real secret so
+          # this doesn't reset the admin password back to a literal.
+          sed "s|__GRAFANA_ADMIN_PASSWORD__|${{ secrets.GRAFANA_ADMIN_PASSWORD }}|g" \
+            kubernetes-manifests/monitoring/grafana.yaml | kubectl apply -f -
           kubectl -n monitoring rollout restart deployment/grafana
           kubectl -n monitoring rollout status deployment/grafana --timeout=120s
           echo "Done. Dashboards reloaded; Istio duplicates cleaned."

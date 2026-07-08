@@ -508,7 +508,11 @@ jobs:
               | kubectl apply -n monitoring -f -
             kubectl apply -f kubernetes-manifests/monitoring/audit-log-ingester.yaml
           fi
-          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
+          # admin-password is a placeholder in git (see grafana.yaml comment) —
+          # substitute the real secret before apply so re-deploys don't reset
+          # the admin password back to a hardcoded literal.
+          sed "s|__GRAFANA_ADMIN_PASSWORD__|${{ secrets.GRAFANA_ADMIN_PASSWORD }}|g" \
+            kubernetes-manifests/monitoring/grafana.yaml | kubectl apply -f -
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           kubectl apply -f kubernetes-manifests/monitoring/kiali.yaml
           kubectl apply -f kubernetes-manifests/monitoring/postgres-exporter.yaml

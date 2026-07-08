@@ -1,19 +1,23 @@
-name: Fix Grafana - block C2 egress + full rebuild (wipe compromised state, Tokyo)
+name: Fix Grafana - block C2 egress + full rebuild (wipe rogue datasources, Tokyo)
 
-# Incident (2026-07-08): Grafana's Admin role lost datasources:delete
-# (RBAC tampered), 50 rogue "_phx_*" postgres datasources (SSRF probe of
-# 172.20.0.1:5432) and one "pwn" mysql datasource pointing at an external
-# IP (192.142.28.77:3306) were found. Grafana stores all of this (users,
-# RBAC, datasources) in its own SQLite file on the grafana-data PVC, so
-# the API can't be trusted to clean it up. This:
+# Incident (2026-07-08): 50 rogue "_phx_*" postgres datasources (SSRF probe
+# of 172.20.0.1:5432) and one "pwn" mysql datasource pointing at an
+# external IP (192.142.28.77:3306) were found in Grafana. (The admin
+# 403s seen while investigating were a red herring caused by a separate
+# bug: grafana.yaml hardcoded admin-password: admin in git, so every
+# `kubectl apply` silently reset the real admin password back to
+# "admin" — not RBAC tampering. Fixed by making it a
+# __GRAFANA_ADMIN_PASSWORD__ placeholder substituted at apply time.)
+# This:
 #   1. applies a NetworkPolicy blocking egress to the C2 IP
-#   2. scales Grafana to 0, deletes the PVC (wipes the compromised DB)
-#   3. re-applies grafana.yaml + grafana-dashboards.yaml (fresh SQLite,
-#      re-provisions the 3 legitimate datasources + dashboards from
-#      ConfigMaps, admin password stays the already-rotated strong one
-#      from grafana-secret)
+#   2. scales Grafana to 0, deletes the PVC (wipes the rogue datasources,
+#      which live in Grafana's own SQLite on that PVC)
+#   3. re-applies grafana.yaml (with the real admin password substituted)
+#      + grafana-dashboards.yaml (fresh SQLite, re-provisions the 3
+#      legitimate datasources + dashboards from ConfigMaps)
 #   4. verifies: login works, datasource list is back to just the 3
-#      legit ones, org users list is just admin
+#      legit ones, admin can create/delete (real RBAC, not anonymous
+#      Viewer fallback)
 on:
   workflow_dispatch:
     inputs:
@@ -30,7 +34,7 @@ jobs:
       - name: block egress, wipe grafana PVC, rebuild, verify
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
-          NEW_PW: ${{ secrets.GRAFANA_NEW_ADMIN_PW }}
+          NEW_PW: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
           set +e
           KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
@@ -50,7 +54,11 @@ jobs:
 
           echo ""
           echo "===== 3/4 re-apply manifests (fresh PVC + re-provision) ====="
-          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
+          # admin-password is a placeholder in git — substitute the real
+          # secret so the fresh SQLite DB seeds the admin user with it
+          # (previously this applied the literal placeholder / "admin").
+          sed "s|__GRAFANA_ADMIN_PASSWORD__|${NEW_PW}|g" \
+            kubernetes-manifests/monitoring/grafana.yaml | kubectl apply -f -
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           kubectl -n monitoring rollout status deploy/grafana --timeout=180s
 

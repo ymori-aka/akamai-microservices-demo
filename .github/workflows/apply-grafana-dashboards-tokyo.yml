@@ -28,7 +28,10 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
           # grafana.yaml carries the Deployment env (e.g. GF_USERS_VIEWERS_CAN_EDIT)
           # + datasource provisioning. Apply it too so env changes take effect.
-          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
+          # admin-password is a placeholder — substitute the real secret so
+          # this doesn't reset the admin password back to a literal.
+          sed "s|__GRAFANA_ADMIN_PASSWORD__|${{ secrets.GRAFANA_ADMIN_PASSWORD }}|g" \
+            kubernetes-manifests/monitoring/grafana.yaml | kubectl apply -f -
           # Clean single-pod restart (RWO PVC): scale to 0 to release the volume
           # and clear any stuck ContainerCreating pod, then back to 1.
           echo "===== scale 0 (release RWO PVC) -> 1 ====="

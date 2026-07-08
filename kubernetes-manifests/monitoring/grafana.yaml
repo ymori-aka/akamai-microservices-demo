@@ -1,7 +1,13 @@
 # Grafana
 # Exposed via LoadBalancer on port 3000.
-# Default login: admin / admin (change after first login)
 # Pre-configured: Prometheus datasource
+#
+# admin-password below is a placeholder substituted by the deploy workflow
+# (sed __GRAFANA_ADMIN_PASSWORD__ -> secrets.GRAFANA_ADMIN_PASSWORD) before
+# `kubectl apply`. A hardcoded literal here would silently reset the admin
+# password back to that literal on every deploy, wiping out any live
+# rotation (this happened in production: the password was stuck at "admin"
+# for over a month because every deploy reverted it).
 ---
 apiVersion: v1
 kind: Secret
@@ -11,7 +17,7 @@ metadata:
 type: Opaque
 stringData:
   admin-user: admin
-  admin-password: admin
+  admin-password: __GRAFANA_ADMIN_PASSWORD__
 ---
 apiVersion: v1
 kind: ConfigMap
