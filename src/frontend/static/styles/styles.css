@@ -53,14 +53,24 @@ body {
 /* Header */
 
 header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
   background: linear-gradient(115deg, var(--ak-navy) 0%, var(--ak-blue-700) 55%, var(--ak-blue) 100%);
   color: white;
 }
 
-/* Logo + controls sit on a clean white strip below the blue banner. */
+/*
+Logo + controls sit on a frosted-glass strip below the blue banner:
+translucent white with a backdrop blur so page content softly shows
+through as you scroll — a modern, "glassmorphism" navigation bar.
+*/
 header .sub-navbar {
-  background-color: #ffffff;
-  box-shadow: 0 2px 12px rgba(8, 45, 74, 0.10);
+  background-color: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
+  border-bottom: 1px solid rgba(11, 143, 214, 0.14);
+  box-shadow: 0 6px 24px rgba(8, 45, 74, 0.10);
 }
 
 /*
@@ -222,12 +232,16 @@ header .h-control :-moz-placeholder {
 
 header .navbar.sub-navbar {
   height: 60px;
-  background-color: white;
+  /* Frosted glass (see header .sub-navbar above). */
+  background-color: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  backdrop-filter: blur(16px) saturate(160%);
   font-size: 15px;
   color: #b4b2bb;
   padding-top: 0;
   padding-bottom: 0;
-  box-shadow: 0px 0px 4px rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid rgba(11, 143, 214, 0.14);
+  box-shadow: 0 6px 24px rgba(8, 45, 74, 0.10);
   z-index: 1; /* Need this to see the box-shadow on the home page. */
 }
 
@@ -315,7 +329,8 @@ footer .footer-top .footer-social div {
 
 main {
   flex: 1 0 auto;
-  background-color: var(--ak-bg);
+  /* Translucent so the animated aurora (body::before) glows through. */
+  background-color: rgba(243, 247, 251, 0.68);
 }
 
 @media (min-width: 992px) {
@@ -350,8 +365,27 @@ main {
 .hot-products-row h3 {
   margin-bottom: 32px;
   margin-top: 56px;
-  font-size: 36px;
-  font-weight: normal;
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  display: inline-block;
+  background: linear-gradient(100deg, var(--ak-navy) 0%, var(--ak-blue-600) 55%, var(--ak-cyan) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  position: relative;
+}
+
+.hot-products-row h3::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  bottom: -12px;
+  width: 64px;
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--ak-blue) 0%, var(--ak-cyan) 100%);
+  box-shadow: 0 0 16px rgba(23, 193, 232, 0.55);
 }
 
 .hot-products-row {
@@ -383,7 +417,7 @@ main {
 }
 
 .hot-product-card:hover img {
-  box-shadow: var(--ak-shadow);
+  box-shadow: 0 18px 44px rgba(11, 143, 214, 0.30), 0 0 0 2px rgba(23, 193, 232, 0.35);
 }
 
 .hot-product-card-name {
@@ -410,8 +444,12 @@ main {
   background-color: transparent;
 }
 
+.hot-product-card .hot-product-card-img-overlay {
+  transition: background 0.3s ease;
+}
+
 .hot-product-card:hover .hot-product-card-img-overlay {
-  background-color: rgba(11, 143, 214, 0.18);
+  background: linear-gradient(135deg, rgba(23, 193, 232, 0.28) 0%, rgba(11, 143, 214, 0.10) 45%, rgba(255, 255, 255, 0.22) 100%);
 }
 
 /*
@@ -430,10 +468,18 @@ similar to that of the hot-products-row.
 
 .ad {
   position: relative;
-  background: linear-gradient(100deg, var(--ak-blue) 0%, var(--ak-cyan) 100%);
+  background: linear-gradient(100deg, var(--ak-navy) 0%, var(--ak-blue) 45%, var(--ak-cyan) 75%, var(--ak-blue) 100%);
+  background-size: 220% 100%;
+  animation: ak-ad-shift 8s ease infinite;
   color: white;
   font-size: 24px;
   text-align: center;
+}
+
+@keyframes ak-ad-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 /* "Ad" text. */
@@ -653,6 +699,8 @@ the rules below could be extracted.
 
 .cymbal-button-primary, .cymbal-button-secondary {
   display: inline-block;
+  position: relative;
+  overflow: hidden;
   border: solid 1px var(--ak-blue);
   padding: 9px 22px;
   outline: none;
@@ -662,6 +710,23 @@ the rules below could be extracted.
   border-radius: 24px;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+/* Light sweep that glides across the button on hover. */
+.cymbal-button-primary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: skewX(-18deg);
+  transition: left 0.6s ease;
+}
+
+.cymbal-button-primary:hover::after {
+  left: 140%;
 }
 
 .cymbal-button-primary:focus, .cymbal-button-secondary:focus {
@@ -739,4 +804,60 @@ the rules below could be extracted.
   right: 25px;
   width: 10px;
   height: 5px;
+}
+
+/* ============================================================
+   Advanced / "futuristic" layer
+   Animated aurora backdrop, smooth scrolling and text selection.
+   Added on top of the Akamai-blue system for a more modern feel.
+   ============================================================ */
+
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: rgba(23, 193, 232, 0.30);
+  color: var(--ak-navy);
+}
+
+/*
+Full-viewport animated aurora that sits behind everything (z-index -1).
+Three soft, blurred colour blobs drift slowly, giving the cool page
+background a subtle, living gradient-mesh glow.
+*/
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20vmax;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38vmax 38vmax at 18% 22%, rgba(23, 193, 232, 0.42), transparent 60%),
+    radial-gradient(42vmax 42vmax at 82% 12%, rgba(11, 143, 214, 0.38), transparent 62%),
+    radial-gradient(46vmax 46vmax at 60% 92%, rgba(8, 90, 142, 0.30), transparent 60%),
+    var(--ak-bg);
+  background-repeat: no-repeat;
+  filter: saturate(120%);
+  animation: ak-aurora 22s ease-in-out infinite alternate;
+}
+
+@keyframes ak-aurora {
+  0% {
+    transform: translate3d(-3%, -2%, 0) scale(1.05) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(3%, 2%, 0) scale(1.12) rotate(3deg);
+  }
+  100% {
+    transform: translate3d(-2%, 3%, 0) scale(1.06) rotate(-2deg);
+  }
+}
+
+/* Respect users who prefer reduced motion: keep it calm and static. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  body::before { animation: none; }
+  .ad { animation: none; }
+  .cymbal-button-primary::after { transition: none; }
 }
