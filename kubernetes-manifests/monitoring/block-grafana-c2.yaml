@@ -1,0 +1,20 @@
+# Emergency containment (2026-07-08): a "pwn" Grafana datasource was found
+# pointing at an external MySQL endpoint 192.142.28.77:3306, alongside
+# tampered RBAC (Admin lost datasources:delete) and 50+ rogue "_phx_*"
+# SSRF-probing datasources. This blocks all egress from the monitoring
+# namespace to that one external IP while leaving everything else
+# (Cloud Pulse, Loki, Tempo, LLM calls, etc.) unaffected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-pwn-c2
+  namespace: monitoring
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 192.142.28.77/32

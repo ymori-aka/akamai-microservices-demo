@@ -1,0 +1,83 @@
+name: Fix Grafana - block C2 egress + full rebuild (wipe compromised state, Tokyo)
+
+# Incident (2026-07-08): Grafana's Admin role lost datasources:delete
+# (RBAC tampered), 50 rogue "_phx_*" postgres datasources (SSRF probe of
+# 172.20.0.1:5432) and one "pwn" mysql datasource pointing at an external
+# IP (192.142.28.77:3306) were found. Grafana stores all of this (users,
+# RBAC, datasources) in its own SQLite file on the grafana-data PVC, so
+# the API can't be trusted to clean it up. This:
+#   1. applies a NetworkPolicy blocking egress to the C2 IP
+#   2. scales Grafana to 0, deletes the PVC (wipes the compromised DB)
+#   3. re-applies grafana.yaml + grafana-dashboards.yaml (fresh SQLite,
+#      re-provisions the 3 legitimate datasources + dashboards from
+#      ConfigMaps, admin password stays the already-rotated strong one
+#      from grafana-secret)
+#   4. verifies: login works, datasource list is back to just the 3
+#      legit ones, org users list is just admin
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: block egress, wipe grafana PVC, rebuild, verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+          NEW_PW: ${{ secrets.GRAFANA_NEW_ADMIN_PW }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== 1/4 block egress to C2 IP ====="
+          kubectl apply -f kubernetes-manifests/monitoring/block-grafana-c2.yaml
+
+          echo ""
+          echo "===== 2/4 scale grafana to 0, wipe PVC ====="
+          kubectl -n monitoring scale deploy/grafana --replicas=0
+          kubectl -n monitoring wait --for=delete pod -l app=grafana --timeout=60s 2>&1
+          kubectl -n monitoring delete pvc grafana-data --wait=true --timeout=60s
+
+          echo ""
+          echo "===== 3/4 re-apply manifests (fresh PVC + re-provision) ====="
+          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/grafana-dashboards.yaml
+          kubectl -n monitoring rollout status deploy/grafana --timeout=180s
+
+          GRAFANA_IP=$(kubectl -n monitoring get svc grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "grafana IP: $GRAFANA_IP"
+
+          echo ""
+          echo "===== 4/4 verify clean state ====="
+          for i in $(seq 1 15); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/org")
+            echo "  attempt $i: HTTP $CODE"
+            [ "$CODE" = "200" ] && break
+            sleep 6
+          done
+
+          echo "--- datasources (should be exactly Prometheus/Loki/Tempo) ---"
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/datasources" \
+            | python3 -c "import sys,json; ds=json.load(sys.stdin); print('count:', len(ds)); [print(' -', d['name'], d['type'], d.get('url','')) for d in ds]"
+
+          echo "--- org users (should be just admin) ---"
+          curl -fsS -u "admin:${NEW_PW}" "http://${GRAFANA_IP}:3000/api/org/users" \
+            | python3 -c "import sys,json; [print(' -', u['login'], u['email'], u['role']) for u in json.load(sys.stdin)]"
+
+          echo "--- can admin delete now? (create+delete a throwaway ds to confirm RBAC is sane) ---"
+          curl -sS -u "admin:${NEW_PW}" -X POST "http://${GRAFANA_IP}:3000/api/datasources" \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"rbac-selftest","type":"testdata","access":"proxy"}' > /tmp/selftest.json
+          TESTUID=$(python3 -c "import json; print(json.load(open('/tmp/selftest.json'))['datasource']['uid'])" 2>/dev/null)
+          echo "created rbac-selftest uid=$TESTUID"
+          curl -sS -u "admin:${NEW_PW}" -X DELETE "http://${GRAFANA_IP}:3000/api/datasources/uid/${TESTUID}" -w '\nHTTP_CODE=%{http_code}\n'
