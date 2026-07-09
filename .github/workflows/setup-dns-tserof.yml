@@ -32,15 +32,8 @@ jobs:
           AUTH="Authorization: Bearer $LINODE_PAT"
 
           echo "===== check if zone already exists ====="
-          EXISTING=$(curl -fsS -H "$AUTH" "https://api.linode.com/v4/domains?page_size=200" \
-            | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-for z in d['data']:
-    if z['domain'] == '$DOMAIN':
-        print(z['id'])
-        break
-")
+          EXISTING=$(curl -fsS -H "$AUTH" "https://api.linode.com/v4/domains?page_size=200" | python3 -c "import sys,json; d=json.load(sys.stdin); m=[z['id'] for z in d['data'] if z['domain']=='$DOMAIN']; print(m[0] if m else '')")
+
           if [ -n "$EXISTING" ]; then
             DOMAIN_ID="$EXISTING"
             echo "zone already exists, id=$DOMAIN_ID"
@@ -59,22 +52,14 @@ for z in d['data']:
 
           upsert_a() {
             NAME="$1"   # "" for apex, "www" for www
-            EXISTING_REC=$(curl -fsS -H "$AUTH" "https://api.linode.com/v4/domains/$DOMAIN_ID/records?page_size=200" \
-              | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-for r in d['data']:
-    if r['type']=='A' and r['name']=='$NAME':
-        print(r['id'])
-        break
-")
+            EXISTING_REC=$(curl -fsS -H "$AUTH" "https://api.linode.com/v4/domains/$DOMAIN_ID/records?page_size=200" | python3 -c "import sys,json; d=json.load(sys.stdin); m=[str(r['id']) for r in d['data'] if r['type']=='A' and r['name']=='$NAME']; print(m[0] if m else '')")
             if [ -n "$EXISTING_REC" ]; then
-              echo \"updating A record name='$NAME' -> $IP (id=$EXISTING_REC)\"
+              echo "updating A record name='$NAME' -> $IP (id=$EXISTING_REC)"
               curl -fsS -X PUT -H "$AUTH" -H "Content-Type: application/json" \
                 "https://api.linode.com/v4/domains/$DOMAIN_ID/records/$EXISTING_REC" \
                 -d "{\"type\":\"A\",\"name\":\"$NAME\",\"target\":\"$IP\",\"ttl_sec\":300}"
             else
-              echo \"creating A record name='$NAME' -> $IP\"
+              echo "creating A record name='$NAME' -> $IP"
               curl -fsS -X POST -H "$AUTH" -H "Content-Type: application/json" \
                 "https://api.linode.com/v4/domains/$DOMAIN_ID/records" \
                 -d "{\"type\":\"A\",\"name\":\"$NAME\",\"target\":\"$IP\",\"ttl_sec\":300}"
