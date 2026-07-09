@@ -173,6 +173,12 @@ metadata:
   name: frontend-external
   labels:
     app: frontend
+  annotations:
+    # Terminate TLS at the Linode NodeBalancer using the tserof-tls Secret
+    # (fullchain + key from Let's Encrypt, issued via manual DNS-01 against
+    # the Linode-managed tserof.net zone). The NB decrypts and forwards
+    # plaintext HTTP to the frontend pods on 8080, same as port 80.
+    service.beta.kubernetes.io/linode-loadbalancer-port-443: '{"tls-secret-name": "tserof-tls", "protocol": "https"}'
 spec:
   type: LoadBalancer
   selector:
@@ -180,6 +186,9 @@ spec:
   ports:
   - name: http
     port: 80
+    targetPort: 8080
+  - name: https
+    port: 443
     targetPort: 8080
 ---
 apiVersion: v1
