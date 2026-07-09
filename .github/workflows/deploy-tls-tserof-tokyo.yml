@@ -1,0 +1,60 @@
+name: Deploy TLS for tserof.net (Tokyo NodeBalancer)
+
+# Creates/updates the tserof-tls Secret from GitHub secrets
+# (TSEROF_TLS_CERT / TSEROF_TLS_KEY, a Let's Encrypt cert issued via
+# manual DNS-01 against the Linode-managed tserof.net zone), applies
+# the updated frontend-external Service (443 listener via Linode CCM's
+# linode-loadbalancer-port-443 annotation), and verifies HTTPS works.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  deploy-tls:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: apply TLS secret + service, verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+          TSEROF_TLS_CERT: ${{ secrets.TSEROF_TLS_CERT }}
+          TSEROF_TLS_KEY: ${{ secrets.TSEROF_TLS_KEY }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          CERT_FILE="${RUNNER_TEMP:-/tmp}/tserof-fullchain.pem"
+          KEY_FILE="${RUNNER_TEMP:-/tmp}/tserof-privkey.pem"
+          printf '%s' "$TSEROF_TLS_CERT" > "$CERT_FILE"
+          printf '%s' "$TSEROF_TLS_KEY" > "$KEY_FILE"
+
+          echo "===== create/update tserof-tls Secret ====="
+          kubectl create secret tls tserof-tls \
+            --cert="$CERT_FILE" --key="$KEY_FILE" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          rm -f "$CERT_FILE" "$KEY_FILE"
+
+          echo "===== apply frontend.yaml (Service annotations + 443 port) ====="
+          kubectl apply -f kubernetes-manifests/frontend.yaml
+
+          echo "===== wait for NodeBalancer to pick up 443 ====="
+          for i in $(seq 1 20); do
+            OPEN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -k "https://172.237.1.139/" || echo "000")
+            echo "  t+$((i*5))s  https -> $OPEN"
+            [ "$OPEN" != "000" ] && break
+            sleep 5
+          done
+
+          echo "===== verify via domain name + cert details ====="
+          curl -sv --max-time 10 https://tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|expire|SSL connection|HTTP/"
+          echo ""
+          curl -sv --max-time 10 https://www.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/"
