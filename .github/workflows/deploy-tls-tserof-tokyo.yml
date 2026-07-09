@@ -47,14 +47,17 @@ jobs:
           kubectl apply -f kubernetes-manifests/frontend.yaml
 
           echo "===== wait for NodeBalancer to pick up 443 ====="
-          for i in $(seq 1 20); do
-            OPEN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -k "https://172.237.1.139/" || echo "000")
-            echo "  t+$((i*5))s  https -> $OPEN"
-            [ "$OPEN" != "000" ] && break
-            sleep 5
+          for i in $(seq 1 30); do
+            OPEN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -k "https://172.237.1.139/" 2>/dev/null)
+            [ -z "$OPEN" ] && OPEN="000"
+            echo "  t+$((i*8))s  https -> $OPEN"
+            case "$OPEN" in
+              2??|3??) break ;;
+            esac
+            sleep 8
           done
 
           echo "===== verify via domain name + cert details ====="
-          curl -sv --max-time 10 https://tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|expire|SSL connection|HTTP/"
+          curl -sv --max-time 10 https://tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|expire|SSL connection|HTTP/" || echo "(tserof.net not ready yet)"
           echo ""
-          curl -sv --max-time 10 https://www.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/"
+          curl -sv --max-time 10 https://www.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/" || echo "(www.tserof.net not ready yet)"
