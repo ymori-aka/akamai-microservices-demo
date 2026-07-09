@@ -1,0 +1,17 @@
+name: CHK - LINODE_PAT scopes (read-only)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: show token scopes
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          echo "===== token info (id, scopes, expiry) ====="
+          curl -s -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/profile/tokens" \
+            | python3 -m json.tool 2>&1 | head -100
