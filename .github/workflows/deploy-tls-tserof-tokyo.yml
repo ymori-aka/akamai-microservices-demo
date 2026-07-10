@@ -46,6 +46,15 @@ jobs:
           echo "===== apply frontend.yaml (Service annotations + 443 port) ====="
           kubectl apply -f kubernetes-manifests/frontend.yaml
 
+          echo "===== force Linode CCM to re-sync the NodeBalancer ====="
+          # Updating the Secret's *content* alone does not change the Service
+          # object, so the CCM's informer never sees an Update event and the
+          # NodeBalancer keeps serving the old cert. Bumping a throwaway
+          # annotation forces a real Service update, which triggers CCM to
+          # re-read the tserof-tls Secret and push the new cert to the NB.
+          kubectl annotate service frontend-external \
+            tserof.net/tls-synced-at="$(date -u +%Y%m%dT%H%M%SZ)" --overwrite
+
           echo "===== wait for NodeBalancer to pick up 443 ====="
           for i in $(seq 1 30); do
             OPEN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -k "https://172.237.1.139/" 2>/dev/null)
@@ -57,7 +66,16 @@ jobs:
             sleep 8
           done
 
-          echo "===== verify via domain name + cert details ====="
-          curl -sv --max-time 10 https://tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|expire|SSL connection|HTTP/" || echo "(tserof.net not ready yet)"
+          echo "===== verify via domain name + cert details (retry until aka-store SAN is served) ====="
+          for i in $(seq 1 15); do
+            SAN=$(echo | openssl s_client -connect 172.237.1.139:443 -servername tserof.net 2>/dev/null | openssl x509 -noout -ext subjectAltName 2>/dev/null)
+            echo "  attempt $i: $SAN"
+            echo "$SAN" | grep -q "aka-store.tserof.net" && { echo "fresh cert confirmed (SAN includes aka-store.tserof.net)"; break; }
+            echo "  (still old cert, retrying...)"
+            sleep 10
+          done
+          curl -sv --max-time 10 https://tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|expire|HTTP/"
           echo ""
           curl -sv --max-time 10 https://www.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/" || echo "(www.tserof.net not ready yet)"
+          echo ""
+          curl -sv --max-time 10 https://aka-store.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/" || echo "(aka-store.tserof.net not ready yet)"
