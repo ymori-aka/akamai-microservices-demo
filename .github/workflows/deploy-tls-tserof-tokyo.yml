@@ -1,10 +1,12 @@
-name: Deploy TLS for tserof.net (Tokyo NodeBalancer)
+name: Deploy TLS for tserof.net (Tokyo NodeBalancers)
 
-# Creates/updates the tserof-tls Secret from GitHub secrets
-# (TSEROF_TLS_CERT / TSEROF_TLS_KEY, a Let's Encrypt cert issued via
-# manual DNS-01 against the Linode-managed tserof.net zone), applies
-# the updated frontend-external Service (443 listener via Linode CCM's
-# linode-loadbalancer-port-443 annotation), and verifies HTTPS works.
+# Creates/updates the tserof-tls Secret (in both default and monitoring
+# namespaces) from GitHub secrets (TSEROF_TLS_CERT / TSEROF_TLS_KEY, a
+# Let's Encrypt cert issued via manual DNS-01 against the
+# Linode-managed tserof.net zone, SAN covers tserof.net / www / aka-store
+# / grafana), applies the frontend-external and grafana Services (443
+# listener via Linode CCM's linode-loadbalancer-port-443 annotation on
+# each NodeBalancer), and verifies HTTPS works for all four hostnames.
 on:
   workflow_dispatch:
     inputs:
@@ -37,16 +39,22 @@ jobs:
           printf '%s' "$TSEROF_TLS_CERT" > "$CERT_FILE"
           printf '%s' "$TSEROF_TLS_KEY" > "$KEY_FILE"
 
-          echo "===== create/update tserof-tls Secret ====="
+          echo "===== create/update tserof-tls Secret (default ns, for frontend) ====="
           kubectl create secret tls tserof-tls \
-            --cert="$CERT_FILE" --key="$KEY_FILE" \
+            --cert="$CERT_FILE" --key="$KEY_FILE" -n default \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "===== create/update tserof-tls Secret (monitoring ns, for grafana) ====="
+          kubectl create secret tls tserof-tls \
+            --cert="$CERT_FILE" --key="$KEY_FILE" -n monitoring \
             --dry-run=client -o yaml | kubectl apply -f -
           rm -f "$CERT_FILE" "$KEY_FILE"
 
-          echo "===== apply frontend.yaml (Service annotations + 443 port) ====="
+          echo "===== apply frontend.yaml + grafana.yaml (Service annotations + 443 port) ====="
           kubectl apply -f kubernetes-manifests/frontend.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/grafana.yaml
 
-          echo "===== force Linode CCM to re-sync the NodeBalancer ====="
+          echo "===== force Linode CCM to re-sync both NodeBalancers ====="
           # Updating the Secret's *content* alone does not change the Service
           # object, so the CCM's informer never sees an Update event and the
           # NodeBalancer keeps serving the old cert. Bumping a throwaway
@@ -54,28 +62,42 @@ jobs:
           # re-read the tserof-tls Secret and push the new cert to the NB.
           kubectl annotate service frontend-external \
             tserof.net/tls-synced-at="$(date -u +%Y%m%dT%H%M%SZ)" --overwrite
+          kubectl -n monitoring annotate service grafana \
+            tserof.net/tls-synced-at="$(date -u +%Y%m%dT%H%M%SZ)" --overwrite
 
-          echo "===== wait for NodeBalancer to pick up 443 ====="
-          for i in $(seq 1 30); do
-            OPEN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -k "https://172.237.1.139/" 2>/dev/null)
-            [ -z "$OPEN" ] && OPEN="000"
-            echo "  t+$((i*8))s  https -> $OPEN"
-            case "$OPEN" in
-              2??|3??) break ;;
-            esac
-            sleep 8
+          echo "===== wait for NodeBalancers to pick up 443 ====="
+          for HOST in 172.237.1.139 172.237.3.209; do
+            for i in $(seq 1 30); do
+              OPEN=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 -k "https://$HOST/" 2>/dev/null)
+              [ -z "$OPEN" ] && OPEN="000"
+              echo "  $HOST t+$((i*8))s  https -> $OPEN"
+              case "$OPEN" in
+                2??|3??|4??) break ;;
+              esac
+              sleep 8
+            done
           done
 
-          echo "===== verify via domain name + cert details (retry until aka-store SAN is served) ====="
+          echo "===== verify via domain name + cert details (retry until grafana SAN is served) ====="
           for i in $(seq 1 15); do
             SAN=$(echo | openssl s_client -connect 172.237.1.139:443 -servername tserof.net 2>/dev/null | openssl x509 -noout -ext subjectAltName 2>/dev/null)
             echo "  attempt $i: $SAN"
-            echo "$SAN" | grep -q "aka-store.tserof.net" && { echo "fresh cert confirmed (SAN includes aka-store.tserof.net)"; break; }
+            echo "$SAN" | grep -q "grafana.tserof.net" && { echo "fresh cert confirmed on storefront NB (SAN includes grafana.tserof.net)"; break; }
             echo "  (still old cert, retrying...)"
             sleep 10
           done
+          for i in $(seq 1 15); do
+            SAN=$(echo | openssl s_client -connect 172.237.3.209:443 -servername grafana.tserof.net 2>/dev/null | openssl x509 -noout -ext subjectAltName 2>/dev/null)
+            echo "  grafana NB attempt $i: $SAN"
+            echo "$SAN" | grep -q "grafana.tserof.net" && { echo "fresh cert confirmed on grafana NB"; break; }
+            echo "  (still old/no cert, retrying...)"
+            sleep 10
+          done
+
           curl -sv --max-time 10 https://tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|expire|HTTP/"
           echo ""
           curl -sv --max-time 10 https://www.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/" || echo "(www.tserof.net not ready yet)"
           echo ""
           curl -sv --max-time 10 https://aka-store.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/" || echo "(aka-store.tserof.net not ready yet)"
+          echo ""
+          curl -sv --max-time 10 https://grafana.tserof.net/ -o /dev/null 2>&1 | grep -iE "subject:|HTTP/" || echo "(grafana.tserof.net not ready yet)"

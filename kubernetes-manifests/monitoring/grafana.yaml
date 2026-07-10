@@ -225,10 +225,22 @@ kind: Service
 metadata:
   name: grafana
   namespace: monitoring
+  annotations:
+    # Terminate TLS at the Linode NodeBalancer using the tserof-tls Secret
+    # (same Let's Encrypt cert as the storefront, SAN includes
+    # grafana.tserof.net — see kubernetes-manifests/frontend.yaml and
+    # deploy-tls-tserof-tokyo.yml). NB decrypts and forwards plaintext
+    # HTTP to Grafana on 3000, same backend as the existing port-3000
+    # listener.
+    service.beta.kubernetes.io/linode-loadbalancer-port-443: '{"tls-secret-name": "tserof-tls", "protocol": "https"}'
 spec:
   type: LoadBalancer
   selector:
     app: grafana
   ports:
-    - port: 3000
+    - name: http
+      port: 3000
+      targetPort: 3000
+    - name: https
+      port: 443
       targetPort: 3000
