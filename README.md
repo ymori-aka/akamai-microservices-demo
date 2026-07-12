@@ -52,6 +52,11 @@
 
 ## Architecture
 
+![Overall architecture](docs/architecture.svg)
+
+<details>
+<summary>Detailed data-flow diagram (Mermaid)</summary>
+
 ```mermaid
 graph TB
     subgraph Client["Client (Browser)"]
@@ -125,6 +130,8 @@ graph TB
     GRAF --> PROM & LOKI & TEMPO
     USER -.->|"HTTPS<br/>grafana.tserof.net"| GRAF
 ```
+
+</details>
 
 ---
 

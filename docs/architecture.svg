@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1333 750" font-family="'Trebuchet MS','Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8AA0B6"/>
+    </marker>
+    <marker id="arrT" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2DD4BF"/>
+    </marker>
+    <style>
+      .zt{font-weight:bold;}
+      .chip{fill:#EEF3F9;stroke:#D5DFEA;}
+      .card{fill:#FFFFFF;}
+      text{fill:#16263B;}
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1333" height="750" fill="#FFFFFF"/>
+
+  <!-- Title -->
+  <text x="55" y="52" font-size="15" font-weight="bold" fill="#FF6A2B" letter-spacing="2">ARCHITECTURE</text>
+  <text x="55" y="92" font-size="30" font-weight="bold" fill="#0E2A47">Overall Architecture</text>
+
+  <!-- ===== Browser ===== -->
+  <circle cx="93" cy="253" r="48" fill="#0E2A47"/>
+  <text x="93" y="260" font-size="30" fill="#FFFFFF" text-anchor="middle">👥</text>
+  <text x="93" y="322" font-size="12" font-weight="bold" text-anchor="middle">Browser</text>
+
+  <!-- ===== Store path: HTTPS -> NodeBalancer TLS -> LKE ===== -->
+  <text x="150" y="212" font-size="9" font-weight="bold" fill="#5B6B7E">① Store (HTTPS)</text>
+  <text x="150" y="228" font-size="8" font-weight="bold" fill="#0A72B0" font-family="Consolas,monospace">aka-store.tserof.net</text>
+  <line x1="145" y1="255" x2="188" y2="255" stroke="#8AA0B6" stroke-width="2.2" marker-end="url(#arr)"/>
+  <rect x="190" y="210" width="158" height="90" rx="7" class="card" stroke="#0E2A47" stroke-width="1.3"/>
+  <text x="269" y="248" font-size="11" font-weight="bold" fill="#0E2A47" text-anchor="middle">NodeBalancer</text>
+  <text x="269" y="266" font-size="9" fill="#5B6B7E" text-anchor="middle">🔒 TLS termination</text>
+  <text x="269" y="281" font-size="9" fill="#5B6B7E" text-anchor="middle">(Let's Encrypt)</text>
+  <line x1="350" y1="255" x2="388" y2="255" stroke="#8AA0B6" stroke-width="2.2" marker-end="url(#arr)"/>
+
+  <!-- LKE zone -->
+  <rect x="390" y="150" width="640" height="176" rx="9" fill="#FFFFFF" stroke="#22D3EE" stroke-width="1.6"/>
+  <text x="404" y="172" class="zt" font-size="14" fill="#0E7490">Tokyo LKE Cluster · Online Boutique</text>
+  <text x="1018" y="172" font-size="9" font-style="italic" fill="#5B6B7E" text-anchor="end">+ PostgreSQL (Cloud Pulse / DBaaS)</text>
+  <!-- frontend -->
+  <rect x="408" y="188" width="150" height="34" rx="5" fill="#DDF6FB" stroke="#D5DFEA"/>
+  <text x="483" y="210" font-size="11" font-weight="bold" fill="#0E6E7E" text-anchor="middle">frontend</text>
+  <!-- row1 -->
+  <g font-size="10" text-anchor="middle">
+    <rect class="chip" x="408" y="232" width="118" height="30" rx="4"/><text x="467" y="251">cart</text>
+    <rect class="chip" x="533" y="232" width="118" height="30" rx="4"/><text x="592" y="251">checkout</text>
+    <rect class="chip" x="658" y="232" width="118" height="30" rx="4"/><text x="717" y="251">currency</text>
+    <rect class="chip" x="783" y="232" width="118" height="30" rx="4"/><text x="842" y="251">product</text>
+    <rect class="chip" x="908" y="232" width="118" height="30" rx="4"/><text x="967" y="251">recommend</text>
+  </g>
+  <!-- row2 -->
+  <g font-size="10" text-anchor="middle">
+    <rect class="chip" x="408" y="270" width="118" height="30" rx="4"/><text x="467" y="289">ad</text>
+    <rect class="chip" x="533" y="270" width="118" height="30" rx="4"/><text x="592" y="289">shipping</text>
+    <rect class="chip" x="658" y="270" width="118" height="30" rx="4"/><text x="717" y="289">payment</text>
+    <rect class="chip" x="783" y="270" width="118" height="30" rx="4"/><text x="842" y="289">email</text>
+    <rect class="chip" x="908" y="270" width="118" height="30" rx="4"/><text x="967" y="289">redis</text>
+  </g>
+
+  <!-- ===== AI chat path ===== -->
+  <line x1="110" y1="300" x2="388" y2="372" stroke="#2DD4BF" stroke-width="2.2" marker-end="url(#arrT)"/>
+  <text x="205" y="338" font-size="9" font-weight="bold" fill="#0C6B5C">② AI Chat</text>
+
+  <rect x="390" y="332" width="315" height="94" rx="9" fill="#FFFFFF" stroke="#2DD4BF" stroke-width="1.6"/>
+  <text x="404" y="356" class="zt" font-size="13" fill="#0C6B5C">Akamai Functions (Spin/WASM)</text>
+  <text x="404" y="392" font-size="10">shopping-assistant · product-intro ·</text>
+  <text x="404" y="408" font-size="10">recommendation</text>
+
+  <line x1="707" y1="375" x2="742" y2="375" stroke="#8AA0B6" stroke-width="2.2" marker-end="url(#arr)"/>
+  <rect x="744" y="344" width="278" height="64" rx="8" fill="#FFF1E8" stroke="#FF6A2B" stroke-width="1.3"/>
+  <text x="883" y="372" font-size="11" font-weight="bold" fill="#FF6A2B" text-anchor="middle">🛡️ Zuplo Gateway</text>
+  <text x="883" y="391" font-size="10" fill="#FF6A2B" text-anchor="middle">Firewall for AI</text>
+
+  <line x1="1024" y1="375" x2="1058" y2="375" stroke="#8AA0B6" stroke-width="2.2" marker-end="url(#arr)"/>
+  <rect x="1060" y="344" width="230" height="64" rx="8" fill="#E9FBF6" stroke="#0C6B5C" stroke-width="1.3"/>
+  <text x="1175" y="380" font-size="12" font-weight="bold" fill="#0C6B5C" text-anchor="middle">LLM (Gemma 4)</text>
+
+  <!-- footnote -->
+  <text x="60" y="440" font-size="9" font-style="italic" fill="#5B6B7E">DNS on Linode DNS (tserof.net) · TLS terminated at the NodeBalancers (Let's Encrypt, shared store/Grafana cert) · no CDN/WAF in front · product-intro &amp; recommendation call the LLM directly (bypassing Zuplo)</text>
+
+  <!-- ===== Observability band ===== -->
+  <rect x="55" y="452" width="1225" height="262" rx="9" fill="#F4F8FC" stroke="#22D3EE" stroke-width="1.3"/>
+  <text x="72" y="482" font-size="14" font-weight="bold" fill="#0E6E7E">Observability Pipeline — collected from all apps · Functions · Cloud Pulse</text>
+
+  <!-- sources col -->
+  <rect x="75" y="502" width="252" height="86" rx="6" class="card" stroke="#D5DFEA"/>
+  <text x="201" y="536" font-size="12" font-weight="bold" fill="#FF6A2B" text-anchor="middle">Cloud Pulse → aclp-collector</text>
+  <text x="201" y="560" font-size="9.5" fill="#5B6B7E" text-anchor="middle">DBaaS / NodeBalancer</text>
+  <rect x="75" y="598" width="252" height="86" rx="6" class="card" stroke="#D5DFEA"/>
+  <text x="201" y="632" font-size="12" font-weight="bold" fill="#0E6E7E" text-anchor="middle">OpenTelemetry Collector</text>
+  <text x="201" y="656" font-size="9.5" fill="#5B6B7E" text-anchor="middle">apps &amp; functions → OTLP</text>
+
+  <line x1="330" y1="545" x2="392" y2="545" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="330" y1="641" x2="392" y2="641" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- stores col -->
+  <rect x="395" y="502" width="222" height="86" rx="6" class="card" stroke="#D5DFEA"/>
+  <text x="506" y="536" font-size="12" font-weight="bold" text-anchor="middle">Prometheus</text>
+  <text x="506" y="560" font-size="9.5" fill="#5B6B7E" text-anchor="middle">metrics</text>
+  <rect x="395" y="598" width="222" height="86" rx="6" class="card" stroke="#D5DFEA"/>
+  <text x="506" y="632" font-size="12" font-weight="bold" text-anchor="middle">Tempo</text>
+  <text x="506" y="656" font-size="9.5" fill="#5B6B7E" text-anchor="middle">traces + Span Events</text>
+  <rect x="637" y="598" width="200" height="86" rx="6" class="card" stroke="#D5DFEA"/>
+  <text x="737" y="632" font-size="12" font-weight="bold" text-anchor="middle">Loki</text>
+  <text x="737" y="656" font-size="9.5" fill="#5B6B7E" text-anchor="middle">logs</text>
+
+  <line x1="620" y1="545" x2="682" y2="545" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="860" y1="545" x2="912" y2="545" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="840" y1="641" x2="912" y2="641" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- grafana col -->
+  <rect x="915" y="502" width="345" height="86" rx="6" class="card" stroke="#D5DFEA"/>
+  <text x="1087" y="530" font-size="12" font-weight="bold" fill="#0E6E7E" text-anchor="middle">Grafana</text>
+  <text x="1087" y="550" font-size="9" fill="#0A72B0" text-anchor="middle" font-family="Consolas,monospace">grafana.tserof.net</text>
+  <text x="1087" y="568" font-size="9.5" fill="#5B6B7E" text-anchor="middle">dashboards / Explore / Traces</text>
+  <rect x="915" y="598" width="345" height="86" rx="6" class="card" stroke="#D5DFEA"/>
+  <text x="1087" y="632" font-size="12" font-weight="bold" text-anchor="middle">Kiali · Vizceral · promviz</text>
+  <text x="1087" y="656" font-size="9.5" fill="#5B6B7E" text-anchor="middle">service graph (Istio ambient)</text>
+</svg>
