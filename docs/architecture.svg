@@ -106,9 +106,9 @@
   <text x="737" y="632" font-size="12" font-weight="bold" text-anchor="middle">Loki</text>
   <text x="737" y="656" font-size="9.5" fill="#5B6B7E" text-anchor="middle">logs</text>
 
-  <line x1="620" y1="545" x2="682" y2="545" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
-  <line x1="860" y1="545" x2="912" y2="545" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
-  <line x1="840" y1="641" x2="912" y2="641" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
+  <!-- stores -> visualization -->
+  <line x1="625" y1="545" x2="908" y2="545" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="843" y1="641" x2="908" y2="641" stroke="#8AA0B6" stroke-width="2" marker-end="url(#arr)"/>
 
   <!-- grafana col -->
   <rect x="915" y="502" width="345" height="86" rx="6" class="card" stroke="#D5DFEA"/>
