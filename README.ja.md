@@ -36,15 +36,17 @@
 | 2 | **Akamai Functions で商品紹介を AI 生成** | エッジで動く Function から、GPU 上の LLM（Gemma 4）を低レイテンシで呼び出し |
 | 3 | **AI によるパーソナライズドおすすめ** | 閲覧中の商品に応じた動的なレコメンド |
 | 4 | **AI ショッピングアシスタントとチャット** | Spin Function 経由で Gemma にチャット問い合わせ |
-| 5 | **4 言語 UI** | 英語 / 日本語 / 한국어 / 中文 をワンクリックで切り替え |
-| 6 | **8 通貨対応** | USD / EUR / JPY / CAD / GBP / TRY / KRW / CNY、ライブ為替レート |
-| 7 | **注文履歴の永続化** | Linode Managed PostgreSQL に注文を保存、`/orders` / `/admin/orders` で閲覧 |
-| 8 | **MongoDB ベースの商品カタログ** | StatefulSet + PVC、初回起動時に自動シード、管理画面から CRUD |
-| 9 | **商品画像を Linode Object Storage で配信** | `*.linodeobjects.com` から画像を提供（クラスタ内配信ではなく） |
-| 10 | **クラスタ内 Grafana + Cloud Pulse** | DB / LB / LLM のメトリクスを 1 つのダッシュボードで表示。前日・当日の注文数と売上を PostgreSQL から直接クエリして表示 |
-| 11 | **LLM のエンドツーエンド計装** | モデル別の token 使用量、レイテンシ p50/p95/p99、エラー率 |
-| 12 | **GitHub Actions による自動デプロイ** | push → build → LKE デプロイ → Akamai Functions デプロイを完全自動化 |
-| 13 | **認証付き商品管理画面** | 商品の追加・編集・削除・在庫管理をブラウザから実施 |
+| 5 | **チャット経路の Firewall for AI** | チャットのプロンプトは Zuplo AI Gateway を通過し、カード番号 / PII / 過大入力（DoS 様）を LLM 到達前に遮断 |
+| 6 | **4 言語 UI** | 英語 / 日本語 / 한국어 / 中文 をワンクリックで切り替え |
+| 7 | **8 通貨対応** | USD / EUR / JPY / CAD / GBP / TRY / KRW / CNY、ライブ為替レート |
+| 8 | **注文履歴の永続化** | Linode Managed PostgreSQL に注文を保存、`/orders` / `/admin/orders` で閲覧 |
+| 9 | **MongoDB ベースの商品カタログ** | StatefulSet + PVC、初回起動時に自動シード、管理画面から CRUD |
+| 10 | **商品画像を Linode Object Storage で配信** | `*.linodeobjects.com` から画像を提供（クラスタ内配信ではなく） |
+| 11 | **クラスタ内 Grafana + Cloud Pulse** | DB / LB / LLM のメトリクスを 1 つのダッシュボードで表示。前日・当日の注文数と売上を PostgreSQL から直接クエリして表示 |
+| 12 | **LLM のエンドツーエンド計装** | モデル別の token 使用量、レイテンシ p50/p95/p99、エラー率 |
+| 13 | **GitHub Actions による自動デプロイ** | push → build → LKE デプロイ → Akamai Functions デプロイを完全自動化 |
+| 14 | **認証付き商品管理画面** | 商品の追加・編集・削除・在庫管理をブラウザから実施 |
+| 15 | **独自ドメイン + HTTPS** | `tserof.net` ゾーンを Linode DNS で管理。Let's Encrypt の TLS をストア / Grafana 両方の NodeBalancer で直接終端 |
 
 ---
 
@@ -61,6 +63,10 @@ graph TB
         REC["recommendation-service<br/>🤖 AI レコメンド"]
         ASSIST["shopping-assistant-service<br/>💬 AI チャット"]
     end
+
+    NB["Linode NodeBalancer<br/>🔒 TLS 終端 (Let's Encrypt)"]
+
+    ZUPLO["Zuplo AI Gateway<br/>🛡️ Firewall for AI<br/>(PII / カード番号 / 過大入力を遮断)"]
 
     subgraph LKE["LKE クラスタ（3 ノード / Kubernetes v1.35）"]
         direction TB
@@ -97,13 +103,15 @@ graph TB
         PGEXP["postgres_exporter<br/>(注文 KPI クエリ)"]
     end
 
-    USER -->|HTTP| FE
+    USER -->|"HTTPS<br/>aka-store.tserof.net"| NB
+    NB --> FE
     USER -.->|非同期 fetch| INTRO
     USER -.->|非同期 fetch| REC
     USER -.->|チャット| ASSIST
     INTRO --> GEMMA
     REC --> GEMMA
-    ASSIST --> GEMMA
+    ASSIST --> ZUPLO
+    ZUPLO --> GEMMA
     FE --> PC & CART & CHK & CUR & REC2 & SHIP & AD
     FE -->|read| PG
     FE -->|画像| OBJ
@@ -115,6 +123,7 @@ graph TB
     PGEXP -->|SQL クエリ| PG
     PROM -->|scrape| OTEL & ACLP & GEMMA & PGEXP
     GRAF --> PROM & LOKI & TEMPO
+    USER -.->|"HTTPS<br/>grafana.tserof.net"| GRAF
 ```
 
 ---
@@ -125,7 +134,9 @@ graph TB
 |--------|------|------|
 | **インフラ** | Linode Kubernetes Engine (LKE) | Kubernetes クラスタ（3 ノード） |
 | **エッジ AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript Wasm をエッジで実行 |
-| **AI モデル** | Gemma 4 26B / llama-cpp-python | GPU サーバー上のオープンソース LLM、OpenAI 互換 API |
+| **AI ゲートウェイ** | Zuplo (Firewall for AI) | チャットのプロンプトを LLM 到達前に検査（PII / カード番号 / 過大入力を遮断） |
+| **AI モデル** | Gemma 4 26B (MoE, アクティブ 4B) / llama-cpp-python | GPU サーバー上のオープンソース LLM、OpenAI 互換 API |
+| **DNS / TLS** | Linode DNS (`tserof.net`) + Let's Encrypt | A レコードは `linode-cli` で管理。TLS は NodeBalancer で終端（`linode-loadbalancer-port-443` CCM アノテーション、4 SAN 共有証明書） |
 | **フロントエンド** | Go + HTML テンプレート | EC サイト本体（en / ja / ko / zh） |
 | **マイクロサービス** | Go / Python / Node.js / Java | カート、決済、為替、配送ほか |
 | **カタログストア** | MongoDB 7.0（クラスタ内 StatefulSet + PVC） | 商品カタログ（`products.json` から自動シード） |
@@ -205,11 +216,16 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 
 | URL | 説明 |
 |-----|------|
-| `http://172.233.68.25/` | EC サイト（公開） |
-| `http://172.233.68.25/orders` | セッション別の注文履歴 |
-| `http://172.233.68.25/admin/inventory` | 商品管理画面（Basic 認証） |
-| `http://172.233.68.25/admin/orders` | 注文一覧（Basic 認証） |
-| `http://172.233.69.90:3000/` | Grafana ダッシュボード |
+| `https://aka-store.tserof.net/` | EC サイト（公開。`https://tserof.net/`・`https://www.tserof.net/` でも可） |
+| `https://aka-store.tserof.net/orders` | セッション別の注文履歴 |
+| `https://aka-store.tserof.net/admin/inventory` | 商品管理画面（Basic 認証） |
+| `https://aka-store.tserof.net/admin/orders` | 注文一覧（Basic 認証） |
+| `https://grafana.tserof.net/` | Grafana ダッシュボード |
+
+> DNS は Linode DNS（`tserof.net` ゾーン）でホストし、TLS は Linode NodeBalancer で
+> 共有の Let's Encrypt 証明書（SAN: `tserof.net` / `www` / `aka-store` / `grafana`）
+> により終端。証明書の更新は `deploy-tls-tserof-tokyo.yml` ワークフローで実施。
+> NodeBalancer の IP への素の HTTP アクセスもフォールバックとして利用可。
 
 **管理画面のデフォルト認証情報**
 

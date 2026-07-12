@@ -36,15 +36,17 @@
 | 2 | **AI product descriptions via Akamai Functions** | Edge Function calling a GPU-hosted LLM (Gemma 4) with low latency |
 | 3 | **AI-powered personalized recommendations** | Dynamic product suggestions based on what the customer is viewing |
 | 4 | **AI shopping assistant chat** | Spin function chat endpoint streaming Gemma responses |
-| 5 | **4-language UI** | One-click switching between English / 日本語 / 한국어 / 中文 |
-| 6 | **8-currency pricing** | USD / EUR / JPY / CAD / GBP / TRY / KRW / CNY with live FX rates |
-| 7 | **Persistent order history** | Orders written to Linode Managed PostgreSQL; viewable at `/orders` & `/admin/orders` |
-| 8 | **MongoDB-backed product catalog** | StatefulSet PVC with seed-on-first-start, full admin CRUD |
-| 9 | **Product images on Linode Object Storage** | Images served from `*.linodeobjects.com` instead of in-cluster |
-| 10 | **In-cluster Grafana + Cloud Pulse** | DB / LB / LLM metrics in a single dashboard; yesterday's and today's order count & revenue queried directly from PostgreSQL |
-| 11 | **End-to-end LLM telemetry** | Token usage, latency p50/p95/p99, error rate per model |
-| 12 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
-| 13 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
+| 5 | **Firewall for AI on the chat lane** | Chat prompts pass through a Zuplo AI Gateway that blocks credit-card numbers / PII and oversized (DoS-like) inputs before they reach the LLM |
+| 6 | **4-language UI** | One-click switching between English / 日本語 / 한국어 / 中文 |
+| 7 | **8-currency pricing** | USD / EUR / JPY / CAD / GBP / TRY / KRW / CNY with live FX rates |
+| 8 | **Persistent order history** | Orders written to Linode Managed PostgreSQL; viewable at `/orders` & `/admin/orders` |
+| 9 | **MongoDB-backed product catalog** | StatefulSet PVC with seed-on-first-start, full admin CRUD |
+| 10 | **Product images on Linode Object Storage** | Images served from `*.linodeobjects.com` instead of in-cluster |
+| 11 | **In-cluster Grafana + Cloud Pulse** | DB / LB / LLM metrics in a single dashboard; yesterday's and today's order count & revenue queried directly from PostgreSQL |
+| 12 | **End-to-end LLM telemetry** | Token usage, latency p50/p95/p99, error rate per model |
+| 13 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
+| 14 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
+| 15 | **Custom domain + HTTPS** | `tserof.net` zone on Linode DNS; Let's Encrypt TLS terminated directly at the Linode NodeBalancers for both the store and Grafana |
 
 ---
 
@@ -61,6 +63,10 @@ graph TB
         REC["recommendation-service<br/>🤖 AI recommendations"]
         ASSIST["shopping-assistant-service<br/>💬 AI chat"]
     end
+
+    NB["Linode NodeBalancer<br/>🔒 TLS termination (Let's Encrypt)"]
+
+    ZUPLO["Zuplo AI Gateway<br/>🛡️ Firewall for AI<br/>(blocks PII / card numbers / oversized input)"]
 
     subgraph LKE["LKE Cluster (3 nodes / Kubernetes v1.35)"]
         direction TB
@@ -97,13 +103,15 @@ graph TB
         PGEXP["postgres_exporter<br/>(orders KPI queries)"]
     end
 
-    USER -->|HTTP| FE
+    USER -->|"HTTPS<br/>aka-store.tserof.net"| NB
+    NB --> FE
     USER -.->|Async fetch| INTRO
     USER -.->|Async fetch| REC
     USER -.->|Chat| ASSIST
     INTRO --> GEMMA
     REC --> GEMMA
-    ASSIST --> GEMMA
+    ASSIST --> ZUPLO
+    ZUPLO --> GEMMA
     FE --> PC & CART & CHK & CUR & REC2 & SHIP & AD
     FE -->|read| PG
     FE -->|images| OBJ
@@ -115,6 +123,7 @@ graph TB
     PGEXP -->|SQL queries| PG
     PROM -->|scrape| OTEL & ACLP & GEMMA & PGEXP
     GRAF --> PROM & LOKI & TEMPO
+    USER -.->|"HTTPS<br/>grafana.tserof.net"| GRAF
 ```
 
 ---
@@ -125,7 +134,9 @@ graph TB
 |-------|-----------|------|
 | **Infrastructure** | Linode Kubernetes Engine (LKE) | Kubernetes cluster (3 nodes) |
 | **Edge AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript Wasm functions running at the edge |
-| **AI Model** | Gemma 4 26B / llama-cpp-python | Open-source LLM on a GPU server, OpenAI-compatible API |
+| **AI Gateway** | Zuplo (Firewall for AI) | Screens chat prompts for PII / card numbers / oversized input before they reach the LLM |
+| **AI Model** | Gemma 4 26B (MoE, 4B active) / llama-cpp-python | Open-source LLM on a GPU server, OpenAI-compatible API |
+| **DNS & TLS** | Linode DNS (`tserof.net`) + Let's Encrypt | A records managed via `linode-cli`; TLS terminated at the NodeBalancers (`linode-loadbalancer-port-443` CCM annotation, shared 4-SAN cert) |
 | **Frontend** | Go + HTML templates | E-commerce storefront (en / ja / ko / zh) |
 | **Microservices** | Go / Python / Node.js / Java | Cart, checkout, currency, shipping, etc. |
 | **Catalog Store** | MongoDB 7.0 (in-cluster StatefulSet + PVC) | Product catalog (auto-seeded from `products.json`) |
@@ -206,11 +217,17 @@ services.
 
 | URL | Description |
 |-----|-------------|
-| `http://172.233.68.25/` | E-commerce store (public) |
-| `http://172.233.68.25/orders` | Per-session order history |
-| `http://172.233.68.25/admin/inventory` | Admin product management (Basic Auth) |
-| `http://172.233.68.25/admin/orders` | Admin order list (Basic Auth) |
-| `http://172.233.69.90:3000/` | Grafana dashboards |
+| `https://aka-store.tserof.net/` | E-commerce store (public; also `https://tserof.net/` and `https://www.tserof.net/`) |
+| `https://aka-store.tserof.net/orders` | Per-session order history |
+| `https://aka-store.tserof.net/admin/inventory` | Admin product management (Basic Auth) |
+| `https://aka-store.tserof.net/admin/orders` | Admin order list (Basic Auth) |
+| `https://grafana.tserof.net/` | Grafana dashboards |
+
+> DNS is hosted on Linode DNS (`tserof.net` zone) and TLS is terminated at the
+> Linode NodeBalancers with a shared Let's Encrypt certificate
+> (`tserof.net` / `www` / `aka-store` / `grafana` SANs). The certificate is
+> rotated via the `deploy-tls-tserof-tokyo.yml` workflow. Plain HTTP on the
+> NodeBalancer IPs still works as a fallback.
 
 **Default admin credentials**
 
