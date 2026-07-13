@@ -236,14 +236,16 @@ services.
 > rotated via the `deploy-tls-tserof-tokyo.yml` workflow. Plain HTTP on the
 > NodeBalancer IPs still works as a fallback.
 
-**Default admin credentials**
+**Admin credentials**
 
 | Field | Value |
 |-------|-------|
 | Username | `admin` |
-| Password | `akamai-demo` |
+| Password | `••••••••` (not published here) |
 
-> Credentials can be changed via the `ADMIN_USER` / `ADMIN_PASSWORD` environment variables (see Step 8).
+> Set at deploy time via the `ADMIN_USER` / `ADMIN_PASSWORD` environment
+> variables (backed by the `frontend-admin-secret` Kubernetes Secret; see
+> Step 8). Ask the demo owner for the current password.
 
 ---
 
@@ -432,7 +434,7 @@ Firewall so Prometheus can scrape it.
 kubectl set env deployment/frontend \
   ENV_PLATFORM=akamai \         # Platform badge (akamai / gcp / aws / azure)
   ADMIN_USER=admin \            # Admin panel Basic Auth username
-  ADMIN_PASSWORD=akamai-demo \  # Admin panel Basic Auth password
+  ADMIN_PASSWORD='<your-password>' \  # Admin panel Basic Auth password
   ENABLE_ASSISTANT=true \       # Enable AI shopping assistant
   IMAGE_BASE_URL=https://akamai-boutique-img.jp-osa-1.linodeobjects.com
 ```

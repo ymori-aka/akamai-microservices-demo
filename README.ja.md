@@ -234,14 +234,16 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 > により終端。証明書の更新は `deploy-tls-tserof-tokyo.yml` ワークフローで実施。
 > NodeBalancer の IP への素の HTTP アクセスもフォールバックとして利用可。
 
-**管理画面のデフォルト認証情報**
+**管理画面の認証情報**
 
 | 項目 | 値 |
 |------|-----|
 | ユーザー名 | `admin` |
-| パスワード | `akamai-demo` |
+| パスワード | `••••••••`（ここには記載しません） |
 
-> 環境変数 `ADMIN_USER` / `ADMIN_PASSWORD` で変更可能（Step 8 参照）
+> デプロイ時に環境変数 `ADMIN_USER` / `ADMIN_PASSWORD`（Kubernetes Secret
+> `frontend-admin-secret` 由来、Step 8 参照）で設定します。現在のパスワードは
+> デモ管理者に確認してください。
 
 ---
 
@@ -428,7 +430,7 @@ LKE ノードの public IP からの TCP/8000 inbound を VM の Cloud Firewall
 kubectl set env deployment/frontend \
   ENV_PLATFORM=akamai \         # プラットフォームバッジ（akamai / gcp / aws / azure）
   ADMIN_USER=admin \            # 管理画面 Basic 認証ユーザー名
-  ADMIN_PASSWORD=akamai-demo \  # 管理画面 Basic 認証パスワード
+  ADMIN_PASSWORD='<パスワード>' \  # 管理画面 Basic 認証パスワード
   ENABLE_ASSISTANT=true \       # AI ショッピングアシスタントを有効化
   IMAGE_BASE_URL=https://akamai-boutique-img.jp-osa-1.linodeobjects.com
 ```
