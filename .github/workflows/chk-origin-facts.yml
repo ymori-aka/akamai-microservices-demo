@@ -1,0 +1,32 @@
+name: CHK - origin facts (read-only, Tokyo)
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id: { description: "Tokyo LKE cluster id", required: true, default: "610031" }
+jobs:
+  check:
+    runs-on: self-hosted
+    steps:
+      - name: node OS + frontend pod/image facts
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "===== NODES (OS image / kernel / container runtime / k8s) ====="
+          kubectl get nodes -o wide 2>&1
+          echo ""
+          echo "===== one node detail (nodeInfo) ====="
+          N=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          kubectl get node "$N" -o jsonpath='{.status.nodeInfo}' 2>&1 | python3 -m json.tool 2>/dev/null
+          echo ""
+          echo "===== frontend deployment image + ports ====="
+          kubectl -n default get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}' 2>&1
+          kubectl -n default get pod -l app=frontend -o jsonpath='{range .items[*]}{.metadata.name}{"  image="}{.spec.containers[0].image}{"  node="}{.spec.nodeName}{"\n"}{end}' 2>&1
+          echo ""
+          echo "===== frontend container port ====="
+          kubectl -n default get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].ports}{"\n"}' 2>&1
