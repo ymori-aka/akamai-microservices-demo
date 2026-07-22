@@ -1,0 +1,99 @@
+name: Enroll Wiz CSPM - Osaka (598466 only)
+
+# Connects the Osaka LKE cluster (598466, "microservices-demo", dev) to Wiz
+# CSPM, reproducing exactly what ~/Downloads/LKE_autoenroll_mac_version.py
+# does — but from the self-hosted runner, because the operator Mac cannot
+# reach the LKE API (VPN PMTU). Scope is HARD-PINNED to 598466; Tokyo prod
+# (610031) is never touched. Wiz connector creds come from GitHub Secrets
+# (repo is public — never hardcode them).
+on:
+  workflow_dispatch:
+    inputs:
+      osaka_cluster_id:
+        description: "Osaka LKE cluster id (do NOT change)"
+        required: true
+        default: "598466"
+
+jobs:
+  enroll:
+    runs-on: self-hosted
+    steps:
+      - name: deploy Wiz kubernetes integration to Osaka
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+          WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
+          WIZ_CLIENT_TOKEN: ${{ secrets.WIZ_CLIENT_TOKEN }}
+        run: |
+          set -e
+          CID="${{ inputs.osaka_cluster_id }}"
+          if [ "$CID" != "598466" ]; then echo "refusing: this workflow is pinned to Osaka 598466"; exit 1; fi
+
+          echo "===== fetch Osaka kubeconfig ====="
+          KC="${RUNNER_TEMP:-/tmp}/kc-osa.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${CID}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          echo "context:"; kubectl config current-context 2>&1
+          kubectl get nodes 2>&1 | head -5
+
+          echo "===== ensure helm ====="
+          if ! command -v helm >/dev/null 2>&1; then
+            export HELM_INSTALL_DIR="${RUNNER_TEMP:-/tmp}/bin"; mkdir -p "$HELM_INSTALL_DIR"
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "${RUNNER_TEMP:-/tmp}/get-helm.sh"
+            USE_SUDO=false HELM_INSTALL_DIR="$HELM_INSTALL_DIR" bash "${RUNNER_TEMP:-/tmp}/get-helm.sh" --no-sudo
+            export PATH="$HELM_INSTALL_DIR:$PATH"
+          fi
+          helm version
+
+          echo "===== helm repo ====="
+          helm repo add wiz-sec https://charts.wiz.io
+          helm repo update wiz-sec
+          CHART_VER=$(helm search repo wiz-sec/wiz-kubernetes-integration -o json | python3 -c "import sys,json;print(json.load(sys.stdin)[0]['version'])")
+          echo "chart version: $CHART_VER"
+
+          echo "===== wiz namespace + api-token secret ====="
+          kubectl create namespace wiz --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n wiz create secret generic wiz-api-token \
+            --from-literal=clientId="$WIZ_CLIENT_ID" \
+            --from-literal=clientToken="$WIZ_CLIENT_TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "===== values.yaml (same as the mac script) ====="
+          VALS="${RUNNER_TEMP:-/tmp}/wiz-values.yaml"
+          printf '%s\n' \
+            'global:' \
+            "  clusterExternalId: \"${CID}\"" \
+            '  wizApiToken:' \
+            '    secret:' \
+            '      create: false' \
+            '      name: wiz-api-token' \
+            '' \
+            'wiz-kubernetes-connector:' \
+            '  enabled: true' \
+            '  autoCreateConnector:' \
+            '    clusterFlavor: LKE' \
+            '    connectorName: "microservices-demo"' \
+            '  wiz-broker:' \
+            '    enabled: true' \
+            '' \
+            'wiz-admission-controller:' \
+            '  enabled: true' \
+            '  webhook:' \
+            "    clusterExternalId: \"${CID}\"" \
+            '  kubernetesAuditLogsWebhook:' \
+            '    enabled: true' \
+            '' \
+            'wiz-sensor:' \
+            '  enabled: false' \
+            > "$VALS"
+          cat "$VALS"
+
+          echo "===== helm upgrade --install ====="
+          helm upgrade --install wiz-integration wiz-sec/wiz-kubernetes-integration \
+            --namespace wiz --values "$VALS" --wait --timeout 8m
+
+          echo "===== verify ====="
+          kubectl -n wiz get pods -o wide 2>&1
+          echo "--- helm status ---"
+          helm -n wiz status wiz-integration 2>&1 | head -15
