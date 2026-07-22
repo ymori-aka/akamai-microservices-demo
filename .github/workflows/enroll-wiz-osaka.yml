@@ -38,6 +38,11 @@ jobs:
           kubectl get nodes 2>&1 | head -5
 
           echo "===== ensure helm ====="
+          # self-hosted runner HOME is not writable; point helm dirs at RUNNER_TEMP
+          export HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm/cache"
+          export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm/config"
+          export HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm/data"
+          mkdir -p "$HELM_CACHE_HOME" "$HELM_CONFIG_HOME" "$HELM_DATA_HOME"
           if ! command -v helm >/dev/null 2>&1; then
             export HELM_INSTALL_DIR="${RUNNER_TEMP:-/tmp}/bin"; mkdir -p "$HELM_INSTALL_DIR"
             curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o "${RUNNER_TEMP:-/tmp}/get-helm.sh"
