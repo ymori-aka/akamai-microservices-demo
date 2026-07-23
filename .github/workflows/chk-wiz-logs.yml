@@ -1,0 +1,26 @@
+name: CHK - Wiz broker logs (read-only)
+on:
+  workflow_dispatch: {}
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: broker + admission logs
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-osa.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/598466/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          BP=$(kubectl -n wiz get pods --no-headers | grep 'agent' | grep -E 'CrashLoop|Running' | awk '{print $1}' | head -1)
+          echo "===== broker pod: $BP ====="
+          echo "--- current logs (wiz-broker) tail ---"; kubectl -n wiz logs "$BP" -c wiz-broker --tail=40 2>&1
+          echo "--- previous logs (wiz-broker) tail ---"; kubectl -n wiz logs "$BP" -c wiz-broker --previous --tail=40 2>&1
+          AC=$(kubectl -n wiz get pods --no-headers | grep 'admission-controller-5' | grep CrashLoop | awk '{print $1}' | head -1)
+          echo "===== admission-controller pod: $AC ====="
+          kubectl -n wiz logs "$AC" --previous --tail=30 2>&1
+          echo "===== egress test from cluster (can pods reach Wiz backend?) ====="
+          kubectl -n wiz get cronjob,deploy 2>&1 | head
