@@ -1,0 +1,47 @@
+name: Set image origin = store (unset IMAGE_BASE_URL, Tokyo)
+
+# For Akamai IVM (option B): serve product images same-origin from the
+# frontend (/static/img/products/...) through the NodeBalancer instead of
+# direct from Object Storage. Removes IMAGE_BASE_URL from the live frontend
+# Deployment and verifies images are now same-origin.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id: { description: "Tokyo LKE cluster id", required: true, default: "610031" }
+
+jobs:
+  apply:
+    runs-on: self-hosted
+    steps:
+      - name: unset IMAGE_BASE_URL + verify
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== current IMAGE_BASE_URL ====="
+          kubectl -n default get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IMAGE_BASE_URL")].value}{"\n"}'
+
+          echo "===== unset IMAGE_BASE_URL ====="
+          kubectl -n default set env deployment/frontend IMAGE_BASE_URL-
+          kubectl -n default rollout status deployment/frontend --timeout=180s
+
+          echo "===== verify: image src should now be /static/img/products/... ====="
+          sleep 3
+          for i in $(seq 1 10); do
+            OUT=$(curl -sS --max-time 15 https://aka-store.tserof.net/ 2>/dev/null)
+            SAMEORIGIN=$(echo "$OUT" | grep -oE 'src="/static/img/products/[^"]+"' | head -2)
+            BUCKET=$(echo "$OUT" | grep -oE 'src="https://[^"]*linodeobjects[^"]*"' | head -1)
+            if [ -n "$SAMEORIGIN" ]; then echo "OK same-origin:"; echo "$SAMEORIGIN"; break; fi
+            echo "  attempt $i: still bucket ($BUCKET), retrying..."; sleep 6
+          done
+
+          echo "===== fetch one image THROUGH the NodeBalancer ====="
+          IMG=$(curl -sS --max-time 15 https://aka-store.tserof.net/ | grep -oE '/static/img/products/[^"]+' | head -1)
+          echo "image path: $IMG"
+          curl -sS --max-time 15 -o /dev/null -w "  %{http_code}  %{content_type}  %{size_download} bytes\n" "https://aka-store.tserof.net${IMG}"

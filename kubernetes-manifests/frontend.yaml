@@ -133,8 +133,13 @@ spec:
                 name: orders-db-credentials
                 key: DSN
                 optional: true
-          - name: IMAGE_BASE_URL
-            value: "https://akamai-boutique-img.jp-osa-1.linodeobjects.com"
+          # IMAGE_BASE_URL intentionally UNSET so product images are served
+          # same-origin from the frontend container (/static/img/products/...)
+          # through the NodeBalancer — this makes the store the image origin
+          # for Akamai Image & Video Manager (IVM). Re-enable (point at the
+          # Object Storage bucket) to go back to direct-from-bucket delivery.
+          # - name: IMAGE_BASE_URL
+          #   value: "https://akamai-boutique-img.jp-osa-1.linodeobjects.com"
           # - name: CYMBAL_BRANDING
           #   value: "true"
           # - name: ENABLE_ASSISTANT
