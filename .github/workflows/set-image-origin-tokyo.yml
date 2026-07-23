@@ -1,19 +1,20 @@
 name: Set image origin = store (unset IMAGE_BASE_URL, Tokyo)
 
-# For Akamai IVM (option B): serve product images same-origin from the
+# Option B for Akamai IVM: product images served same-origin from the
 # frontend (/static/img/products/...) through the NodeBalancer instead of
-# direct from Object Storage. Removes IMAGE_BASE_URL from the live frontend
-# Deployment and verifies images are now same-origin.
+# direct from Object Storage. Pins the image to the known-good tag, removes
+# IMAGE_BASE_URL, rolls cleanly, prunes stray pods, and verifies.
 on:
   workflow_dispatch:
     inputs:
       tokyo_cluster_id: { description: "Tokyo LKE cluster id", required: true, default: "610031" }
+      image_tag: { description: "frontend image tag", required: true, default: "sha-8768a53" }
 
 jobs:
   apply:
     runs-on: self-hosted
     steps:
-      - name: unset IMAGE_BASE_URL + verify
+      - name: pin image, unset IMAGE_BASE_URL, roll, verify
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
@@ -24,24 +25,33 @@ jobs:
             | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
           export KUBECONFIG="$KC"
 
-          echo "===== current IMAGE_BASE_URL ====="
-          kubectl -n default get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IMAGE_BASE_URL")].value}{"\n"}'
-
-          echo "===== unset IMAGE_BASE_URL ====="
+          echo "===== pin image + unset IMAGE_BASE_URL ====="
+          kubectl -n default set image deployment/frontend server=ghcr.io/ymori-aka/frontend:${{ inputs.image_tag }}
           kubectl -n default set env deployment/frontend IMAGE_BASE_URL-
-          kubectl -n default rollout status deployment/frontend --timeout=180s
+          kubectl -n default rollout restart deployment/frontend
+          kubectl -n default rollout status deployment/frontend --timeout=4m
 
-          echo "===== verify: image src should now be /static/img/products/... ====="
-          sleep 3
-          for i in $(seq 1 10); do
-            OUT=$(curl -sS --max-time 15 https://aka-store.tserof.net/ 2>/dev/null)
-            SAMEORIGIN=$(echo "$OUT" | grep -oE 'src="/static/img/products/[^"]+"' | head -2)
-            BUCKET=$(echo "$OUT" | grep -oE 'src="https://[^"]*linodeobjects[^"]*"' | head -1)
-            if [ -n "$SAMEORIGIN" ]; then echo "OK same-origin:"; echo "$SAMEORIGIN"; break; fi
-            echo "  attempt $i: still bucket ($BUCKET), retrying..."; sleep 6
+          echo "===== prune stray frontend pods not on the target image ====="
+          for pe in $(kubectl -n default get pods -l app=frontend -o jsonpath='{range .items[*]}{.metadata.name}={.spec.containers[0].image}{"\n"}{end}'); do
+            p="${pe%%=*}"; img="${pe#*=}"
+            if [ "$img" != "ghcr.io/ymori-aka/frontend:${{ inputs.image_tag }}" ]; then
+              echo "deleting stray pod $p ($img)"; kubectl -n default delete pod "$p" --wait=false
+            fi
           done
+          sleep 5
 
-          echo "===== fetch one image THROUGH the NodeBalancer ====="
+          echo "===== running pod env + image ====="
+          POD=$(kubectl -n default get pods -l app=frontend --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+          echo "pod=$POD"
+          echo "IMAGE_BASE_URL='$(kubectl -n default get pod "$POD" -o jsonpath='{.spec.containers[0].env[?(@.name=="IMAGE_BASE_URL")].value}')'"
+          echo "image=$(kubectl -n default get pod "$POD" -o jsonpath='{.spec.containers[0].image}')"
+
+          echo "===== external verify (same-origin images) ====="
+          for i in $(seq 1 8); do
+            SO=$(curl -sS --max-time 15 https://aka-store.tserof.net/ 2>/dev/null | grep -oE 'src="/static/img/products/[^"]+"' | head -2)
+            [ -n "$SO" ] && { echo "OK same-origin:"; echo "$SO"; break; }
+            echo "  attempt $i: not yet, retry"; sleep 6
+          done
           IMG=$(curl -sS --max-time 15 https://aka-store.tserof.net/ | grep -oE '/static/img/products/[^"]+' | head -1)
-          echo "image path: $IMG"
-          curl -sS --max-time 15 -o /dev/null -w "  %{http_code}  %{content_type}  %{size_download} bytes\n" "https://aka-store.tserof.net${IMG}"
+          echo "img: $IMG"
+          [ -n "$IMG" ] && curl -sS -o /dev/null -w "  %{http_code}  ct=%{content_type}  %{size_download}B\n" --max-time 15 "https://aka-store.tserof.net${IMG}"
