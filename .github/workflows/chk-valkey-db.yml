@@ -1,17 +1,40 @@
-name: CHK - list Linode Managed Databases (read-only)
+name: CHK - Valkey instance detail + Tokyo VPC match (read-only)
 on:
   workflow_dispatch: {}
 jobs:
   chk:
     runs-on: self-hosted
     steps:
-      - name: list databases
+      - name: valkey detail + LKE VPC
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
           set +e
-          echo "===== Valkey/Redis-family databases ====="
-          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/databases/valkey/instances" | python3 -m json.tool 2>&1 | head -60
+          echo "===== Valkey9 (501007) full detail ====="
+          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/databases/valkey/instances/501007" | python3 -m json.tool 2>&1
+
           echo ""
-          echo "===== generic databases list (fallback) ====="
-          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/databases/instances" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([{'id':x.get('id'),'label':x.get('label'),'engine':x.get('engine'),'status':x.get('status'),'region':x.get('region')} for x in d.get('data',[])], indent=2))" 2>&1
+          echo "===== VPCs on the account ====="
+          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/vpcs" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for v in d.get('data',[]):
+    print(v['id'], v['label'], 'subnets=', [(s['id'], s.get('label'), s.get('ipv4')) for s in v.get('subnets',[])])
+" 2>&1
+
+          echo ""
+          echo "===== Tokyo LKE (610031) node pools -> linode instances -> VPC interfaces ====="
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+          kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"  internalIP="}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' 2>&1
+
+          echo "--- matching linode instances (by label) for VPC config ---"
+          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/linode/instances?page_size=200" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for i in d.get('data',[]):
+    if 'lke610031' in i.get('label',''):
+        print(i['id'], i['label'], i.get('region'))
+" 2>&1 | head -5
