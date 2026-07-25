@@ -1,0 +1,33 @@
+name: CHK - cartservice pod status + logs (read-only)
+on:
+  workflow_dispatch: {}
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: pods + logs
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['kubeconfig']).decode())" > "$KC"
+          export KUBECONFIG="$KC"
+          echo "===== pods ====="
+          kubectl get pods -l app=cartservice -o wide 2>&1
+          echo ""
+          echo "===== deployment status ====="
+          kubectl get deployment cartservice -o wide 2>&1
+          echo ""
+          echo "===== events (cartservice) ====="
+          kubectl get events --sort-by=.lastTimestamp 2>&1 | grep -i cartservice | tail -20
+          echo ""
+          echo "===== describe latest pod ====="
+          POD=$(kubectl get pods -l app=cartservice --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
+          echo "pod=$POD"
+          kubectl describe pod "$POD" 2>&1 | tail -40
+          echo ""
+          echo "===== logs (current) ====="
+          kubectl logs "$POD" --tail=50 2>&1
+          echo "===== logs (previous, if crashed) ====="
+          kubectl logs "$POD" --previous --tail=50 2>&1
