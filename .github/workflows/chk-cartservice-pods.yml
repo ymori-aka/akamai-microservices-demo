@@ -1,11 +1,11 @@
-name: CHK - cartservice pod status + logs (read-only)
+name: CHK - valkey-ca-cert secret content sanity check (read-only)
 on:
   workflow_dispatch: {}
 jobs:
   chk:
     runs-on: self-hosted
     steps:
-      - name: pods + logs
+      - name: inspect CA cert content
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
@@ -13,14 +13,10 @@ jobs:
           KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
           curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['kubeconfig']).decode())" > "$KC"
           export KUBECONFIG="$KC"
-          echo "===== pods ====="
-          kubectl get pods -l app=cartservice -o wide 2>&1
-          echo ""
-          POD=$(kubectl get pods -l app=cartservice --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
-          echo "pod=$POD"
-          echo "===== describe (events) ====="
-          kubectl describe pod "$POD" 2>&1 | tail -30
-          echo "===== logs (current) ====="
-          kubectl logs "$POD" --tail=60 2>&1
-          echo "===== logs (previous) ====="
-          kubectl logs "$POD" --previous --tail=60 2>&1
+          echo "===== ca.pem first/last lines + byte count ====="
+          kubectl get secret valkey-ca-cert -o jsonpath='{.data.ca\.pem}' | base64 -d > /tmp/ca_check.pem
+          wc -c /tmp/ca_check.pem
+          head -1 /tmp/ca_check.pem
+          tail -1 /tmp/ca_check.pem
+          echo "line count:"
+          wc -l /tmp/ca_check.pem
