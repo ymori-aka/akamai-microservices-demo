@@ -1,5 +1,4 @@
 using System;
-using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -32,44 +31,18 @@ namespace cartservice
         public void ConfigureServices(IServiceCollection services)
         {
             string redisAddress = Configuration["REDIS_ADDR"];
-            // Path to a PEM-encoded CA certificate (mounted from a Secret).
-            // Set this for Akamai Managed Valkey (Aiven), whose TLS chain is
-            // issued by a per-account CA that isn't in the base image's trust
-            // store — the runtime image is "chiseled" (no shell), so there's
-            // no update-ca-certificates to lean on; we verify explicitly
-            // in-process instead. Leave unset for the in-cluster Redis
-            // Deployment (no TLS).
-            string redisCaCertPath = Configuration["REDIS_CA_CERT_PATH"];
             string spannerProjectId = Configuration["SPANNER_PROJECT"];
             string spannerConnectionString = Configuration["SPANNER_CONNECTION_STRING"];
             string alloyDBConnectionString = Configuration["ALLOYDB_PRIMARY_IP"];
 
             if (!string.IsNullOrEmpty(redisAddress))
             {
-                // REDIS_ADDR is a full StackExchange.Redis connection string
-                // (e.g. "host:port,ssl=true,user=akmadmin,password=..." for
-                // Managed Valkey, or just "host:port" for the in-cluster
-                // Redis Deployment).
-                var redisOptions = ConfigurationOptions.Parse(redisAddress);
-                if (!string.IsNullOrEmpty(redisCaCertPath))
-                {
-                    var caCert = new X509Certificate2(redisCaCertPath);
-                    redisOptions.CertificateValidation += (sender, certificate, chain, errors) =>
-                    {
-                        using var validationChain = new X509Chain();
-                        validationChain.ChainPolicy.ExtraStore.Add(caCert);
-                        validationChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-                        validationChain.ChainPolicy.VerificationFlags = X509VerificationFlags.AllowUnknownCertificateAuthority;
-                        return validationChain.Build(new X509Certificate2(certificate));
-                    };
-                }
-
                 // Register a single IConnectionMultiplexer that BOTH the
                 // distributed cache and OpenTelemetry's Redis instrumentation
                 // can hook into. If we let AddStackExchangeRedisCache create
                 // its own internal multiplexer we'd have no handle to attach
                 // tracing to, so cart HMGET/HSET wouldn't produce spans.
-                var muxer = ConnectionMultiplexer.Connect(redisOptions);
+                var muxer = ConnectionMultiplexer.Connect(redisAddress);
                 services.AddSingleton<IConnectionMultiplexer>(muxer);
                 services.AddStackExchangeRedisCache(options =>
                 {
