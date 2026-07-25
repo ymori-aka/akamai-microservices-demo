@@ -1,0 +1,17 @@
+name: CHK - list Linode Managed Databases (read-only)
+on:
+  workflow_dispatch: {}
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: list databases
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          echo "===== Valkey/Redis-family databases ====="
+          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/databases/valkey/instances" | python3 -m json.tool 2>&1 | head -60
+          echo ""
+          echo "===== generic databases list (fallback) ====="
+          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/databases/instances" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([{'id':x.get('id'),'label':x.get('label'),'engine':x.get('engine'),'status':x.get('status'),'region':x.get('region')} for x in d.get('data',[])], indent=2))" 2>&1
