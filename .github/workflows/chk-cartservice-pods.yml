@@ -5,7 +5,7 @@ jobs:
   chk:
     runs-on: self-hosted
     steps:
-      - name: pods + logs
+      - name: current working image + rollback
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
@@ -13,21 +13,11 @@ jobs:
           KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
           curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['kubeconfig']).decode())" > "$KC"
           export KUBECONFIG="$KC"
-          echo "===== pods ====="
-          kubectl get pods -l app=cartservice -o wide 2>&1
+          echo "===== rollout history (image per revision) ====="
+          kubectl rollout history deployment/cartservice 2>&1
           echo ""
-          echo "===== deployment status ====="
-          kubectl get deployment cartservice -o wide 2>&1
+          echo "===== old healthy pod image (if still present) ====="
+          kubectl get pods -l app=cartservice -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.status.phase}{"  "}{.spec.containers[0].image}{"\n"}{end}' 2>&1
           echo ""
-          echo "===== events (cartservice) ====="
-          kubectl get events --sort-by=.lastTimestamp 2>&1 | grep -i cartservice | tail -20
-          echo ""
-          echo "===== describe latest pod ====="
-          POD=$(kubectl get pods -l app=cartservice --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
-          echo "pod=$POD"
-          kubectl describe pod "$POD" 2>&1 | tail -40
-          echo ""
-          echo "===== logs (current) ====="
-          kubectl logs "$POD" --tail=50 2>&1
-          echo "===== logs (previous, if crashed) ====="
-          kubectl logs "$POD" --previous --tail=50 2>&1
+          echo "===== replicasets for cartservice (image per RS) ====="
+          kubectl get rs -l app=cartservice -o jsonpath='{range .items[*]}{.metadata.name}{"  replicas="}{.spec.replicas}{"  image="}{.spec.template.spec.containers[0].image}{"\n"}{end}' 2>&1
