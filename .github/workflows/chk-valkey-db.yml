@@ -1,28 +1,20 @@
-name: CHK - Valkey instance detail + Tokyo VPC match (read-only)
+name: CHK - Valkey status + Tokyo node external IPs (read-only)
 on:
   workflow_dispatch: {}
 jobs:
   chk:
     runs-on: self-hosted
     steps:
-      - name: valkey detail + LKE VPC
+      - name: status + node IPs
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
           set +e
-          echo "===== Valkey9 (501007) full detail ====="
-          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/databases/valkey/instances/501007" | python3 -m json.tool 2>&1
-
+          echo "===== Valkey9 status ====="
+          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/databases/valkey/instances/501007" | python3 -c "import sys,json; d=json.load(sys.stdin); print('status=',d.get('status'), 'ssl=',d.get('ssl_connection'))"
           echo ""
-          echo "===== VPCs on the account ====="
-          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/vpcs" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(v['id'], v['label'], 'subnets=', [(s['id'], s.get('label'), s.get('ipv4')) for s in v.get('subnets',[])]) for v in d.get('data',[])]" 2>&1
-
-          echo ""
-          echo "===== Tokyo LKE (610031) node internal IPs ====="
+          echo "===== Tokyo LKE node external IPs ====="
           KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
           curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['kubeconfig']).decode())" > "$KC"
           export KUBECONFIG="$KC"
-          kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"  internalIP="}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' 2>&1
-
-          echo "--- matching linode instances (by label) ---"
-          curl -sS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/linode/instances?page_size=200" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(i['id'], i['label'], i.get('region')) for i in d.get('data',[]) if 'lke610031' in i.get('label','')]" 2>&1 | head -5
+          kubectl get nodes -o wide 2>&1 | awk '{print $1, $7}'
