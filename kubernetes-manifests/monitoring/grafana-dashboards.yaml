@@ -951,7 +951,40 @@ data:
           "gridPos": { "x": 12, "y": 65, "w": 12, "h": 7 },
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "targets": [{ "expr": "sum by (model) (llm_total_tokens_total)", "legendFormat": "{{model}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
-          "fieldConfig": { "defaults": { "unit": "short" } } }
+          "fieldConfig": { "defaults": { "unit": "short" } } },
+
+        { "id": 150, "type": "row", "title": "Valkey9 - cartservice (Cloud Pulse, beta)", "collapsed": false,
+          "gridPos": { "x": 0, "y": 72, "w": 24, "h": 1 } },
+
+        { "id": 151, "type": "timeseries", "title": "CPU Usage",
+          "gridPos": { "x": 0, "y": 73, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_cpu_usage{entity_id=\"501007\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } } },
+
+        { "id": 152, "type": "timeseries", "title": "Memory Usage",
+          "gridPos": { "x": 8, "y": 73, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_memory_usage{entity_id=\"501007\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } } },
+
+        { "id": 153, "type": "timeseries", "title": "Disk Usage",
+          "gridPos": { "x": 16, "y": 73, "w": 8, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_disk_usage{entity_id=\"501007\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } } },
+
+        { "id": 154, "type": "timeseries", "title": "Read IOPS",
+          "gridPos": { "x": 0, "y": 80, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_read_iops{entity_id=\"501007\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "iops" } } },
+
+        { "id": 155, "type": "timeseries", "title": "Write IOPS",
+          "gridPos": { "x": 12, "y": 80, "w": 12, "h": 7 },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "targets": [{ "expr": "avg_write_iops{entity_id=\"501007\"}", "legendFormat": "{{node_id}}", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" } }],
+          "fieldConfig": { "defaults": { "unit": "iops" } } }
       ]
     }
   service-graph.json: |
