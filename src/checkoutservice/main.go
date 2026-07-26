@@ -260,6 +260,10 @@ func main() {
 		log.Warnf("orders DB init failed (continuing without persistence): %v", err)
 	}
 
+	if err := initRanking(); err != nil {
+		log.Warnf("ranking init failed (continuing without ranking): %v", err)
+	}
+
 	log.Infof("service config: %+v", svc)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
@@ -413,6 +417,9 @@ func (cs *checkoutService) PlaceOrder(ctx context.Context, req *pb.PlaceOrderReq
 	// Note: req.UserId is the frontend session-id (cookie value), used
 	// to correlate orders to their shopper without requiring auth.
 	persistOrder(ctx, req.UserId, req.Email, req.UserCurrency, orderResult, &total)
+
+	// Bump the best-seller ranking (Valkey sorted set). Best-effort.
+	recordSaleRanking(ctx, orderResult.Items)
 
 	if err := cs.sendOrderConfirmation(ctx, req.Email, orderResult); err != nil {
 		log.Warnf("failed to send order confirmation to %q: %+v", req.Email, err)

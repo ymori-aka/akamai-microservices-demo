@@ -1,24 +1,32 @@
-name: Build cartservice image (valkey branch only, never :latest)
+name: Build valkey-branch images (never :latest)
 
-# Standalone image build for the valkey branch's cartservice (Managed
-# Valkey support). Tags ONLY valkey-<short-sha> — deliberately never
-# pushes :latest, since main's production cartservice Deployment is
-# pinned to ghcr.io/ymori-aka/cartservice:latest and must not be
-# affected by work on this branch.
+# Standalone image builds for the valkey branch (Managed Valkey support:
+# cartservice cart store + checkoutservice ranking writes + frontend
+# ranking reads). Tags ONLY valkey-<short-sha> — deliberately never
+# pushes :latest, since main's production Deployments are pinned to the
+# :latest / sha- tags and must not be affected by work on this branch.
 on:
   workflow_dispatch: {}
 
 env:
   REGISTRY: ghcr.io
-  CART_IMAGE: ghcr.io/ymori-aka/cartservice
 
 jobs:
-  build-cartservice-valkey:
-    name: Build Cart Service Image (valkey)
+  build:
+    name: Build ${{ matrix.svc }} (valkey)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - svc: cartservice
+            context: ./src/cartservice/src
+          - svc: checkoutservice
+            context: ./src/checkoutservice
+          - svc: frontend
+            context: ./src/frontend
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,15 +45,15 @@ jobs:
         id: tag
         run: echo "tag=valkey-$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push cartservice image (valkey tag only)
+      - name: Build and push ${{ matrix.svc }} image (valkey tag only)
         uses: docker/build-push-action@v6
         with:
-          context: ./src/cartservice/src
+          context: ${{ matrix.context }}
           platforms: linux/amd64
           push: true
-          tags: ${{ env.CART_IMAGE }}:${{ steps.tag.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/ymori-aka/${{ matrix.svc }}:${{ steps.tag.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Print image
-        run: echo "Pushed ${{ env.CART_IMAGE }}:${{ steps.tag.outputs.tag }}"
+        run: echo "Pushed ${{ env.REGISTRY }}/ymori-aka/${{ matrix.svc }}:${{ steps.tag.outputs.tag }}"

@@ -37,6 +37,53 @@
 
       <div class="col-12 col-lg-12 px-10-percent">
 
+        {{ if .bestsellers }}
+        <style>
+        .bestsellers-band { padding: 22px 0 4px; }
+        .bestsellers-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+        .bestsellers-head h3 { margin:0; font-size:22px; font-weight:700; }
+        .bestsellers-head .vk {
+          font-size:10.5px; font-weight:600; color:#0A72B0; background:#e8f5fd;
+          border:1px solid #b9e2f7; padding:2px 9px; border-radius:20px;
+        }
+        .bestsellers-head a.more { margin-left:auto; font-size:13px; color:#0A72B0; text-decoration:none; font-weight:600; }
+        .bs-strip { display:flex; gap:14px; overflow-x:auto; padding-bottom:8px; }
+        .bs-card {
+          flex:0 0 150px; position:relative; background:rgba(255,255,255,0.75);
+          border:1px solid rgba(11,143,214,0.12); border-radius:14px; padding:10px; text-decoration:none;
+          transition:transform .2s ease, box-shadow .2s ease;
+        }
+        .bs-card:hover { transform:translateY(-4px); box-shadow:0 10px 26px rgba(11,143,214,0.20); }
+        .bs-rank {
+          position:absolute; top:-8px; left:-8px; height:28px; width:28px; border-radius:50%;
+          display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px; color:#fff;
+          background:linear-gradient(135deg,#0B8FD6,#085A8E); box-shadow:0 2px 6px rgba(0,0,0,0.2);
+        }
+        .bs-card.n1 .bs-rank { background:linear-gradient(135deg,#FFB300,#FF8F00); }
+        .bs-thumb { width:100%; height:110px; object-fit:cover; border-radius:10px; }
+        .bs-name { margin-top:8px; font-size:13px; color:#0C1B26; font-weight:600; line-height:1.25; height:32px; overflow:hidden; }
+        .bs-units { font-size:11.5px; color:#0A72B0; font-weight:700; }
+        </style>
+        <div class="bestsellers-band">
+          <div class="bestsellers-head">
+            <span style="font-size:20px;">🔥</span>
+            <h3>{{ if eq $.user_lang "ja" }}売れ筋ランキング{{ else if eq $.user_lang "ko" }}베스트셀러{{ else if eq $.user_lang "zh" }}热销排行{{ else }}Best Sellers{{ end }}</h3>
+            <span class="vk">⚡ Valkey</span>
+            <a class="more" href="{{ $.baseUrl }}/ranking">{{ if eq $.user_lang "ja" }}すべて見る →{{ else }}See all →{{ end }}</a>
+          </div>
+          <div class="bs-strip">
+            {{ range .bestsellers }}
+            <a class="bs-card {{ if eq .Rank 1 }}n1{{ end }}" href="{{ $.baseUrl }}/product/{{ .Item.Id }}">
+              <div class="bs-rank">{{ .Rank }}</div>
+              <img class="bs-thumb" loading="lazy" src="{{ imgURL .Item.Picture }}" alt="">
+              <div class="bs-name">{{ if eq $.user_lang "ja" }}{{ jaName .Item.Id }}{{ else if eq $.user_lang "ko" }}{{ koName .Item.Id }}{{ else if eq $.user_lang "zh" }}{{ zhName .Item.Id }}{{ else }}{{ .Item.Name }}{{ end }}</div>
+              <div class="bs-units">{{ .Units }} {{ if eq $.user_lang "ja" }}販売{{ else }}sold{{ end }}</div>
+            </a>
+            {{ end }}
+          </div>
+        </div>
+        {{ end }}
+
         <div class="row hot-products-row px-xl-6">
 
           <div class="col-12">
