@@ -35,10 +35,15 @@ data:
         polling_interval: 5m
         services:
           - service_type: dbaas
-            # Linode Managed PostgreSQL clusters:
-            #   470692 = MicroserviceDB    (jp-osa, legacy/parallel)
-            #   481207 = MicroserviceDB-tyo (jp-tyo-3, migration ④)
-            entity_ids: [470692, 481207]
+            # Linode Managed Databases (Cloud Pulse treats all engines under
+            # the same dbaas service_type / metric set):
+            #   470692 = MicroserviceDB     (postgresql, jp-osa, legacy/parallel)
+            #   481207 = MicroserviceDB-tyo (postgresql, jp-tyo-3, migration ④)
+            #   501007 = Valkey9            (valkey, jp-tyo-3, cartservice — beta;
+            #             confirmed metric-definitions + token endpoints accept
+            #             this entity 2026-07-25, see memory
+            #             reference_valkey_beta_anomalies.md for beta caveats)
+            entity_ids: [470692, 481207, 501007]
             agg_function: avg
             metric_names:
               - cpu_usage

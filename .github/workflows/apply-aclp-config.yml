@@ -9,6 +9,11 @@ name: Apply ACLP collector config (entity_ids)
 # same as fix-aclp-collector) and restarts it.
 on:
   workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
 
 jobs:
   apply:
@@ -16,8 +21,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Apply aclp-collector.yaml + restart + verify entity_ids
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
           set +e
+          # Explicitly target Tokyo — do not rely on the runner's ambient
+          # default kubectl context (it used to point at the Osaka cluster,
+          # which has since been deleted).
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
           kubectl apply -f kubernetes-manifests/monitoring/aclp-collector.yaml
           kubectl -n monitoring rollout restart deployment/aclp-collector
           kubectl -n monitoring rollout status deployment/aclp-collector --timeout=120s
@@ -31,13 +47,13 @@ jobs:
           echo "waiting 100s for first 5-min poll cycle to emit..."
           sleep 100
 
-          echo "===== collector logs (dbaas errors for 481207?) ====="
+          echo "===== collector logs (dbaas errors for 481207/501007?) ====="
           kubectl -n monitoring logs deployment/aclp-collector --tail=40 2>/dev/null \
-            | grep -iE 'dbaas|481207|470692|401|error|Unauthorized' | tail -20
+            | grep -iE 'dbaas|481207|470692|501007|401|error|Unauthorized' | tail -20
 
           echo ""
           PROM=$(kubectl -n monitoring get pod -l app=prometheus -o name | head -1)
-          for E in 470692 481207; do
+          for E in 470692 481207 501007; do
             echo "----- entity_id=$E present? -----"
             kubectl -n monitoring exec "$PROM" -- \
               wget -qO- "http://localhost:9090/api/v1/query?query=avg_cpu_usage%7Bentity_id%3D%22${E}%22%7D" 2>/dev/null \
