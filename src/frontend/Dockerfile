@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=$BUILDPLATFORM golang:1.23.4-alpine@sha256:c23339199a08b0e12032856908589a6d41a0dab141b8b3b21f156fc571a3f1d3 AS builder
+# valkey branch: bumped from 1.23.4 to 1.25 because adding go-redis raised
+# go.mod's directive to `go 1.24`, and the build image runs with
+# GOTOOLCHAIN=local (so it can't auto-download a newer toolchain).
+# Matches checkoutservice's builder.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
