@@ -1,11 +1,11 @@
-name: CHK - valkey CA secret content in cluster (read-only)
+name: CHK - TLS verify from inside the cluster (read-only)
 on:
   workflow_dispatch: {}
 jobs:
   chk:
     runs-on: self-hosted
     steps:
-      - name: inspect CA secret + TLS handshake from a debug pod
+      - name: openssl verify from a pod using the mounted CA
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
         run: |
@@ -13,17 +13,6 @@ jobs:
           KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
           curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['kubeconfig']).decode())" > "$KC"
           export KUBECONFIG="$KC"
-
-          echo "===== valkey-ca-cert secret: decode and inspect ====="
-          kubectl get secret valkey-ca-cert -o jsonpath='{.data.ca\.pem}' | base64 -d > /tmp/ca_in_cluster.pem
-          echo "bytes: $(wc -c < /tmp/ca_in_cluster.pem)"
-          echo "first line: $(head -1 /tmp/ca_in_cluster.pem)"
-          echo "line count: $(wc -l < /tmp/ca_in_cluster.pem)"
-          echo "BEGIN markers: $(grep -c 'BEGIN CERTIFICATE' /tmp/ca_in_cluster.pem)"
-          echo "--- openssl parse ---"
-          openssl x509 -in /tmp/ca_in_cluster.pem -noout -subject -issuer -dates 2>&1 | head -5
-
-          echo ""
-          echo "===== does this CA actually verify the Valkey server cert? ====="
           HOST="public-a501007-akamai-prod-6468920-default.g2a.akamaidb.net"
-          echo | openssl s_client -connect ${HOST}:23631 -servername ${HOST} -CAfile /tmp/ca_in_cluster.pem 2>&1 | grep -iE "Verify return code|verify error|subject=|issuer=" | head -8
+          OV='{"apiVersion":"v1","spec":{"containers":[{"name":"t","image":"alpine/openssl:3.3.2","command":["sh","-c","echo | openssl s_client -connect '"$HOST"':23631 -servername '"$HOST"' -CAfile /ca/ca.pem 2>&1 | grep -iE \"Verify return code|verify error|subject=|issuer=|CONNECTED\" | head -8"],"volumeMounts":[{"name":"ca","mountPath":"/ca","readOnly":true}],"securityContext":{"allowPrivilegeEscalation":false,"runAsNonRoot":true,"runAsUser":1000,"capabilities":{"drop":["ALL"]},"seccompProfile":{"type":"RuntimeDefault"}}}],"volumes":[{"name":"ca","secret":{"secretName":"valkey-ca-cert"}}]}}'
+          kubectl run tlscheck --rm -i --restart=Never --image=alpine/openssl:3.3.2 --overrides="$OV" --timeout=90s 2>&1 | head -20
