@@ -1,0 +1,28 @@
+name: CHK - ranking TLS/CA wiring (read-only)
+on:
+  workflow_dispatch: {}
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: inspect
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['kubeconfig']).decode())" > "$KC"
+          export KUBECONFIG="$KC"
+          for D in checkoutservice frontend; do
+            echo "===== $D: env + mounts ====="
+            kubectl get deploy $D -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}{" "}{end}{"\n"}'
+            echo "volumeMounts:"; kubectl get deploy $D -o jsonpath='{.spec.template.spec.containers[0].volumeMounts}{"\n"}'
+            echo "volumes:"; kubectl get deploy $D -o jsonpath='{.spec.template.spec.volumes}{"\n"}'
+            POD=$(kubectl get pods -l app=$D --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+            echo "pod=$POD  CA file present?"
+            kubectl exec "$POD" -- ls -l /etc/valkey-ca/ 2>&1 | head -3
+            echo "REDIS_CA_CERT_PATH in pod: $(kubectl get pod $POD -o jsonpath='{.spec.containers[0].env[?(@.name=="REDIS_CA_CERT_PATH")].value}')"
+            echo ""
+          done
+          echo "===== ranking-related log lines (frontend) ====="
+          kubectl logs deployment/frontend --tail=60 2>&1 | grep -iE "ranking|valkey|redis|x509" | tail -10
