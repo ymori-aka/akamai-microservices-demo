@@ -36,10 +36,17 @@ var (
 	rankingOnce sync.Once
 )
 
-// initRanking connects to Valkey from REDIS_URL (rediss://...). When
-// REDIS_CA_CERT_PATH is set, the mounted CA is used to verify Valkey's
-// TLS chain — the runtime image is distroless (no shell), so the cert
-// can't be installed into the OS trust store; we pin it in-process.
+// initRanking connects to Valkey from REDIS_URL (rediss://...).
+//
+// TLS: the PUBLIC Valkey endpoint presents a publicly-trusted
+// certificate (CN=*.g2a.akamaidb.net, issued by Let's Encrypt), so the
+// system root store validates it and no custom CA is needed. The CA that
+// the Linode API hands out ("... GEN 1 Project CA") is a *different*,
+// private CA — pinning it here made every ZINCRBY fail with
+// "x509: certificate signed by unknown authority". Only set
+// REDIS_CA_CERT_PATH if you switch to an endpoint that actually uses
+// that private CA.
+//
 // Returns nil and leaves rankingRDB == nil when REDIS_URL is absent.
 func initRanking() error {
 	url := os.Getenv("REDIS_URL")
@@ -58,17 +65,19 @@ func initRanking() error {
 		if caPath := os.Getenv("REDIS_CA_CERT_PATH"); caPath != "" {
 			pem, err := os.ReadFile(caPath)
 			if err != nil {
-				initErr = err
-				return
+				log.Warnf("ranking: could not read CA cert (%v); using system roots", err)
+			} else {
+				pool := x509.NewCertPool()
+				if pool.AppendCertsFromPEM(pem) {
+					if opt.TLSConfig == nil {
+						opt.TLSConfig = &tls.Config{}
+					}
+					opt.TLSConfig.RootCAs = pool
+					log.Infof("ranking: pinned custom CA from %s", caPath)
+				} else {
+					log.Warnf("ranking: no certs parsed from %s; using system roots", caPath)
+				}
 			}
-			pool := x509.NewCertPool()
-			if !pool.AppendCertsFromPEM(pem) {
-				log.Warn("ranking: no certs parsed from REDIS_CA_CERT_PATH")
-			}
-			if opt.TLSConfig == nil {
-				opt.TLSConfig = &tls.Config{}
-			}
-			opt.TLSConfig.RootCAs = pool
 		}
 		rankingRDB = redis.NewClient(opt)
 		log.Info("best-seller ranking enabled (Valkey sorted set)")

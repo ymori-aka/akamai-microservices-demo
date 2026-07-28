@@ -39,9 +39,16 @@ type RankingView struct {
 	Price *pb.Money
 }
 
-// initRanking connects to Valkey from REDIS_URL. When REDIS_CA_CERT_PATH
-// is set, that CA is pinned in-process for TLS verification (distroless
-// runtime image has no OS trust store to install it into).
+// initRanking connects to Valkey from REDIS_URL (rediss://...).
+//
+// TLS: the PUBLIC Valkey endpoint presents a publicly-trusted
+// certificate (CN=*.g2a.akamaidb.net, issued by Let's Encrypt), so the
+// system root store validates it and no custom CA is needed. The CA that
+// the Linode API hands out ("... GEN 1 Project CA") is a *different*,
+// private CA — pinning it here made every connection fail with
+// "x509: certificate signed by unknown authority". Only set
+// REDIS_CA_CERT_PATH if you switch to an endpoint that actually uses
+// that private CA.
 func initRanking() {
 	rankingOnce.Do(func() {
 		url := os.Getenv("REDIS_URL")
@@ -57,13 +64,17 @@ func initRanking() {
 		if caPath := os.Getenv("REDIS_CA_CERT_PATH"); caPath != "" {
 			if pem, err := os.ReadFile(caPath); err == nil {
 				pool := x509.NewCertPool()
-				pool.AppendCertsFromPEM(pem)
-				if opt.TLSConfig == nil {
-					opt.TLSConfig = &tls.Config{}
+				if pool.AppendCertsFromPEM(pem) {
+					if opt.TLSConfig == nil {
+						opt.TLSConfig = &tls.Config{}
+					}
+					opt.TLSConfig.RootCAs = pool
+					log.Infof("ranking: pinned custom CA from %s", caPath)
+				} else {
+					log.Warnf("ranking: no certs parsed from %s; using system roots", caPath)
 				}
-				opt.TLSConfig.RootCAs = pool
 			} else {
-				log.Warnf("ranking: could not read CA cert: %v", err)
+				log.Warnf("ranking: could not read CA cert (%v); using system roots", err)
 			}
 		}
 		rankingRDB = redis.NewClient(opt)
