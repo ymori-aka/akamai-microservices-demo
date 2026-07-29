@@ -13,6 +13,9 @@
 # limitations under the License.
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+# valkey branch: guarantee the CA bundle exists in the builder so the
+# scratch runtime stage can copy it (alpine ships without it by default).
+RUN apk add --no-cache ca-certificates
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -31,6 +34,11 @@ FROM scratch
 
 WORKDIR /src
 COPY --from=builder /checkoutservice /src/checkoutservice
+# valkey branch: scratch has no CA bundle, so Go's TLS had no roots and
+# every rediss:// connection to Managed Valkey failed with
+# "x509: certificate signed by unknown authority". Copy the builder's
+# CA bundle in so the public Let's Encrypt chain validates.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 # Definition of this variable is used by 'skaffold debug' to identify a golang binary.
 # Default behavior - a failure prints a stack trace for the current goroutine.

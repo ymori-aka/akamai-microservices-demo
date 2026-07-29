@@ -17,6 +17,9 @@
 # GOTOOLCHAIN=local (so it can't auto-download a newer toolchain).
 # Matches checkoutservice's builder.
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+# valkey branch: guarantee the CA bundle exists in the builder so the
+# scratch runtime stage can copy it (alpine ships without it by default).
+RUN apk add --no-cache ca-certificates
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /src
@@ -33,6 +36,11 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -gcflags="${SKA
 FROM scratch
 WORKDIR /src
 COPY --from=builder /go/bin/frontend /src/server
+# valkey branch: scratch has no CA bundle, so Go's TLS had no roots and
+# every rediss:// connection to Managed Valkey failed with
+# "x509: certificate signed by unknown authority". Copy the builder's
+# CA bundle in so the public Let's Encrypt chain validates.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY ./templates ./templates
 COPY ./static ./static
 
