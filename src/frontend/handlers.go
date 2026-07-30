@@ -198,7 +198,7 @@ func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Best-seller ranking (Valkey sorted set). Best-effort: a Valkey
 	// hiccup must never break the home page, so errors just omit it.
-	bestsellers, err := fe.getTopSellers(r.Context(), 5, currentCurrency(r))
+	bestsellers, err := fe.getTopSellers(r.Context(), 8, currentCurrency(r))
 	if err != nil {
 		log.Warnf("home: could not read best sellers: %v", err)
 		bestsellers = nil
