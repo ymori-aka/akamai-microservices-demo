@@ -1,0 +1,46 @@
+name: Diagnose frontend 500 (Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: All pods (find non-Running / 0 replicas)
+        run: |
+          set +e
+          kubectl get deploy -o wide
+          echo "===== pods (not Running first) ====="
+          kubectl get pods -o wide | grep -ivE 'Running|Completed' || echo "(all Running)"
+          echo "===== full pod list ====="
+          kubectl get pods -o wide
+
+      - name: Frontend logs (the 500 cause)
+        run: |
+          set +e
+          POD=$(kubectl get pod -l app=frontend -o name | head -1)
+          echo "pod: $POD"
+          kubectl logs "$POD" --tail=80
+
+      - name: Recent warning events
+        run: |
+          set +e
+          kubectl get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE 'Warning|Failed|Unhealthy|BackOff' | tail -40
