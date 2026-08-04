@@ -24,16 +24,14 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
-      - name: Restore last-known-good valkey image tags
+      - name: Check whether Redis vs Valkey env vars are present (spec drift check)
         run: |
-          set -e
-          kubectl set image deployment/frontend server=ghcr.io/ymori-aka/frontend:valkey-6865404
-          kubectl set image deployment/checkoutservice server=ghcr.io/ymori-aka/checkoutservice:valkey-6865404
-          kubectl set image deployment/cartservice server=ghcr.io/ymori-aka/cartservice:valkey-6148192
-          kubectl rollout status deployment/frontend --timeout=180s
-          kubectl rollout status deployment/checkoutservice --timeout=180s
-          kubectl rollout status deployment/cartservice --timeout=180s
-
-      - name: Verify
-        run: |
-          kubectl get deploy frontend cartservice checkoutservice -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
+          set +e
+          echo "===== frontend REDIS_URL ====="
+          kubectl set env deployment/frontend --list 2>/dev/null | grep -i REDIS
+          echo "===== cartservice REDIS_ADDR ====="
+          kubectl set env deployment/cartservice --list 2>/dev/null | grep -i REDIS
+          echo "===== checkoutservice REDIS_URL ====="
+          kubectl set env deployment/checkoutservice --list 2>/dev/null | grep -i REDIS
+          echo "===== redis-cart deployment present? (should be ABSENT on valkey) ====="
+          kubectl get deploy redis-cart 2>&1
