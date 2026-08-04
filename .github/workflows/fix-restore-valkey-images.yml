@@ -1,0 +1,39 @@
+name: Restore valkey-branch images (Tokyo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  restore:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: Restore last-known-good valkey image tags
+        run: |
+          set -e
+          kubectl set image deployment/frontend server=ghcr.io/ymori-aka/frontend:valkey-6865404
+          kubectl set image deployment/checkoutservice server=ghcr.io/ymori-aka/checkoutservice:valkey-6865404
+          kubectl set image deployment/cartservice server=ghcr.io/ymori-aka/cartservice:valkey-6148192
+          kubectl rollout status deployment/frontend --timeout=180s
+          kubectl rollout status deployment/checkoutservice --timeout=180s
+          kubectl rollout status deployment/cartservice --timeout=180s
+
+      - name: Verify
+        run: |
+          kubectl get deploy frontend cartservice checkoutservice -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
