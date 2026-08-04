@@ -24,17 +24,28 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
-      - name: Describe the stuck currencyservice pod (exact pull error)
+      - name: Test ghcr-secret credential against GHCR directly
         run: |
           set +e
-          POD=$(kubectl get pod -l app=currencyservice -o name | head -1)
-          echo "pod: $POD"
-          kubectl describe "$POD" | sed -n '/Events:/,$p'
-          echo "===== imagePullSecrets on default SA ====="
-          kubectl get sa default -o jsonpath='{.imagePullSecrets}'
-          echo
-          echo "===== ghcr-secret present? ====="
-          kubectl get secret ghcr-secret -o name 2>&1
-          echo "===== currencyservice deployment image ====="
-          kubectl get deploy currencyservice -o jsonpath='{.spec.template.spec.containers[0].image}'
-          echo
+          echo "===== ghcr-secret .dockerconfigjson auth (decoded, masked) ====="
+          kubectl get secret ghcr-secret -o jsonpath='{.data.\.dockerconfigjson}' \
+            | base64 -d \
+            | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+for reg,cfg in d.get("auths",{}).items():
+    auth=cfg.get("auth","")
+    print("registry:", reg, "username:", cfg.get("username","(from auth)"), "auth_len:", len(auth))
+'
+          echo "===== attempt token exchange with ghcr.io using that secret ====="
+          AUTH=$(kubectl get secret ghcr-secret -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["auths"]["ghcr.io"]["auth"])')
+          USERPASS=$(echo "$AUTH" | base64 -d)
+          USER=$(echo "$USERPASS" | cut -d: -f1)
+          echo "ghcr username: $USER"
+          curl -sS -u "$USERPASS" "https://ghcr.io/token?service=ghcr.io&scope=repository:ymori-aka/currencyservice:pull" | python3 -c 'import json,sys;d=json.load(sys.stdin);print("token acquired, len=",len(d.get("token","")) ) if "token" in d else print("AUTH FAILED:", d)'
+          echo "===== pull manifest for the stuck tag using that token ====="
+          TOKEN=$(curl -sS -u "$USERPASS" "https://ghcr.io/token?service=ghcr.io&scope=repository:ymori-aka/currencyservice:pull" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')
+          curl -sS -o /dev/null -w "manifest HTTP %{http_code}\n" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+            "https://ghcr.io/v2/ymori-aka/currencyservice/manifests/sha-df7f7f877ed40b97b9314c87f4d7d5ca990c35a9"
