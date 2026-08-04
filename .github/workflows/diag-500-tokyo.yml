@@ -24,23 +24,17 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
-      - name: All pods (find non-Running / 0 replicas)
+      - name: Describe the stuck currencyservice pod (exact pull error)
         run: |
           set +e
-          kubectl get deploy -o wide
-          echo "===== pods (not Running first) ====="
-          kubectl get pods -o wide | grep -ivE 'Running|Completed' || echo "(all Running)"
-          echo "===== full pod list ====="
-          kubectl get pods -o wide
-
-      - name: Frontend logs (the 500 cause)
-        run: |
-          set +e
-          POD=$(kubectl get pod -l app=frontend -o name | head -1)
+          POD=$(kubectl get pod -l app=currencyservice -o name | head -1)
           echo "pod: $POD"
-          kubectl logs "$POD" --tail=80
-
-      - name: Recent warning events
-        run: |
-          set +e
-          kubectl get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE 'Warning|Failed|Unhealthy|BackOff' | tail -40
+          kubectl describe "$POD" | sed -n '/Events:/,$p'
+          echo "===== imagePullSecrets on default SA ====="
+          kubectl get sa default -o jsonpath='{.imagePullSecrets}'
+          echo
+          echo "===== ghcr-secret present? ====="
+          kubectl get secret ghcr-secret -o name 2>&1
+          echo "===== currencyservice deployment image ====="
+          kubectl get deploy currencyservice -o jsonpath='{.spec.template.spec.containers[0].image}'
+          echo
