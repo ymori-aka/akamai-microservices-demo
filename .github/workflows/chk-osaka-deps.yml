@@ -1,0 +1,62 @@
+name: CHK - Osaka dependencies (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: Which Postgres does the live app use?
+        run: |
+          set +e
+          echo "===== orders-db-credentials secret (host only, password masked) ====="
+          kubectl get secret orders-db-credentials -o jsonpath='{.data.DSN}' 2>/dev/null \
+            | base64 -d 2>/dev/null \
+            | sed -E 's#//([^:]+):[^@]+@#//\1:***@#'
+          echo
+          echo "===== ORDER_DB_DSN on checkoutservice / frontend ====="
+          for d in checkoutservice frontend; do
+            echo "--- $d ---"
+            kubectl set env deployment/$d --list 2>/dev/null \
+              | grep -iE "ORDER_DB|DSN" | sed -E 's#//([^:]+):[^@]+@#//\1:***@#'
+          done
+          echo "===== postgres-exporter DSN host ====="
+          kubectl -n monitoring set env deployment/postgres-exporter --list 2>/dev/null \
+            | grep -iE "DATA_SOURCE|DSN" | sed -E 's#//([^:]+):[^@]+@#//\1:***@#'
+
+      - name: Anything in the cluster still pointing at Osaka (172.233.x / jp-osa / a470692)?
+        run: |
+          set +e
+          echo "===== Osaka refs in all Deployment/DaemonSet/StatefulSet specs ====="
+          kubectl get deploy,ds,sts -A -o json 2>/dev/null \
+            | grep -oE "172\.233\.[0-9]+\.[0-9]+|jp-osa[a-z0-9-]*|a470692[a-z0-9-]*" \
+            | sort | uniq -c | sort -rn
+          echo "(empty above = no Osaka references)"
+          echo "===== Osaka refs in ConfigMaps ====="
+          kubectl get cm -A -o json 2>/dev/null \
+            | grep -oE "172\.233\.[0-9]+\.[0-9]+|jp-osa[a-z0-9-]*|470692" \
+            | sort | uniq -c | sort -rn
+          echo "(empty above = no Osaka references)"
+
+      - name: IMAGE_BASE_URL actually in use
+        run: |
+          set +e
+          kubectl set env deployment/frontend --list 2>/dev/null | grep -i IMAGE_BASE_URL
