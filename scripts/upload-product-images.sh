@@ -4,7 +4,7 @@
 # Approach A (URL rewrite) maps each frontend image path
 #   /static/img/products/<rel>
 # to the bucket URL
-#   https://akamai-boutique-img.jp-osa-1.linodeobjects.com/<rel>
+#   https://akamai-boutique-img.jp-tyo-1.linodeobjects.com/<rel>
 #
 # So we upload everything under src/frontend/static/img/products/
 # with object keys equal to <rel> (i.e. *without* the static/img/products
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 BUCKET="akamai-boutique-img"
-REGION="jp-osa-1"
+REGION="jp-tyo-1"
 ENDPOINT="https://${REGION}.linodeobjects.com"
 PROFILE="${AWS_PROFILE:-linode}"
 

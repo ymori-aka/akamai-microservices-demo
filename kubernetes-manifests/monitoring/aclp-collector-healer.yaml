@@ -10,7 +10,13 @@
 #
 # What this does:
 #   Every 10 min, a CronJob asks the in-cluster Prometheus whether
-#   avg_cpu_usage{entity_id="470692"} has been present at all in the last 12 min.
+#   avg_cpu_usage{entity_id="481207"} has been present at all in the last 12 min.
+#
+# NOTE (2026-08-19): this variant was written for the Osaka cluster, which has
+# been decommissioned. The one actually running in Tokyo is
+# aclp-collector-healer-tokyo.yaml. The entity was switched from the deleted
+# Osaka DB (470692) to the Tokyo DB (481207) so that applying this file can
+# never cause a restart loop on a permanently-absent metric.
 #   If it has been absent (empty result while Prometheus itself is healthy),
 #   it runs `kubectl rollout restart deployment/aclp-collector`.
 #
@@ -99,7 +105,7 @@ spec:
                   # present_over_time returns 1 if the series existed anytime in
                   # the window, else an empty result. Window > scrape gap avoids
                   # false positives from a single missed scrape.
-                  Q='present_over_time(avg_cpu_usage{entity_id="470692"}[12m])'
+                  Q='present_over_time(avg_cpu_usage{entity_id="481207"}[12m])'
                   R=$(curl -s --max-time 10 --data-urlencode "query=${Q}" "${PROM}" || true)
                   echo "prometheus response: ${R}"
 

@@ -139,7 +139,7 @@ spec:
           # for Akamai Image & Video Manager (IVM). Re-enable (point at the
           # Object Storage bucket) to go back to direct-from-bucket delivery.
           # - name: IMAGE_BASE_URL
-          #   value: "https://akamai-boutique-img.jp-osa-1.linodeobjects.com"
+          #   value: "https://akamai-boutique-img.jp-tyo-1.linodeobjects.com"
           # - name: CYMBAL_BRANDING
           #   value: "true"
           # - name: ENABLE_ASSISTANT

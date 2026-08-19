@@ -19,7 +19,7 @@ data:
           # blank". Recover with the fix-aclp-collector workflow after
           # refreshing the LINODE_PAT GitHub Secret.
           - alert: AclpDbaasMetricsMissing
-            expr: absent(avg_cpu_usage{entity_id="470692"})
+            expr: absent(avg_cpu_usage{entity_id="481207"})
             for: 15m
             labels:
               severity: critical
@@ -27,10 +27,11 @@ data:
             annotations:
               summary: "ACLP DBaaS metrics missing 15m+ (likely expired LINODE_PAT)"
               description: |
-                avg_cpu_usage for the managed PG (entity 470692) has been
-                absent 15m+. aclp-collector is probably getting 401 from
-                Cloud Pulse — the LINODE_PAT has expired. Refresh the
-                GitHub Secret and run the fix-aclp-collector workflow.
+                avg_cpu_usage for the managed PG (entity 481207, the Tokyo DB
+                the app actually uses) has been absent 15m+. aclp-collector is
+                probably getting 401 from Cloud Pulse — the LINODE_PAT has
+                expired. Refresh the GitHub Secret and run the
+                fix-aclp-collector workflow.
           - alert: AclpNodebalancerMetricsMissing
             expr: absent(nb_total_active_sessions)
             for: 15m

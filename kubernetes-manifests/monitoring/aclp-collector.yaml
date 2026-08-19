@@ -37,13 +37,17 @@ data:
           - service_type: dbaas
             # Linode Managed Databases (Cloud Pulse treats all engines under
             # the same dbaas service_type / metric set):
-            #   470692 = MicroserviceDB     (postgresql, jp-osa, legacy/parallel)
-            #   481207 = MicroserviceDB-tyo (postgresql, jp-tyo-3, migration ④)
+            #   481207 = MicroserviceDB-tyo (postgresql, jp-tyo-3) — the DB the
+            #             live app actually uses (ORDER_DB_DSN points here)
             #   501007 = Valkey9            (valkey, jp-tyo-3, cartservice — beta;
             #             confirmed metric-definitions + token endpoints accept
             #             this entity 2026-07-25, see memory
             #             reference_valkey_beta_anomalies.md for beta caveats)
-            entity_ids: [470692, 481207, 501007]
+            #
+            # 470692 (MicroserviceDB, jp-osa) was removed 2026-08-19 along with
+            # the rest of the Osaka footprint. Polling a deleted entity only
+            # produces errors, so do not re-add it.
+            entity_ids: [481207, 501007]
             agg_function: avg
             metric_names:
               - cpu_usage
