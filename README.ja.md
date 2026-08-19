@@ -4,11 +4,22 @@
 
 > **Akamai の各種サービスを組み合わせた、エンドツーエンドのデモ環境です。**
 > LKE（Linode Kubernetes Engine）上のマイクロサービス EC サイトに、
-> Akamai Functions によるエッジ AI、Linode のマネージドサービスによる
-> データ永続化、クラスタ内 Grafana スタック + Akamai Cloud Pulse に
+> Akamai Functions によるエッジ AI、Linode のマネージドサービス
+> （**Managed Valkey** を含む）によるデータ永続化、サービスメッシュと
+> カオスエンジニアリング、クラスタ内 Grafana スタック + Akamai Cloud Pulse に
 > よるフル可観測性を統合した構成です。
 
 [![Build and Deploy](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml/badge.svg)](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml)
+
+> **稼働環境:** 東京の LKE クラスタ 1 面（**`jp-tyo-3`, cluster id `610031`**）。
+> 以前あった大阪（`jp-osa`）クラスタは廃止済みです。
+>
+> **ブランチ構成:** `main` は在クラスタ **Redis** のカートストアをそのまま維持し、
+> **`valkey` ブランチ**がそれを **Akamai Managed Valkey** に置き換えて売れ筋
+> ランキングを追加しています。**ライブデモにデプロイされているのは `valkey`
+> ブランチ**なので、この README はその構成を前提に記述しています。`main` を
+> checkout して `kubectl apply -f kubernetes-manifests/` を実行した場合は
+> Redis 版になります。
 
 ---
 
@@ -42,11 +53,16 @@
 | 8 | **注文履歴の永続化** | Linode Managed PostgreSQL に注文を保存、`/orders` / `/admin/orders` で閲覧 |
 | 9 | **MongoDB ベースの商品カタログ** | StatefulSet + PVC、初回起動時に自動シード、管理画面から CRUD |
 | 10 | **商品画像を Linode Object Storage で配信** | `*.linodeobjects.com` から画像を提供（クラスタ内配信ではなく） |
-| 11 | **クラスタ内 Grafana + Cloud Pulse** | DB / LB / LLM のメトリクスを 1 つのダッシュボードで表示。前日・当日の注文数と売上を PostgreSQL から直接クエリして表示 |
-| 12 | **LLM のエンドツーエンド計装** | モデル別の token 使用量、レイテンシ p50/p95/p99、エラー率 |
-| 13 | **GitHub Actions による自動デプロイ** | push → build → LKE デプロイ → Akamai Functions デプロイを完全自動化 |
-| 14 | **認証付き商品管理画面** | 商品の追加・編集・削除・在庫管理をブラウザから実施 |
-| 15 | **独自ドメイン + HTTPS** | `tserof.net` ゾーンを Linode DNS で管理。Let's Encrypt の TLS をストア / Grafana 両方の NodeBalancer で直接終端 |
+| 11 | **カートストアに Managed Valkey を採用** | 在クラスタ Redis を **Akamai Managed Valkey**（Aiven ベース）へ TLS 接続で置き換え。アプリの書き換えなしでマネージドサービスへ移行 |
+| 12 | **Valkey によるライブ売れ筋ランキング** | 注文ごとに Valkey の **Sorted Set** へ `ZINCRBY`。ストアがリアルタイムのランキングを表示（ホームのサイドバー + `/ranking`）。Valkey が単なるキャッシュではないことを訴求 |
+| 13 | **クラスタ内 Grafana + Cloud Pulse** | DB / Valkey / LB / LLM のメトリクスを 1 つのダッシュボードで表示。前日・当日の注文数と売上を PostgreSQL から直接クエリして表示 |
+| 14 | **LLM のエンドツーエンド計装** | モデル別の token 使用量、レイテンシ p50/p95/p99、エラー率 |
+| 15 | **分散トレーシングとサービスグラフ** | Tempo ベースのトレースを Kiali（Istio ambient）、Vizceral、promviz のトラフィックマップで可視化 |
+| 16 | **カオスエンジニアリング** | Chaos Mesh による障害注入（pod-kill 等）をクラスタ内のボタンから発火し、影響範囲を Grafana で観察 |
+| 17 | **継続的な負荷生成** | k6 が常時トラフィックを流し、ダッシュボードと KPI が常に生きたデータを表示 |
+| 18 | **GitHub Actions による自動デプロイ** | push → build → LKE デプロイ → Akamai Functions デプロイを完全自動化 |
+| 19 | **認証付き商品管理画面** | 商品の追加・編集・削除・在庫管理をブラウザから実施 |
+| 20 | **独自ドメイン + HTTPS** | `tserof.net` ゾーンを Linode DNS で管理。Let's Encrypt の TLS をストア / Grafana 両方の NodeBalancer で直接終端 |
 
 ---
 
@@ -73,7 +89,7 @@ graph TB
 
     ZUPLO["Zuplo AI Gateway<br/>🛡️ Firewall for AI<br/>(PII / カード番号 / 過大入力を遮断)"]
 
-    subgraph LKE["LKE クラスタ（3 ノード / Kubernetes v1.35）"]
+    subgraph LKE["LKE クラスタ（東京 / jp-tyo-3 / id 610031）"]
         direction TB
         FE["frontend (Go)<br/>/, /cart, /orders, /admin/*"]
         PC["productcatalog<br/>(Go, MongoDB バックエンド)"]
@@ -85,12 +101,12 @@ graph TB
         PAY["paymentservice (Node.js)"]
         EMAIL["emailservice (Python)"]
         AD["adservice (Java)"]
-        REDIS[("Redis<br/>カートストア")]
         MONGO[("MongoDB<br/>StatefulSet + PVC<br/>商品カタログ")]
     end
 
     subgraph LinodeManaged["Linode マネージドサービス"]
         PG[("Managed PostgreSQL<br/>orders / order_items")]
+        VALKEY[("Managed Valkey<br/>🔒 TLS<br/>カート + sales:ranking:units")]
         OBJ[("Object Storage<br/>akamai-boutique-img")]
     end
 
@@ -120,10 +136,12 @@ graph TB
     FE --> PC & CART & CHK & CUR & REC2 & SHIP & AD
     FE -->|read| PG
     FE -->|画像| OBJ
+    FE -->|"ZREVRANGE（ランキング）"| VALKEY
     CHK --> PAY & EMAIL & SHIP & CART & CUR & PC
     CHK -->|write| PG
+    CHK -->|"ZINCRBY（ランキング）"| VALKEY
     PC --> MONGO
-    CART --> REDIS
+    CART -->|"カート（TLS）"| VALKEY
     ACLP -->|Linode API| PG
     PGEXP -->|SQL クエリ| PG
     PROM -->|scrape| OTEL & ACLP & GEMMA & PGEXP
@@ -139,7 +157,7 @@ graph TB
 
 | レイヤ | 技術 | 役割 |
 |--------|------|------|
-| **インフラ** | Linode Kubernetes Engine (LKE) | Kubernetes クラスタ（3 ノード） |
+| **インフラ** | Linode Kubernetes Engine (LKE) | 東京の Kubernetes クラスタ（`jp-tyo-3`, id `610031`） |
 | **エッジ AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript Wasm をエッジで実行 |
 | **AI ゲートウェイ** | Zuplo (Firewall for AI) | チャットのプロンプトを LLM 到達前に検査（PII / カード番号 / 過大入力を遮断） |
 | **AI モデル** | Gemma 4 26B (MoE, アクティブ 4B) / llama-cpp-python | GPU サーバー上のオープンソース LLM、OpenAI 互換 API |
@@ -148,8 +166,12 @@ graph TB
 | **マイクロサービス** | Go / Python / Node.js / Java | カート、決済、為替、配送ほか |
 | **カタログストア** | MongoDB 7.0（クラスタ内 StatefulSet + PVC） | 商品カタログ（`products.json` から自動シード） |
 | **注文ストア** | Linode Managed PostgreSQL | `orders` / `order_items` テーブルに永続化 |
-| **カートストア** | Redis | セッション単位の一時的なカート |
+| **カートストア** | **Akamai Managed Valkey**（Aiven ベース） | セッション単位のカートを TLS（`rediss://`）で保持。在クラスタの `redis-cart` Deployment を置き換え |
+| **ランキングストア** | 同じ Valkey インスタンスの Sorted Set `sales:ranking:units` | 販売数のリーダーボード。注文ごとに `ZINCRBY` でアトミックに更新 |
 | **画像ストア** | Linode Object Storage | public-read バケットから `/static/img/products/*` を配信 |
+| **サービスメッシュ** | Istio **ambient**（サイドカーレス）+ waypoint、Kiali | サイドカーを注入せずに L7 テレメトリとトポロジを取得（Calico 互換性のため ambient を採用） |
+| **カオスエンジニアリング** | Chaos Mesh + クラスタ内 `chaos-button` | デモ中に pod-kill 等の障害を任意のタイミングで発火 |
+| **負荷生成** | k6（Locust の `loadgenerator` も残存するが停止中） | ダッシュボード / KPI が空にならないよう常時トラフィックを生成 |
 | **可観測性** | Prometheus / Loki / Tempo / Grafana / Grafana Alloy / Beyla / OTel Collector | メトリクス、ログ、トレース、eBPF |
 | **マネージド系メトリクス** | Akamai Cloud Pulse (`aclp-collector`) | DBaaS + NodeBalancer のメトリクスを Prometheus に橋渡し |
 | **ビジネス KPI メトリクス** | `postgres_exporter`（カスタムクエリ） | 前日・当日の注文数と売上を PostgreSQL から直接クエリし Prometheus ゲージとして公開 |
@@ -161,22 +183,46 @@ graph TB
 
 ## データ永続化
 
-デモを支える 3 種類のデータストア。いずれも Kubernetes マニフェスト + GitHub
-Secrets で構成され、毎回の push で CI から自動デプロイされます。
+4 つのドメインを 3 つのストアで永続化しています。いずれも Kubernetes マニフェスト
++ GitHub Secrets で構成され、毎回の push で CI から自動デプロイされます。
 
 | ドメイン | 場所 | スキーマ / 形式 |
 |----------|------|---------------|
 | **商品カタログ** | クラスタ内 MongoDB 7.0 StatefulSet（`mongodb-0`, 10 Gi PVC） | 1 商品 1 ドキュメント（`_id` = SKU、多言語 `name` / `description`、`price`、`categories`、`picture`、`stock`）。初回起動時に `src/productcatalogservice/products.json` から自動シード。 |
-| **注文** | Linode Managed PostgreSQL（`postgresql v18`, jp-osa） | `orders(order_id UUID, session_id, email, shipping_*, total_*, created_at)` + `order_items(order_id, product_id, quantity, unit_price_*)`。毎回の CI で one-shot な `orders-schema-migrate` Job が適用。 |
-| **カート** | Redis（クラスタ内） | 一時的、セッション単位 |
+| **注文** | Linode Managed PostgreSQL（`postgresql v18`, インスタンス `481207`） | `orders(order_id UUID, session_id, email, shipping_*, total_*, created_at)` + `order_items(order_id, product_id, quantity, unit_price_*)`。毎回の CI で one-shot な `orders-schema-migrate` Job が適用。 |
+| **カート** | **Akamai Managed Valkey**（`Valkey9`, インスタンス `501007`） | 一時的、セッション単位。TLS + ユーザー名/パスワード認証で接続。 |
+| **売上ランキング** | 同じ Valkey インスタンスの Sorted Set `sales:ranking:units` | `member` = 商品 ID、`score` = 累計販売数。`ZINCRBY` で書き込み、`ZREVRANGE ... WITHSCORES` で読み出し。 |
 
 フロントエンドが公開するエンドポイント：
 
 - `GET /orders` — 現在のセッションの注文履歴（cookie 紐付け）
 - `GET /admin/orders` — 運用者向けの最新注文一覧（Basic 認証）
+- `GET /ranking` — 売れ筋ランキング（TOP 20）。上位 8 件はホーム画面右側の
+  スティッキーなサイドバーにも表示
 
-注文の永続化は **ノンブロッキング**: DB に到達不能な場合でもチェックアウト
-自体は完了し、warn ログを出すだけです。
+注文の永続化もランキング更新も **ノンブロッキング**: PostgreSQL や Valkey に
+到達不能な場合でもチェックアウト自体は完了し、warn ログを出すだけです。
+`REDIS_URL` が未設定の場合はランキングが自動的に無効化され、Valkey 導入前と
+まったく同じ挙動になります。
+
+### Managed Valkey への接続（TLS の注意点）
+
+クライアントを実装する前に知っておくべき点が 2 つあります。いずれも実際に
+デバッグ時間を要した箇所です。
+
+- **public エンドポイントは公的に信頼された証明書を提示します**
+  （`CN=*.g2a.akamaidb.net`、Let's Encrypt 発行）。したがって
+  **システムのルートストアだけで検証できます**。
+  `GET /v4/databases/valkey/instances/{id}/ssl` が返す CA は*別物*の私設
+  「Project CA」で、これを pin すると全接続が
+  `x509: certificate signed by unknown authority` で失敗します。
+- その `ca_certificate` フィールドは **base64 が二重に掛かっています**。
+  1 回 base64 デコードしないと PEM として解釈できません（.NET では
+  `ASN1 corrupted data` が発生）。
+- Go のサービスは `FROM scratch` でビルドしているため **CA バンドルが一切
+  入っていません**。Dockerfile でビルダーステージから
+  `/etc/ssl/certs/ca-certificates.crt` をコピーしています。これが無いと
+  上記に関わらずルート証明書ゼロで TLS が失敗します。
 
 ---
 
@@ -190,15 +236,24 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 | **Prometheus** | OTel Collector / `aclp-collector` / `postgres_exporter` / LLM `/metrics` を scrape |
 | **Loki** | コンテナログ（Grafana Alloy 経由） |
 | **Tempo** | マイクロサービスと Spin Function の分散トレース |
-| **Grafana** | 2 ダッシュボード：*Akamai Store — Operations* と *Akamai Store — Infrastructure & LLM* |
+| **Grafana** | 4 ダッシュボード：*Home*（`akamai-home`）、*Operations*（`akamai-microservices`）、*Infrastructure & LLM*（`akamai-infrastructure`）、*Service Graph*（`service-graph`） |
+| **Kiali** | Istio ambient のトポロジと L7 ゴールデンシグナル |
+| **Vizceral / promviz** | 2 種類のトラフィックマップ。どちらも Tempo の service graph が唯一のデータソース |
+| **Chaos Mesh** | 障害注入（pod-kill 等）。クラスタ内の `chaos-button` からライブで発火可能 |
 | **`aclp-collector`** | Akamai 配布の OTel ディストリビューション。Cloud Pulse → Prometheus へ `dbaas` / `nodebalancer` メトリクスを橋渡し |
 | **`postgres_exporter`** | `orders` テーブルに SQL で直接クエリ。`orders_daily_*`（前日）と `orders_today_*`（当日）ゲージを Grafana のビジネス KPI パネルに提供 |
 | **LLM 計装** | llama-cpp-python サーバー内に `prometheus-fastapi-instrumentator` + カスタム token カウント middleware |
 
 **Cloud Pulse から取得するメトリクス：**
 
-- *DBaaS (PostgreSQL)*: `avg_cpu_usage`, `avg_memory_usage`, `avg_disk_usage`, `avg_read_iops`, `avg_write_iops`
-- *NodeBalancer*: アカウント有効化待ち（サポートチケット 2026-05-15 申請済み）。設定は `aclp-collector.yaml` に準備済み。有効化後はコメントアウトを外すだけで動作。
+- *DBaaS (PostgreSQL, entity `481207`)*: `avg_cpu_usage`, `avg_memory_usage`, `avg_disk_usage`, `avg_read_iops`, `avg_write_iops`
+- *DBaaS (Valkey, entity `501007`)*: 上記と同じ 5 指標を専用のダッシュボード行に表示。
+  ただし Cloud Pulse は現時点で **Valkey 固有のメトリクスを提供していません**
+  （keyspace hits/misses、evicted keys、connected clients などは無く、上記の
+  汎用インフラ指標のみ）。
+- *NodeBalancer*: **アカウントレベルで未開放**（2026-06-02 時点でも利用不可を確認済み。
+  つまり `401` が返るのは設定ミスではなく想定どおりの挙動）。設定は
+  `aclp-collector.yaml` に準備済みなので、Akamai 側が開放したら有効化するだけです。
 
 **ビジネス KPI メトリクス（PostgreSQL から直接取得）：**
 
@@ -213,9 +268,17 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 - `llm_request_duration_seconds_bucket`（latency histogram → p50 / p95 / p99）
 - `llm_prompt_tokens_total`, `llm_completion_tokens_total`, `llm_total_tokens_total`
 
-> **Object Storage（Cloud Pulse）：** `service_type` としてドキュメントに記載されているが、
-> collector v1.0.0 では未実装。安定版イメージのリリース待ち。設定は `aclp-collector.yaml`
-> にコメントアウト済みで準備完了。
+> **Object Storage（Cloud Pulse）：** 収集可能になりました。ただし
+> `linode/aclp-collector:1.5.0-docker` イメージ（無印の `1.5.0` では不可）と
+> **3600 秒以上**のポーリング間隔が必要です。残る障壁はスコープで、
+> `LINODE_PAT` に Object Storage の read 権限が無いとバケット一覧が `401` に
+> なります。なお Object Storage / Logs の Cloud Pulse は **`jp-osa`（E1）では
+> 未対応**で、`jp-tyo-3`（E3）でのみ利用できます。
+>
+> ⚠️ collector のイメージ更新は単純な差し替えでは済みません。`1.5.0-docker`
+> 以降は config スキーマが変わり `dbaas` / `nodebalancer` にも `group_by` が
+> 必須になるため、現行 config のままだと
+> `invalid configuration: group_by list cannot be empty` でクラッシュします。
 
 ---
 
@@ -224,6 +287,7 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 | URL | 説明 |
 |-----|------|
 | `https://aka-store.tserof.net/` | EC サイト（公開。`https://tserof.net/`・`https://www.tserof.net/` でも可） |
+| `https://aka-store.tserof.net/ranking` | Valkey Sorted Set によるライブ売れ筋ランキング |
 | `https://aka-store.tserof.net/orders` | セッション別の注文履歴 |
 | `https://aka-store.tserof.net/admin/inventory` | 商品管理画面（Basic 認証） |
 | `https://aka-store.tserof.net/admin/orders` | 注文一覧（Basic 認証） |
@@ -233,6 +297,12 @@ Linode マネージドサービスについては Akamai Cloud Pulse から取�
 > 共有の Let's Encrypt 証明書（SAN: `tserof.net` / `www` / `aka-store` / `grafana`）
 > により終端。証明書の更新は `deploy-tls-tserof-tokyo.yml` ワークフローで実施。
 > NodeBalancer の IP への素の HTTP アクセスもフォールバックとして利用可。
+>
+> ⚠️ 証明書は**手動更新**で、有効期限は **2026-10-08** です。Secret の中身だけを
+> 更新しても Linode CCM は反映しません（`Service` のアノテーションが変わるまで
+> 再同期しないため、ワークフロー側でアノテーションを強制的に更新しています）。
+> DNS レコードの操作は CI の `LINODE_PAT` に Domains スコープが無いため、
+> ローカルの `linode-cli` で実施します。
 
 **管理画面の認証情報**
 
@@ -269,11 +339,14 @@ Akamai Cloud Console または Linode CLI から作成。
 ```bash
 linode-cli lke cluster-create \
   --label akamai-demo \
-  --region ap-northeast \
-  --k8s_version 1.35 \
+  --region jp-tyo-3 \
+  --k8s_version "$(linode-cli lke versions-list --text --no-headers | head -1)" \
   --node_pools.type g6-standard-4 \
   --node_pools.count 3
 ```
+
+> `jp-tyo-3` である点が重要です。Object Storage / Logs の Cloud Pulse は
+> `jp-osa`（E1）では未対応で、`jp-tyo-3` のような E3 リージョンが必要です。
 
 kubeconfig をダウンロードして接続確認：
 
@@ -294,11 +367,20 @@ kubectl get nodes   # 全ノードが Ready になっていれば OK
    - LKE ノードの public IP（または閉鎖デモなら `0.0.0.0/0`）を
      データベースのファイアウォールに追加
 
-2. **Object Storage バケット**（Cloud Manager → Object Storage → Create Bucket）
+2. **Managed Valkey**（Cloud Manager → Databases → Create → Valkey）
+   - リージョン: LKE と同じ。上記と同様に public access を有効化
+   - 接続情報を控えます。TLS は**必須**なので URL は `redis://` ではなく
+     `rediss://` です。用途に応じて 2 種類の書式が必要になります:
+     - go-redis（frontend / checkoutservice）: `rediss://user:pass@host:port`
+     - StackExchange.Redis（cartservice）: `host:port,ssl=true,user=…,password=…`
+   - 実装前に[データ永続化](#データ永続化)の TLS 注意点を必ず確認してください。
+     CA の扱いに 2 つの落とし穴があります。
+
+3. **Object Storage バケット**（Cloud Manager → Object Storage → Create Bucket）
    - ラベル: `akamai-boutique-img`（任意）、リージョン: LKE と同じ
    - 当該バケットに read/write 権限を持つアクセスキーを発行
 
-3. 同梱の商品画像をアップロード：
+4. 同梱の商品画像をアップロード：
 
    ```bash
    aws configure --profile linode   # アクセスキーとシークレットを入力
@@ -396,11 +478,24 @@ https://<uuid-assistant>.fwf.app   # frontend Deployment の env に設定
 
 | Secret | 説明 |
 |--------|------|
-| `GHCR_TOKEN` | `write:packages` 権限を持つ GitHub Personal Access Token（CI が ghcr.io へ push） |
+| `GHCR_TOKEN` | `write:packages` + `read:packages` 権限を持つ GitHub PAT（CI が ghcr.io へ push するほか、デプロイの度にクラスタの `ghcr-secret` がこの値から再生成される） |
 | `KUBECONFIG_DATA` | セルフホスト Runner で使う kubeconfig（Base64 エンコード） |
 | `SPIN_AKA_ACCESS_TOKEN` | Akamai Functions のデプロイトークン（`spin aka login --token …`） |
 | `ORDER_DB_DSN` | Postgres 接続文字列：`postgres://akmadmin:<password>@<public-host>:23630/defaultdb?sslmode=require` |
-| `LINODE_PAT` | **Monitor: Read Only** と **Databases: Read Only** スコープを持つ Linode Personal Access Token（`aclp-collector` が使用） |
+| `VALKEY_URL` | frontend / checkoutservice 用の go-redis 形式：`rediss://<user>:<password>@<host>:<port>` |
+| `VALKEY_ADDR` | cartservice 用の StackExchange.Redis 形式：`<host>:<port>,ssl=true,user=…,password=…` |
+| `VALKEY_CA_CERT` | CA 証明書（cartservice が in-process でチェーン検証する場合のみ必要。上記 TLS 注意点を参照） |
+| `LINODE_PAT` | **Monitor: Read Only** と **Databases: Read Only** スコープを持つ Linode Personal Access Token（`aclp-collector` が使用）。Object Storage の Cloud Pulse メトリクスも取りたい場合は **Object Storage: Read Only** を追加。 |
+
+> ⚠️ **障害原因として最も多いのがトークンの失効です。** 3 種類の認証情報が
+> それぞれ別のスケジュールで失効し、いずれも「トークンが原因」とは
+> 分かりにくい形で症状が出ます。
+>
+> | Secret | 失効時の症状 |
+> |--------|-------------|
+> | `GHCR_TOKEN` | `ghcr-secret` が**全イメージ**に対して `DENIED` を返すようになる。稼働中の Pod はノード上のキャッシュで生き残るため、最初に犠牲になるのは「たまたま再スケジュールされた Pod」。それが `currencyservice` だとストア全体が **HTTP 500**（`could not retrieve currencies: no healthy upstream`）になる。 |
+> | `LINODE_PAT` | `aclp-collector` が `401` になり、Cloud Pulse のメトリクスが無言で停止する。 |
+> | `SPIN_AKA_ACCESS_TOKEN` | Akamai Functions のデプロイが失敗。仕様上**最長 90 日**なので `spin aka auth token create --expiration-days 90` で定期ローテートが必要。 |
 
 ---
 
@@ -432,7 +527,7 @@ kubectl set env deployment/frontend \
   ADMIN_USER=admin \            # 管理画面 Basic 認証ユーザー名
   ADMIN_PASSWORD='<パスワード>' \  # 管理画面 Basic 認証パスワード
   ENABLE_ASSISTANT=true \       # AI ショッピングアシスタントを有効化
-  IMAGE_BASE_URL=https://akamai-boutique-img.jp-osa-1.linodeobjects.com
+  IMAGE_BASE_URL=https://akamai-boutique-img.jp-tyo-1.linodeobjects.com
 ```
 
 ---
@@ -462,6 +557,34 @@ push to main
     └─► Deploy Spin Apps to Akamai Functions
            recommendation / product-intro / shopping-assistant
 ```
+
+### どのワークフローがどのクラスタを対象にするか
+
+| ワークフロー | 対象 |
+|-------------|------|
+| `deploy.yml` | `main` への push で起動。デプロイジョブはセルフホスト Runner の**デフォルト kubeconfig** を使うため、以前は削除済みの大阪クラスタを指していました。**`main` への push だけでライブデモが更新されると考える前に、現在どこを向いているか必ず確認してください。** |
+| `deploy-tokyo.yml` | Linode API から東京（`610031`）の kubeconfig を明示的に取得するため、Runner のデフォルトに依存せず確実です。 |
+| `deploy-valkey-tokyo.yml`（`valkey` ブランチ） | `valkey-credentials` / `valkey-ca-cert` Secret を作成し、Valkey 用マニフェストを適用、`valkey-*` イメージタグを固定して実注文で検証します。 |
+
+その他大量にある `fix-*` / `diag-*` / `chk-*` ワークフローは、過去の個別障害を
+診断・修復するために書かれた使い捨てスクリプトです。汎用ツールではないので、
+実行前に必ず中身を読んでください。
+
+> ⚠️ **`deploy-tokyo.yml` はクラスタを Redis 構成に巻き戻します。**
+> `main` のマニフェストと `:latest` イメージを適用するため、Valkey 構成の
+> クラスタに対して実行すると、イメージタグが `valkey-*` から `:latest` に戻り、
+> `REDIS_ADDR` が `redis-cart:6379` に戻り、削除したはずの `redis-cart`
+> Deployment が復活し、`/ranking` が 404 になります。（`GHCR_TOKEN` ローテート
+> からの復旧などで）実行した場合は、**直後に Valkey マニフェストの再適用と
+> `valkey-*` イメージタグの再固定をセットで行ってください。**
+> マニフェストの `image:` はプレースホルダなので `kubectl apply` だけでは
+> タグは戻りません。
+
+> **フィーチャーブランチのワークフローは、`main` にも存在しないと dispatch
+> できません。** GitHub はデフォルトブランチで見えるワークフローしか登録しない
+> ため、フィーチャーブランチにしか無いワークフローは
+> `gh workflow run … --ref <branch>` が 404 になります。ここでの運用パターンは
+> 「一時的に `main` へコミット → `--ref <branch>` で dispatch → `main` から削除」です。
 
 ---
 
@@ -498,19 +621,28 @@ push to main
 ├── .github/workflows/
 │   └── deploy.yml                    # CI/CD パイプライン定義
 ├── kubernetes-manifests/
-│   ├── frontend.yaml                 # ORDER_DB_DSN, IMAGE_BASE_URL env を含む
+│   ├── frontend.yaml                 # ORDER_DB_DSN, REDIS_URL, IMAGE_BASE_URL
 │   ├── productcatalogservice.yaml    # MongoDB バックエンド
-│   ├── checkoutservice.yaml          # PG に注文を永続化
+│   ├── checkoutservice.yaml          # PG に注文を永続化 + Valkey ランキング
+│   ├── cartservice.yaml              # Valkey バックエンド（valkey では redis-cart 無し）
 │   ├── mongodb.yaml                  # StatefulSet + PVC + Secret
 │   ├── orders-schema.sql             # PG スキーマ（Job で適用）
 │   ├── orders-migrate-job.yaml       # ワンショット psql マイグレータ
-│   ├── loadgenerator.yaml            # カスタム locustfile のオーバーレイ
+│   ├── k6.yaml                       # 継続的な負荷生成
+│   ├── loadgenerator.yaml            # Locust のオーバーレイ（残存・停止中）
+│   ├── hpa.yaml                      # Horizontal Pod Autoscaler
+│   ├── chaos/                        # Chaos Mesh 実験 + chaos-button
+│   ├── istio/                        # mTLS + カナリア（ambient mesh）
 │   └── monitoring/
 │       ├── prometheus.yaml
 │       ├── grafana.yaml
-│       ├── grafana-dashboards.yaml   # Operations + Infrastructure & LLM
-│       ├── aclp-collector.yaml       # Akamai Cloud Pulse → Prometheus
+│       ├── grafana-dashboards.yaml   # Home + Operations + Infra & LLM + Service Graph
+│       ├── aclp-collector.yaml       # Akamai Cloud Pulse → Prometheus（PG + Valkey）
+│       ├── aclp-collector-healer*.yaml # collector 停止時に再起動する CronJob
 │       ├── postgres-exporter.yaml    # 注文 KPI クエリ → Prometheus ゲージ
+│       ├── kiali.yaml                # Istio ambient のトポロジ UI
+│       ├── vizceral.yaml / promviz.yaml  # トラフィックマップ（Tempo service graph 由来）
+│       ├── tempo.yaml / loki.yaml / promtail.yaml
 │       ├── otel-collector.yaml
 │       └── redis-exporter.yaml
 ├── scripts/
@@ -520,16 +652,21 @@ push to main
 │   ├── frontend/                     # ★ 主に改修したサービス（Go）
 │   │   ├── handlers.go               # ルーティング、ビジネスロジック、管理 API
 │   │   ├── orders_db.go              # /orders & /admin/orders 用の PG read
+│   │   ├── ranking.go                # ランキング読み出し（Valkey ZREVRANGE）
 │   │   ├── translations.go           # ja / ko / zh 翻訳
 │   │   ├── main.go                   # サーバ起動、ルート定義
 │   │   ├── templates/
 │   │   │   ├── header.html           # Akamai ロゴ、言語/通貨切替、/orders アイコン
+│   │   │   ├── home.html             # Hot Products + Best Sellers サイドバー
 │   │   │   ├── product.html          # AI 商品紹介 & AI レコメンド
+│   │   │   ├── ranking.html          # /ranking 売れ筋ランキングページ
 │   │   │   ├── orders.html           # 注文履歴ページ（両ビュー共通）
 │   │   │   └── inventory.html        # 管理画面 UI
 │   │   └── static/img/products/      # 元画像（Object Storage にミラー）
+│   ├── cartservice/                  # C#。Valkey 接続と TLS は Startup.cs
 │   ├── checkoutservice/
-│   │   └── orders_db.go              # 注文の PG 書き込み
+│   │   ├── orders_db.go              # 注文の PG 書き込み
+│   │   └── ranking.go                # 注文ごとの Valkey ZINCRBY
 │   ├── productcatalogservice/
 │   │   ├── catalog_loader_mongo.go   # MongoDB ローダ & シーダ
 │   │   └── products.json             # シードデータ
@@ -556,10 +693,17 @@ push to main
 - 商品カタログを MongoDB に移行（クラスタ内 StatefulSet、自動シード）
 - 注文を Linode Managed PostgreSQL に永続化、`/orders` / `/admin/orders`
   ページ追加
+- カートストアを在クラスタ Redis から **Akamai Managed Valkey** へ TLS 接続で
+  移行（`valkey` ブランチ）
+- **ライブ売れ筋ランキング**を Valkey Sorted Set で実装。チェックアウト時に
+  `ZINCRBY`、描画時に `ZREVRANGE`。ホーム画面と `/ranking` に表示
 - 商品画像を Linode Object Storage から配信
 - クラスタ内 Prometheus / Loki / Tempo / Grafana スタック
-- `aclp-collector` 経由で Akamai Cloud Pulse 統合（DBaaS と
-  NodeBalancer のメトリクス）
+- Istio **ambient** メッシュ + Kiali、および Vizceral / promviz トラフィックマップ
+- Chaos Mesh による障害注入とクラスタ内トリガーボタン
+- k6 による継続的な負荷生成
+- `aclp-collector` 経由で Akamai Cloud Pulse 統合（DBaaS（PostgreSQL +
+  Valkey）と NodeBalancer のメトリクス）
 - `postgres_exporter` カスタム SQL クエリによるビジネス KPI メトリクス
   （前日・当日の注文数と売上を Grafana ダッシュボードにリアルタイム表示）
 - LLM サーバーを HTTP + token / latency の Prometheus メトリクスで計装

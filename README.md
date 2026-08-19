@@ -5,10 +5,20 @@
 > **An end-to-end demo environment combining Akamai's key services.**
 > A microservices e-commerce site running on LKE (Linode Kubernetes Engine),
 > with AI features at the edge (Akamai Functions), data persistence on
-> Linode managed services, and full observability through an in-cluster
-> Grafana stack augmented with Akamai Cloud Pulse.
+> Linode managed services (including **Managed Valkey**), a service mesh with
+> chaos engineering, and full observability through an in-cluster Grafana
+> stack augmented with Akamai Cloud Pulse.
 
 [![Build and Deploy](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml/badge.svg)](https://github.com/ymori-aka/akamai-microservices-demo/actions/workflows/deploy.yml)
+
+> **Where this runs:** a single LKE cluster in **Tokyo (`jp-tyo-3`, cluster id
+> `610031`)**. An earlier Osaka (`jp-osa`) cluster was decommissioned.
+>
+> **Branch layout:** `main` keeps the original in-cluster **Redis** cart, while
+> the **`valkey` branch** replaces it with **Akamai Managed Valkey** and adds the
+> best-seller ranking. **The `valkey` branch is what is deployed to the live
+> demo**, so this README describes that configuration. If you check out `main`
+> and run `kubectl apply -f kubernetes-manifests/`, you get the Redis variant.
 
 ---
 
@@ -42,11 +52,16 @@
 | 8 | **Persistent order history** | Orders written to Linode Managed PostgreSQL; viewable at `/orders` & `/admin/orders` |
 | 9 | **MongoDB-backed product catalog** | StatefulSet PVC with seed-on-first-start, full admin CRUD |
 | 10 | **Product images on Linode Object Storage** | Images served from `*.linodeobjects.com` instead of in-cluster |
-| 11 | **In-cluster Grafana + Cloud Pulse** | DB / LB / LLM metrics in a single dashboard; yesterday's and today's order count & revenue queried directly from PostgreSQL |
-| 12 | **End-to-end LLM telemetry** | Token usage, latency p50/p95/p99, error rate per model |
-| 13 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
-| 14 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
-| 15 | **Custom domain + HTTPS** | `tserof.net` zone on Linode DNS; Let's Encrypt TLS terminated directly at the Linode NodeBalancers for both the store and Grafana |
+| 11 | **Managed Valkey as the cart store** | The in-cluster Redis is replaced by **Akamai Managed Valkey** (Aiven-powered) over TLS — a managed-service migration with no application rewrite |
+| 12 | **Live best-seller ranking on Valkey** | Every order does a `ZINCRBY` into a Valkey **Sorted Set**; the store renders a live ranking (home sidebar + `/ranking`). Showcases Valkey as more than a cache |
+| 13 | **In-cluster Grafana + Cloud Pulse** | DB / Valkey / LB / LLM metrics in a single dashboard; yesterday's and today's order count & revenue queried directly from PostgreSQL |
+| 14 | **End-to-end LLM telemetry** | Token usage, latency p50/p95/p99, error rate per model |
+| 15 | **Distributed tracing & service graph** | Tempo-backed traces with Kiali (Istio ambient), Vizceral and promviz traffic maps |
+| 16 | **Chaos engineering** | Chaos Mesh experiments (pod-kill etc.) triggered from an in-cluster button, with the blast radius visible in Grafana |
+| 17 | **Continuous load generation** | k6 drives steady traffic so dashboards and KPIs always have live data |
+| 18 | **Automated deployments with GitHub Actions** | push → build → LKE deploy → Akamai Functions deploy, fully automated |
+| 19 | **Authenticated admin panel** | Add, edit, delete products and manage inventory from a browser |
+| 20 | **Custom domain + HTTPS** | `tserof.net` zone on Linode DNS; Let's Encrypt TLS terminated directly at the Linode NodeBalancers for both the store and Grafana |
 
 ---
 
@@ -73,7 +88,7 @@ graph TB
 
     ZUPLO["Zuplo AI Gateway<br/>🛡️ Firewall for AI<br/>(blocks PII / card numbers / oversized input)"]
 
-    subgraph LKE["LKE Cluster (3 nodes / Kubernetes v1.35)"]
+    subgraph LKE["LKE Cluster (Tokyo / jp-tyo-3 / id 610031)"]
         direction TB
         FE["frontend (Go)<br/>/, /cart, /orders, /admin/*"]
         PC["productcatalog<br/>(Go, MongoDB-backed)"]
@@ -85,12 +100,12 @@ graph TB
         PAY["paymentservice (Node.js)"]
         EMAIL["emailservice (Python)"]
         AD["adservice (Java)"]
-        REDIS[("Redis<br/>Cart Store")]
         MONGO[("MongoDB<br/>StatefulSet + PVC<br/>Product Catalog")]
     end
 
     subgraph LinodeManaged["Linode Managed Services"]
         PG[("Managed PostgreSQL<br/>orders / order_items")]
+        VALKEY[("Managed Valkey<br/>🔒 TLS<br/>carts + sales:ranking:units")]
         OBJ[("Object Storage<br/>akamai-boutique-img")]
     end
 
@@ -120,10 +135,12 @@ graph TB
     FE --> PC & CART & CHK & CUR & REC2 & SHIP & AD
     FE -->|read| PG
     FE -->|images| OBJ
+    FE -->|"ZREVRANGE (ranking)"| VALKEY
     CHK --> PAY & EMAIL & SHIP & CART & CUR & PC
     CHK -->|write| PG
+    CHK -->|"ZINCRBY (ranking)"| VALKEY
     PC --> MONGO
-    CART --> REDIS
+    CART -->|"carts (TLS)"| VALKEY
     ACLP -->|Linode API| PG
     PGEXP -->|SQL queries| PG
     PROM -->|scrape| OTEL & ACLP & GEMMA & PGEXP
@@ -139,7 +156,7 @@ graph TB
 
 | Layer | Technology | Role |
 |-------|-----------|------|
-| **Infrastructure** | Linode Kubernetes Engine (LKE) | Kubernetes cluster (3 nodes) |
+| **Infrastructure** | Linode Kubernetes Engine (LKE) | Kubernetes cluster in Tokyo (`jp-tyo-3`, id `610031`) |
 | **Edge AI** | Akamai Functions (Fermyon Spin v3.6.3) | TypeScript Wasm functions running at the edge |
 | **AI Gateway** | Zuplo (Firewall for AI) | Screens chat prompts for PII / card numbers / oversized input before they reach the LLM |
 | **AI Model** | Gemma 4 26B (MoE, 4B active) / llama-cpp-python | Open-source LLM on a GPU server, OpenAI-compatible API |
@@ -148,8 +165,12 @@ graph TB
 | **Microservices** | Go / Python / Node.js / Java | Cart, checkout, currency, shipping, etc. |
 | **Catalog Store** | MongoDB 7.0 (in-cluster StatefulSet + PVC) | Product catalog (auto-seeded from `products.json`) |
 | **Orders Store** | Linode Managed PostgreSQL | Persistent `orders` / `order_items` tables |
-| **Cart Store** | Redis | Ephemeral cart state |
+| **Cart Store** | **Akamai Managed Valkey** (Aiven-powered) | Per-session cart state over TLS (`rediss://`). Replaces the in-cluster `redis-cart` Deployment |
+| **Ranking Store** | Same Valkey instance, Sorted Set `sales:ranking:units` | Units-sold leaderboard, updated atomically with `ZINCRBY` on each order |
 | **Image Store** | Linode Object Storage | Public-read bucket serving `/static/img/products/*` |
+| **Service Mesh** | Istio **ambient** (sidecar-less) + waypoint, Kiali | L7 telemetry and topology without injecting sidecars (chosen for Calico compatibility) |
+| **Chaos Engineering** | Chaos Mesh + in-cluster `chaos-button` | Pod-kill and other experiments triggered on demand during a demo |
+| **Load Generation** | k6 (Locust `loadgenerator` kept but idle) | Continuous traffic so dashboards/KPIs are never empty |
 | **Observability** | Prometheus / Loki / Tempo / Grafana / Grafana Alloy / Beyla / OTel Collector | Metrics, logs, traces, eBPF |
 | **Managed-svc Metrics** | Akamai Cloud Pulse (`aclp-collector`) | DBaaS + NodeBalancer metrics scraped by Prometheus |
 | **Business KPI Metrics** | `postgres_exporter` (custom queries) | Yesterday's & today's order count and revenue queried directly from PostgreSQL; exposed as Prometheus gauges |
@@ -161,22 +182,45 @@ graph TB
 
 ## Data Persistence
 
-Three data stores back the demo. All three are provisioned via Kubernetes
-manifests + GitHub Secrets and deployed by CI on every push.
+Four domains are persisted, across three stores. All are provisioned via
+Kubernetes manifests + GitHub Secrets and deployed by CI on every push.
 
 | Domain | Where | Schema / format |
 |--------|-------|-----------------|
 | **Product catalog** | MongoDB 7.0 StatefulSet inside the cluster (`mongodb-0`, 10 Gi PVC) | One document per product (`_id` = SKU, multilingual `name` / `description`, `price`, `categories`, `picture`, `stock`). Seeded on first start from `src/productcatalogservice/products.json`. |
-| **Orders** | Linode Managed PostgreSQL (`postgresql v18`, jp-osa) | `orders(order_id UUID, session_id, email, shipping_*, total_*, created_at)` + `order_items(order_id, product_id, quantity, unit_price_*)`. Created on each CI run via a one-shot `orders-schema-migrate` Job. |
-| **Carts** | Redis (in-cluster) | Ephemeral; per-session shopping cart. |
+| **Orders** | Linode Managed PostgreSQL (`postgresql v18`, instance `481207`) | `orders(order_id UUID, session_id, email, shipping_*, total_*, created_at)` + `order_items(order_id, product_id, quantity, unit_price_*)`. Created on each CI run via a one-shot `orders-schema-migrate` Job. |
+| **Carts** | **Akamai Managed Valkey** (`Valkey9`, instance `501007`) | Ephemeral; per-session shopping cart. Reached over TLS with username/password auth. |
+| **Sales ranking** | Same Valkey instance — Sorted Set `sales:ranking:units` | `member` = product id, `score` = cumulative units sold. Written with `ZINCRBY`, read with `ZREVRANGE ... WITHSCORES`. |
 
 The frontend exposes:
 
 - `GET /orders` — current session's order history (cookie-bound)
 - `GET /admin/orders` — operator view of recent orders (Basic Auth)
+- `GET /ranking` — best-seller ranking (top 20); the top 8 also render as a
+  sticky sidebar on the home page
 
-Order persistence is non-blocking: if the DB is unreachable the
-checkout still completes and a warning is logged.
+Both order persistence and ranking updates are **non-blocking**: if PostgreSQL
+or Valkey is unreachable the checkout still completes and a warning is logged.
+When `REDIS_URL` is unset, ranking is silently disabled and the services behave
+exactly as they did before Valkey was introduced.
+
+### Connecting to Managed Valkey (TLS notes)
+
+Two things are worth knowing before wiring up a client — both cost real
+debugging time here:
+
+- **The public endpoint presents a publicly-trusted certificate**
+  (`CN=*.g2a.akamaidb.net`, issued by Let's Encrypt), so the **system root
+  store is enough**. The CA returned by
+  `GET /v4/databases/valkey/instances/{id}/ssl` is a *different*, private
+  "Project CA" — pinning it makes every connection fail with
+  `x509: certificate signed by unknown authority`.
+- That `ca_certificate` field is **base64-encoded twice**; it must be
+  base64-decoded once before it is a parseable PEM (otherwise .NET raises
+  `ASN1 corrupted data`).
+- Go services are built `FROM scratch`, which ships **no CA bundle at all**.
+  The Dockerfiles copy `/etc/ssl/certs/ca-certificates.crt` out of the builder
+  stage; without it TLS has zero roots and fails regardless of the above.
 
 ---
 
@@ -191,15 +235,25 @@ services.
 | **Prometheus** | Scrapes microservices via OTel Collector + `aclp-collector` + `postgres_exporter` + LLM `/metrics` |
 | **Loki** | Container logs (via Grafana Alloy) |
 | **Tempo** | Distributed traces from microservices and Spin functions |
-| **Grafana** | Two dashboards: *Akamai Store — Operations* and *Akamai Store — Infrastructure & LLM* |
+| **Grafana** | Four dashboards: *Home* (`akamai-home`), *Operations* (`akamai-microservices`), *Infrastructure & LLM* (`akamai-infrastructure`) and *Service Graph* (`service-graph`) |
+| **Kiali** | Istio ambient topology and L7 golden signals |
+| **Vizceral / promviz** | Two traffic-map visualisations, both fed from Tempo service graphs |
+| **Chaos Mesh** | Fault injection (pod-kill etc.), with an in-cluster `chaos-button` to trigger experiments live |
 | **`aclp-collector`** | OTel distribution maintained by Akamai; bridges Cloud Pulse → Prometheus for `dbaas` & `nodebalancer` metrics |
 | **`postgres_exporter`** | Queries the `orders` table directly; exposes `orders_daily_*` (yesterday) and `orders_today_*` (current day) gauges for the Grafana business KPI panels |
 | **LLM instrumentation** | `prometheus-fastapi-instrumentator` + custom token-counting middleware running inside the llama-cpp-python server |
 
 **Cloud Pulse metrics surfaced:**
 
-- *DBaaS (PostgreSQL)*: `avg_cpu_usage`, `avg_memory_usage`, `avg_disk_usage`, `avg_read_iops`, `avg_write_iops`
-- *NodeBalancer*: pending account-level enablement (support ticket filed 2026-05-15). Config is ready in `aclp-collector.yaml`; uncomment once Akamai confirms access.
+- *DBaaS (PostgreSQL, entity `481207`)*: `avg_cpu_usage`, `avg_memory_usage`, `avg_disk_usage`, `avg_read_iops`, `avg_write_iops`
+- *DBaaS (Valkey, entity `501007`)*: the same five metrics, on their own dashboard
+  row. Note that Cloud Pulse currently exposes **no Valkey-specific metrics**
+  (no keyspace hits/misses, evictions or connected clients) — only the generic
+  infrastructure set above.
+- *NodeBalancer*: **not enabled at the account level yet** (confirmed still
+  unavailable as of 2026-06-02, so the `401` responses are expected, not a
+  misconfiguration). Config is ready in `aclp-collector.yaml`; enable once
+  Akamai opens it up.
 
 **Business KPI metrics (from PostgreSQL):**
 
@@ -214,9 +268,17 @@ services.
 - `llm_request_duration_seconds_bucket` (latency histogram → p50 / p95 / p99)
 - `llm_prompt_tokens_total`, `llm_completion_tokens_total`, `llm_total_tokens_total`
 
-> **Object Storage (Cloud Pulse):** documented as a supported `service_type` but
-> collector v1.0.0 does not implement it yet. Config is commented out in
-> `aclp-collector.yaml` pending a stable image release.
+> **Object Storage (Cloud Pulse):** now collectable — but only with the
+> `linode/aclp-collector:1.5.0-docker` image (the plain `1.5.0` tag will not do)
+> and a polling interval of **≥ 3600 s**. The remaining blocker is scope: the
+> `LINODE_PAT` needs Object Storage read access, otherwise the bucket listing
+> returns `401`. Also note Object Storage / Logs Cloud Pulse is **not supported
+> in `jp-osa` (E1)** — it works in `jp-tyo-3` (E3).
+>
+> ⚠️ Upgrading the collector image is not a drop-in change: from `1.5.0-docker`
+> onward the config schema requires `group_by` on `dbaas` and `nodebalancer`
+> too, so the current config crashes with
+> `invalid configuration: group_by list cannot be empty` until it is added.
 
 ---
 
@@ -225,6 +287,7 @@ services.
 | URL | Description |
 |-----|-------------|
 | `https://aka-store.tserof.net/` | E-commerce store (public; also `https://tserof.net/` and `https://www.tserof.net/`) |
+| `https://aka-store.tserof.net/ranking` | Live best-seller ranking, backed by the Valkey Sorted Set |
 | `https://aka-store.tserof.net/orders` | Per-session order history |
 | `https://aka-store.tserof.net/admin/inventory` | Admin product management (Basic Auth) |
 | `https://aka-store.tserof.net/admin/orders` | Admin order list (Basic Auth) |
@@ -235,6 +298,12 @@ services.
 > (`tserof.net` / `www` / `aka-store` / `grafana` SANs). The certificate is
 > rotated via the `deploy-tls-tserof-tokyo.yml` workflow. Plain HTTP on the
 > NodeBalancer IPs still works as a fallback.
+>
+> ⚠️ The certificate is renewed **manually** and expires **2026-10-08**.
+> Updating only the contents of the Secret is not enough — the Linode CCM will
+> not re-sync until a `Service` annotation changes, so the workflow bumps one to
+> force it. DNS record changes are done with a local `linode-cli` because the
+> CI `LINODE_PAT` has no Domains scope.
 
 **Admin credentials**
 
@@ -271,11 +340,14 @@ Create a cluster from the Akamai Cloud console or via the Linode CLI.
 ```bash
 linode-cli lke cluster-create \
   --label akamai-demo \
-  --region ap-northeast \
-  --k8s_version 1.35 \
+  --region jp-tyo-3 \
+  --k8s_version "$(linode-cli lke versions-list --text --no-headers | head -1)" \
   --node_pools.type g6-standard-4 \
   --node_pools.count 3
 ```
+
+> `jp-tyo-3` matters: Object Storage / Logs Cloud Pulse is not supported in
+> `jp-osa` (E1), only in E3 regions such as `jp-tyo-3`.
 
 Download the kubeconfig and verify connectivity.
 
@@ -297,11 +369,20 @@ kubectl get nodes   # All nodes should show Ready
    - Add the LKE node public IPs (or `0.0.0.0/0` for a closed demo)
      to the database firewall
 
-2. **Object Storage bucket** (Cloud Manager → Object Storage → Create Bucket)
+2. **Managed Valkey** (Cloud Manager → Databases → Create → Valkey)
+   - Region: same as the LKE cluster. Enable public access as above.
+   - Note the connection details — TLS is **mandatory**, so the URL is
+     `rediss://`, not `redis://`. Two different formats are needed:
+     - go-redis (frontend / checkoutservice): `rediss://user:pass@host:port`
+     - StackExchange.Redis (cartservice): `host:port,ssl=true,user=…,password=…`
+   - Read the TLS notes in [Data Persistence](#data-persistence) first — the CA
+     handling has two non-obvious pitfalls.
+
+3. **Object Storage bucket** (Cloud Manager → Object Storage → Create Bucket)
    - Label: `akamai-boutique-img` (or your own), Region: same as LKE
    - Create an Access Key with read/write on this bucket
 
-3. Upload the bundled product images:
+4. Upload the bundled product images:
 
    ```bash
    aws configure --profile linode   # enter Access Key + Secret
@@ -400,11 +481,24 @@ Go to **Settings → Secrets and variables → Actions** in your repository.
 
 | Secret | Description |
 |--------|-------------|
-| `GHCR_TOKEN` | GitHub Personal Access Token with `write:packages` scope (CI pushes images to ghcr.io) |
+| `GHCR_TOKEN` | GitHub PAT with `write:packages` + `read:packages` (CI pushes images to ghcr.io, and the cluster's `ghcr-secret` is regenerated from it on every deploy) |
 | `KUBECONFIG_DATA` | Base64-encoded kubeconfig used by the self-hosted runner |
 | `SPIN_AKA_ACCESS_TOKEN` | Akamai Functions deploy token (`spin aka login --token …`) |
 | `ORDER_DB_DSN` | Postgres connection string: `postgres://akmadmin:<password>@<public-host>:23630/defaultdb?sslmode=require` |
-| `LINODE_PAT` | Linode Personal Access Token with **Monitor: Read Only** and **Databases: Read Only** (used by `aclp-collector`) |
+| `VALKEY_URL` | go-redis form for frontend / checkoutservice: `rediss://<user>:<password>@<host>:<port>` |
+| `VALKEY_ADDR` | StackExchange.Redis form for cartservice: `<host>:<port>,ssl=true,user=…,password=…` |
+| `VALKEY_CA_CERT` | CA certificate (only needed for the cartservice in-process chain check; see the TLS notes above) |
+| `LINODE_PAT` | Linode Personal Access Token with **Monitor: Read Only** and **Databases: Read Only** (used by `aclp-collector`). Add **Object Storage: Read Only** if you want Object Storage Cloud Pulse metrics. |
+
+> ⚠️ **Token expiry is the single most common cause of outages here.** Three
+> separate credentials expire on their own schedules and each fails in a way
+> that does not obviously point at a token:
+>
+> | Secret | Symptom when expired |
+> |--------|----------------------|
+> | `GHCR_TOKEN` | `ghcr-secret` starts returning `DENIED` for **every** image. Running pods survive on their cached images, so the first casualty is whichever pod happens to reschedule — it goes `ImagePullBackOff`, and if that is `currencyservice` the whole store returns **HTTP 500** (`could not retrieve currencies: no healthy upstream`). |
+> | `LINODE_PAT` | `aclp-collector` gets `401` and all Cloud Pulse metrics silently stop. |
+> | `SPIN_AKA_ACCESS_TOKEN` | Akamai Functions deploys fail. Capped at **90 days** by design — rotate with `spin aka auth token create --expiration-days 90`. |
 
 ---
 
@@ -436,7 +530,7 @@ kubectl set env deployment/frontend \
   ADMIN_USER=admin \            # Admin panel Basic Auth username
   ADMIN_PASSWORD='<your-password>' \  # Admin panel Basic Auth password
   ENABLE_ASSISTANT=true \       # Enable AI shopping assistant
-  IMAGE_BASE_URL=https://akamai-boutique-img.jp-osa-1.linodeobjects.com
+  IMAGE_BASE_URL=https://akamai-boutique-img.jp-tyo-1.linodeobjects.com
 ```
 
 ---
@@ -466,6 +560,34 @@ push to main
     └─► Deploy Spin Apps to Akamai Functions
            recommendation / product-intro / shopping-assistant
 ```
+
+### Which workflow targets which cluster
+
+| Workflow | Target |
+|----------|--------|
+| `deploy.yml` | Runs on push to `main`. The deploy job uses whatever kubeconfig is the self-hosted runner's default — historically the now-deleted Osaka cluster, so **verify what it points at before assuming a `main` push redeploys the live demo**. |
+| `deploy-tokyo.yml` | Fetches the Tokyo (`610031`) kubeconfig explicitly via the Linode API, so it is the reliable path regardless of the runner's default. |
+| `deploy-valkey-tokyo.yml` (on the `valkey` branch) | Creates the `valkey-credentials` / `valkey-ca-cert` Secrets, applies the Valkey manifests, pins the `valkey-*` image tags and verifies with a live order. |
+
+The dozens of other `fix-*` / `diag-*` / `chk-*` workflows are one-off
+operational scripts written to diagnose and repair specific past incidents.
+Read the workflow before running it — they are not general-purpose tooling.
+
+> ⚠️ **`deploy-tokyo.yml` rolls the cluster back to the Redis configuration.**
+> It applies `main`'s manifests and `:latest` images, which on a Valkey-backed
+> cluster means: image tags revert from `valkey-*` to `:latest`, `REDIS_ADDR`
+> reverts to `redis-cart:6379`, the deleted `redis-cart` Deployment comes back,
+> and `/ranking` starts returning 404. If you run it (for example to recover
+> from a `GHCR_TOKEN` rotation), **immediately re-apply the Valkey manifests and
+> re-pin the `valkey-*` image tags afterwards** — `kubectl apply` alone will not
+> restore the tags, because the `image:` fields in the manifests are
+> placeholders.
+
+> **Feature-branch workflows are not dispatchable until they also exist on
+> `main`.** GitHub only registers workflows it can see on the default branch, so
+> `gh workflow run … --ref <branch>` returns 404 for a workflow that lives only
+> on a feature branch. The pattern used here: temporarily commit the workflow to
+> `main`, dispatch it with `--ref <branch>`, then remove it from `main`.
 
 ---
 
@@ -502,19 +624,28 @@ and line-items resolved from `orders` / `order_items`.
 ├── .github/workflows/
 │   └── deploy.yml                    # CI/CD pipeline definition
 ├── kubernetes-manifests/
-│   ├── frontend.yaml                 # incl. ORDER_DB_DSN, IMAGE_BASE_URL envs
+│   ├── frontend.yaml                 # incl. ORDER_DB_DSN, REDIS_URL, IMAGE_BASE_URL
 │   ├── productcatalogservice.yaml    # MongoDB-backed
-│   ├── checkoutservice.yaml          # PG-backed orders
+│   ├── checkoutservice.yaml          # PG-backed orders + Valkey ranking
+│   ├── cartservice.yaml              # Valkey-backed carts (no redis-cart on `valkey`)
 │   ├── mongodb.yaml                  # StatefulSet + PVC + Secret
 │   ├── orders-schema.sql             # PG schema (applied by Job)
 │   ├── orders-migrate-job.yaml       # One-shot psql migrator
-│   ├── loadgenerator.yaml            # Overlay with custom locustfile
+│   ├── k6.yaml                       # Continuous load generator
+│   ├── loadgenerator.yaml            # Locust overlay (kept, currently idle)
+│   ├── hpa.yaml                      # Horizontal Pod Autoscalers
+│   ├── chaos/                        # Chaos Mesh experiments + chaos-button
+│   ├── istio/                        # mTLS + canary (ambient mesh)
 │   └── monitoring/
 │       ├── prometheus.yaml
 │       ├── grafana.yaml
-│       ├── grafana-dashboards.yaml   # Operations + Infrastructure & LLM
-│       ├── aclp-collector.yaml       # Akamai Cloud Pulse → Prometheus
+│       ├── grafana-dashboards.yaml   # Home + Operations + Infra & LLM + Service Graph
+│       ├── aclp-collector.yaml       # Akamai Cloud Pulse → Prometheus (PG + Valkey)
+│       ├── aclp-collector-healer*.yaml # CronJob that restarts the collector when it stalls
 │       ├── postgres-exporter.yaml    # Orders KPI queries → Prometheus gauges
+│       ├── kiali.yaml                # Istio ambient topology UI
+│       ├── vizceral.yaml / promviz.yaml  # Traffic maps (fed from Tempo service graphs)
+│       ├── tempo.yaml / loki.yaml / promtail.yaml
 │       ├── otel-collector.yaml
 │       └── redis-exporter.yaml
 ├── scripts/
@@ -524,16 +655,21 @@ and line-items resolved from `orders` / `order_items`.
 │   ├── frontend/                     # ★ Primary modified service (Go)
 │   │   ├── handlers.go               # Routing, business logic, admin API
 │   │   ├── orders_db.go              # PG read for /orders & /admin/orders
+│   │   ├── ranking.go                # Valkey ZREVRANGE reader for the ranking
 │   │   ├── translations.go           # ja / ko / zh translations
 │   │   ├── main.go                   # Server startup & route definitions
 │   │   ├── templates/
 │   │   │   ├── header.html           # Akamai logo, lang/currency toggle, /orders icon
+│   │   │   ├── home.html             # Hot Products + Best Sellers sidebar
 │   │   │   ├── product.html          # AI intro & AI recommendations
+│   │   │   ├── ranking.html          # /ranking best-seller page
 │   │   │   ├── orders.html           # Order history page (used by both views)
 │   │   │   └── inventory.html        # Admin product management UI
 │   │   └── static/img/products/      # Source images (mirrored to Object Storage)
+│   ├── cartservice/                  # C#; Valkey connection + TLS in Startup.cs
 │   ├── checkoutservice/
-│   │   └── orders_db.go              # PG write of placed orders
+│   │   ├── orders_db.go              # PG write of placed orders
+│   │   └── ranking.go                # Valkey ZINCRBY on each placed order
 │   ├── productcatalogservice/
 │   │   ├── catalog_loader_mongo.go   # MongoDB loader & seeder
 │   │   └── products.json             # Seed data
@@ -560,10 +696,17 @@ This project is derived from [GoogleCloudPlatform/microservices-demo](https://gi
 - Product catalog migrated to MongoDB (in-cluster StatefulSet, auto-seeded)
 - Order persistence to Linode Managed PostgreSQL with `/orders` &
   `/admin/orders` pages
+- Cart store migrated from in-cluster Redis to **Akamai Managed Valkey** over
+  TLS (`valkey` branch)
+- **Live best-seller ranking** built on a Valkey Sorted Set — `ZINCRBY` on
+  checkout, `ZREVRANGE` on render, shown on the home page and `/ranking`
 - Product images served from Linode Object Storage
 - In-cluster Prometheus / Loki / Tempo / Grafana stack
-- Akamai Cloud Pulse integration via `aclp-collector` for DBaaS &
-  NodeBalancer metrics
+- Istio **ambient** mesh + Kiali, plus Vizceral / promviz traffic maps
+- Chaos Mesh fault injection with an in-cluster trigger button
+- k6 continuous load generation
+- Akamai Cloud Pulse integration via `aclp-collector` for DBaaS (PostgreSQL +
+  Valkey) & NodeBalancer metrics
 - `postgres_exporter` with custom SQL queries for real-time business KPIs
   (yesterday's and today's order count & revenue) surfaced in Grafana
 - LLM server instrumented with HTTP + token / latency Prometheus metrics
