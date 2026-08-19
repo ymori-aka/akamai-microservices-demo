@@ -1,4 +1,4 @@
-name: CHK - Apply prometheus-rules to Tokyo (Osaka cleanup)
+name: CHK - Locate remaining Osaka refs in Tokyo cluster
 
 on:
   workflow_dispatch:
@@ -9,12 +9,9 @@ on:
         default: "610031"
 
 jobs:
-  apply:
+  chk:
     runs-on: self-hosted
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Fetch Tokyo kubeconfig
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
@@ -27,18 +24,18 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
-      - name: Apply prometheus-rules (alert now targets 481207, not deleted 470692)
-        run: |
-          set -e
-          kubectl apply -f kubernetes-manifests/monitoring/prometheus-rules.yaml
-          kubectl -n monitoring rollout restart deployment/prometheus || true
-          kubectl -n monitoring rollout status deployment/prometheus --timeout=180s || true
-
-      - name: Verify no rule still references the Osaka DB
+      - name: Which ConfigMaps still contain 470692 / Osaka NB ids?
         run: |
           set +e
-          echo "===== 470692 references left in the live rules ConfigMap ====="
-          kubectl -n monitoring get cm -o yaml 2>/dev/null | grep -c "470692"
-          echo "(0 = clean)"
-          echo "===== aclp-collector entity_ids now in cluster ====="
-          kubectl -n monitoring get cm -o yaml 2>/dev/null | grep -oE "entity_ids: \[[0-9, ]+\]" | sort -u
+          echo "===== ConfigMaps containing 470692 ====="
+          for ns in monitoring default; do
+            for cm in $(kubectl -n $ns get cm -o name 2>/dev/null); do
+              n=$(kubectl -n $ns get $cm -o yaml 2>/dev/null | grep -c "470692")
+              [ "$n" != "0" ] && echo "  $ns/$cm : $n hit(s)"
+            done
+          done
+          echo "===== CronJobs (healer) and their watched entity ====="
+          kubectl -n monitoring get cronjob -o yaml 2>/dev/null | grep -oE 'entity_id=\\?"[0-9]+' | sort | uniq -c
+          kubectl -n monitoring get cronjob 2>/dev/null
+          echo "===== nodebalancer entity_ids in the live aclp config ====="
+          kubectl -n monitoring get cm -o yaml 2>/dev/null | grep -B3 -A1 "2154313\|2001057" | head -20
