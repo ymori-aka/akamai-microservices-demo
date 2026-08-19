@@ -1,4 +1,4 @@
-name: CHK - Osaka dependencies (read-only)
+name: CHK - Apply prometheus-rules to Tokyo (Osaka cleanup)
 
 on:
   workflow_dispatch:
@@ -9,9 +9,12 @@ on:
         default: "610031"
 
 jobs:
-  chk:
+  apply:
     runs-on: self-hosted
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Fetch Tokyo kubeconfig
         env:
           LINODE_PAT: ${{ secrets.LINODE_PAT }}
@@ -24,39 +27,18 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
-      - name: Which Postgres does the live app use?
+      - name: Apply prometheus-rules (alert now targets 481207, not deleted 470692)
         run: |
-          set +e
-          echo "===== orders-db-credentials secret (host only, password masked) ====="
-          kubectl get secret orders-db-credentials -o jsonpath='{.data.DSN}' 2>/dev/null \
-            | base64 -d 2>/dev/null \
-            | sed -E 's#//([^:]+):[^@]+@#//\1:***@#'
-          echo
-          echo "===== ORDER_DB_DSN on checkoutservice / frontend ====="
-          for d in checkoutservice frontend; do
-            echo "--- $d ---"
-            kubectl set env deployment/$d --list 2>/dev/null \
-              | grep -iE "ORDER_DB|DSN" | sed -E 's#//([^:]+):[^@]+@#//\1:***@#'
-          done
-          echo "===== postgres-exporter DSN host ====="
-          kubectl -n monitoring set env deployment/postgres-exporter --list 2>/dev/null \
-            | grep -iE "DATA_SOURCE|DSN" | sed -E 's#//([^:]+):[^@]+@#//\1:***@#'
+          set -e
+          kubectl apply -f kubernetes-manifests/monitoring/prometheus-rules.yaml
+          kubectl -n monitoring rollout restart deployment/prometheus || true
+          kubectl -n monitoring rollout status deployment/prometheus --timeout=180s || true
 
-      - name: Anything in the cluster still pointing at Osaka (172.233.x / jp-osa / a470692)?
+      - name: Verify no rule still references the Osaka DB
         run: |
           set +e
-          echo "===== Osaka refs in all Deployment/DaemonSet/StatefulSet specs ====="
-          kubectl get deploy,ds,sts -A -o json 2>/dev/null \
-            | grep -oE "172\.233\.[0-9]+\.[0-9]+|jp-osa[a-z0-9-]*|a470692[a-z0-9-]*" \
-            | sort | uniq -c | sort -rn
-          echo "(empty above = no Osaka references)"
-          echo "===== Osaka refs in ConfigMaps ====="
-          kubectl get cm -A -o json 2>/dev/null \
-            | grep -oE "172\.233\.[0-9]+\.[0-9]+|jp-osa[a-z0-9-]*|470692" \
-            | sort | uniq -c | sort -rn
-          echo "(empty above = no Osaka references)"
-
-      - name: IMAGE_BASE_URL actually in use
-        run: |
-          set +e
-          kubectl set env deployment/frontend --list 2>/dev/null | grep -i IMAGE_BASE_URL
+          echo "===== 470692 references left in the live rules ConfigMap ====="
+          kubectl -n monitoring get cm -o yaml 2>/dev/null | grep -c "470692"
+          echo "(0 = clean)"
+          echo "===== aclp-collector entity_ids now in cluster ====="
+          kubectl -n monitoring get cm -o yaml 2>/dev/null | grep -oE "entity_ids: \[[0-9, ]+\]" | sort -u
