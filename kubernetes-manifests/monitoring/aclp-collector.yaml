@@ -57,10 +57,21 @@ data:
               - write_iops
 
           - service_type: nodebalancer
-            # NLBs: jp-osa: 2154313, 2170616, 2187125; jp-tyo-3: 2154174;
-            # standalone WP-OSA1: 2001057.
+            # NodeBalancers of the live demo cluster (610031, jp-tyo-3):
+            #   2238083 = 172.237.1.139 — storefront (tserof.net / aka-store)
+            #   2238107 = 172.237.3.209 — Grafana (grafana.tserof.net)
+            # These two carry the traffic worth charting; the cluster's other
+            # NBs (otel-collector-public, vizceral, promviz, kiali …) are
+            # internal tooling and are intentionally left out.
+            #
+            # Replaced 2026-08-19: the previous list
+            # [2001057, 2154174, 2154313, 2170616, 2187125] was entirely stale —
+            # 2154313/2170616/2187125 were the deleted Osaka LKE NBs, 2001057 is
+            # the unrelated WP-OSA1, and 2154174 belongs to the old 597999
+            # cluster. None of them pointed at this demo.
+            #
             # All traffic-rate metrics only support agg_function=sum.
-            entity_ids: [2001057, 2154174, 2154313, 2170616, 2187125]
+            entity_ids: [2238083, 2238107]
             agg_function: sum
             metric_names:
               - nb_ingress_traffic_rate
