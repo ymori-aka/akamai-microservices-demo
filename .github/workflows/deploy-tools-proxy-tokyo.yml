@@ -1,0 +1,100 @@
+name: Deploy tools-proxy / NodeBalancer consolidation (Tokyo)
+
+# Phased, reversible. Run `test` first — it deploys the proxy as ClusterIP and
+# smoke-tests every route from inside the cluster WITHOUT touching any live
+# Service, so a broken tool route cannot affect grafana.tserof.net.
+#
+#   test     : deploy tools-proxy + curl every path in-cluster (no live change)
+#   cutover  : repoint monitoring/grafana Service at tools-proxy (live change)
+#   rollback : point monitoring/grafana Service back at Grafana directly
+#   shrink   : flip the now-proxied Services from LoadBalancer to ClusterIP
+#              (this is what actually releases the NodeBalancers)
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "test | cutover | rollback | shrink"
+        required: true
+        default: "test"
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  run:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: Deploy tools-proxy (ClusterIP — no public exposure yet)
+        if: inputs.phase == 'test'
+        run: |
+          set -e
+          kubectl apply -f kubernetes-manifests/monitoring/tools-proxy.yaml
+          kubectl -n monitoring rollout status deployment/tools-proxy --timeout=180s
+
+      - name: Smoke-test every route from inside the cluster
+        if: inputs.phase == 'test'
+        run: |
+          set +e
+          echo "path -> HTTP status (200/302 = OK, 404/502 = そのツールは要調整)"
+          kubectl -n monitoring run tp-probe-$RANDOM --rm -i --restart=Never --quiet \
+            --image=curlimages/curl:8.10.1 --command -- sh -c '
+              for p in /_proxy_healthz / /kiali/ /vizceral/ /promviz/ /chaos/ /chaos-btn/; do
+                code=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "http://tools-proxy.monitoring.svc.cluster.local:8080$p")
+                printf "  %-16s %s\n" "$p" "$code"
+              done'
+
+      - name: CUTOVER — repoint monitoring/grafana Service at tools-proxy
+        if: inputs.phase == 'cutover'
+        run: |
+          set -e
+          echo "現在の selector / targetPort を退避:"
+          kubectl -n monitoring get svc grafana -o jsonpath='{.spec.selector}{"\n"}'
+          kubectl -n monitoring patch svc grafana --type merge -p '{"spec":{"selector":{"app":"tools-proxy"},"ports":[{"name":"http","port":3000,"targetPort":8080},{"name":"https","port":443,"targetPort":8080}]}}'
+          echo "patched. 新しい selector:"
+          kubectl -n monitoring get svc grafana -o jsonpath='{.spec.selector}{"\n"}'
+
+      - name: ROLLBACK — point monitoring/grafana Service back at Grafana
+        if: inputs.phase == 'rollback'
+        run: |
+          set -e
+          kubectl -n monitoring patch svc grafana --type merge -p '{"spec":{"selector":{"app":"grafana"},"ports":[{"name":"http","port":3000,"targetPort":3000},{"name":"https","port":443,"targetPort":3000}]}}'
+          echo "rolled back. selector:"
+          kubectl -n monitoring get svc grafana -o jsonpath='{.spec.selector}{"\n"}'
+
+      - name: SHRINK — release NodeBalancers (LoadBalancer -> ClusterIP)
+        if: inputs.phase == 'shrink'
+        run: |
+          set -e
+          kubectl -n istio-system patch svc kiali          -p '{"spec":{"type":"ClusterIP"}}'
+          kubectl -n monitoring   patch svc vizceral       -p '{"spec":{"type":"ClusterIP"}}'
+          kubectl -n monitoring   patch svc promviz-front  -p '{"spec":{"type":"ClusterIP"}}'
+          kubectl -n monitoring   patch svc promviz        -p '{"spec":{"type":"ClusterIP"}}'
+          kubectl -n chaos-mesh   patch svc chaos-dashboard -p '{"spec":{"type":"ClusterIP"}}'
+          kubectl -n default      patch svc chaos-button    -p '{"spec":{"type":"ClusterIP"}}'
+          echo "残る LoadBalancer Service:"
+          kubectl get svc -A --field-selector spec.type=LoadBalancer
+
+      - name: State after this phase
+        run: |
+          set +e
+          echo "===== LoadBalancer Services (= NodeBalancer 課金対象) ====="
+          kubectl get svc -A --field-selector spec.type=LoadBalancer -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,IP:.status.loadBalancer.ingress[0].ip' 2>/dev/null
+          echo "===== grafana Service の向き先 ====="
+          kubectl -n monitoring get svc grafana -o jsonpath='{.spec.selector}{"  ports="}{.spec.ports}{"\n"}'
