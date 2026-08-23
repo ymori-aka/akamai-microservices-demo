@@ -24,33 +24,28 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
-      - name: All LoadBalancer Services (one NodeBalancer each = $10/mo each)
+      - name: All LoadBalancer Services (one NodeBalancer each = $10/mo)
         run: |
           set +e
-          echo "NAMESPACE/SERVICE                          EXTERNAL-IP        PORTS"
-          kubectl get svc -A -o json 2>/dev/null | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-n=0
-for s in d.get('items',[]):
-    if s.get('spec',{}).get('type')!='LoadBalancer': continue
-    n+=1
-    ns=s['metadata']['namespace']; nm=s['metadata']['name']
-    ing=(s.get('status',{}).get('loadBalancer',{}) or {}).get('ingress') or [{}]
-    ip=ing[0].get('ip','<pending>')
-    ports=','.join(str(p.get('port')) for p in s['spec'].get('ports',[]))
-    ann=s['metadata'].get('annotations',{}) or {}
-    tls=[k for k in ann if 'port-443' in k or 'tls' in k.lower()]
-    print(f\"{ns+'/'+nm:<42} {ip:<18} {ports}\" + ('   [TLS終端あり]' if tls else ''))
-print()
-print('LoadBalancer Service 合計:', n, '→ 月額 \$'+str(n*10))
-"
-      - name: Which are referenced externally (must keep a public IP)?
+          echo "===== LoadBalancer type Services ====="
+          kubectl get svc -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,TYPE:.spec.type,EXTERNAL-IP:.status.loadBalancer.ingress[0].ip,PORTS:.spec.ports[*].port' 2>/dev/null | grep -vE '^\S+\s+\S+\s+ClusterIP'
+          echo
+          echo "===== 台数 ====="
+          kubectl get svc -A --field-selector spec.type=LoadBalancer --no-headers 2>/dev/null | wc -l
+
+      - name: TLS / CCM annotations per LoadBalancer Service
         run: |
           set +e
-          echo "===== TLS/ドメインが向いている先 ====="
-          echo "  aka-store.tserof.net -> 172.237.1.139"
-          echo "  grafana.tserof.net   -> 172.237.3.209"
-          echo "  Spin functions OTel  -> 172.237.3.147:4319 (spin.toml allowlist に直書き)"
-          echo "===== 各Serviceのセレクタ/用途を判別 ====="
-          kubectl get svc -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,TYPE:.spec.type,IP:.status.loadBalancer.ingress[0].ip,SELECTOR:.spec.selector' 2>/dev/null | grep -v ClusterIP
+          for row in $(kubectl get svc -A --field-selector spec.type=LoadBalancer -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null); do
+            ns="${row%%/*}"; nm="${row##*/}"
+            ip=$(kubectl -n "$ns" get svc "$nm" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+            echo "--- $ns/$nm  ip=$ip ---"
+            kubectl -n "$ns" get svc "$nm" -o jsonpath='{.metadata.annotations}' 2>/dev/null | tr ',' '\n' | grep -iE 'linode|tls|443|protocol' | sed 's/^/    /'
+          done
+
+      - name: Reminder of externally-referenced IPs
+        run: |
+          echo "  aka-store.tserof.net / tserof.net / www -> 172.237.1.139  (TLS終端あり・維持必須)"
+          echo "  grafana.tserof.net                      -> 172.237.3.209  (TLS終端あり・維持必須)"
+          echo "  Spin functions (Akamai Functions) OTel  -> 172.237.3.147:4319"
+          echo "     ^ spin.toml の allowed_outbound_hosts に直書き。変更時は3関数の再デプロイが必要"
