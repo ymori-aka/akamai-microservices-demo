@@ -1,0 +1,52 @@
+name: CHK - why NodeBalancers are not released (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: Service types now
+        run: |
+          set +e
+          echo "===== 対象6つの現在のtype ====="
+          kubectl -n istio-system get svc kiali -o jsonpath='{.metadata.name}={.spec.type}{"\n"}'
+          for s in vizceral promviz-front promviz; do
+            kubectl -n monitoring get svc $s -o jsonpath='{.metadata.name}={.spec.type}{"\n"}'
+          done
+          kubectl -n chaos-mesh get svc chaos-dashboard -o jsonpath='{.metadata.name}={.spec.type}{"\n"}'
+          kubectl -n default get svc chaos-button -o jsonpath='{.metadata.name}={.spec.type}{"\n"}'
+          echo "===== まだ残るfinalizer / LB status ====="
+          for ns_s in istio-system/kiali monitoring/vizceral monitoring/promviz-front monitoring/promviz chaos-mesh/chaos-dashboard default/chaos-button; do
+            ns="${ns_s%%/*}"; s="${ns_s##*/}"
+            fin=$(kubectl -n "$ns" get svc "$s" -o jsonpath='{.metadata.finalizers}' 2>/dev/null)
+            lb=$(kubectl -n "$ns" get svc "$s" -o jsonpath='{.status.loadBalancer}' 2>/dev/null)
+            echo "  $ns_s finalizers=$fin lbstatus=$lb"
+          done
+
+      - name: CCM (linode-cloud-controller-manager) logs
+        run: |
+          set +e
+          POD=$(kubectl -n kube-system get pod -l app.kubernetes.io/name=linode-cloud-controller-manager -o name 2>/dev/null | head -1)
+          [ -z "$POD" ] && POD=$(kubectl -n kube-system get pod 2>/dev/null | grep -i ccm | awk '{print "pod/"$1}' | head -1)
+          [ -z "$POD" ] && POD=$(kubectl -n kube-system get pod 2>/dev/null | grep -i cloud-controller | awk '{print "pod/"$1}' | head -1)
+          echo "ccm pod: $POD"
+          [ -n "$POD" ] && kubectl -n kube-system logs "$POD" --tail=60 2>&1 | grep -iE "nodebalancer|delete|error|kiali|vizceral|promviz|chaos" | tail -25
