@@ -23,6 +23,23 @@
 #
 # Uses nginx-unprivileged (listens on 8080 as a non-root user) so the pod
 # satisfies the `restricted` Pod Security Standard.
+# Internal-only Service that reaches the Grafana pods directly.
+# Required because the public `grafana` Service is repointed at this proxy;
+# without a separate backend Service the proxy would forward to itself.
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-backend
+  namespace: monitoring
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -50,8 +67,11 @@ data:
       }
 
       # ---- Grafana keeps the root path: behaviour is unchanged ----
+      # NOTE: this MUST target grafana-backend, not the `grafana` Service.
+      # The `grafana` Service is the public LoadBalancer whose selector now
+      # points at this proxy — routing through it would loop back here.
       location / {
-        proxy_pass http://grafana.monitoring.svc.cluster.local:3000;
+        proxy_pass http://grafana-backend.monitoring.svc.cluster.local:3000;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;

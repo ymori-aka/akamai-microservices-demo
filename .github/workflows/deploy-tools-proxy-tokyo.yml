@@ -41,11 +41,13 @@ jobs:
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
 
-      - name: Deploy tools-proxy (ClusterIP — no public exposure yet)
-        if: inputs.phase == 'test'
+      - name: Deploy / update tools-proxy
+        if: inputs.phase == 'test' || inputs.phase == 'apply'
         run: |
           set -e
           kubectl apply -f kubernetes-manifests/monitoring/tools-proxy.yaml
+          # ConfigMap changes need a restart to be picked up by nginx.
+          kubectl -n monitoring rollout restart deployment/tools-proxy
           kubectl -n monitoring rollout status deployment/tools-proxy --timeout=180s
 
       - name: Smoke-test every route from inside the cluster
