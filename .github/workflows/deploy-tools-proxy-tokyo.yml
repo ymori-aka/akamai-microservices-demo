@@ -53,12 +53,15 @@ jobs:
         run: |
           set +e
           echo "path -> HTTP status (200/302 = OK, 404/502 = そのツールは要調整)"
-          kubectl -n monitoring run tp-probe-$RANDOM --rm -i --restart=Never --quiet \
-            --image=curlimages/curl:8.10.1 --command -- sh -c '
-              for p in /_proxy_healthz / /kiali/ /vizceral/ /promviz/ /chaos/ /chaos-btn/; do
-                code=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "http://tools-proxy.monitoring.svc.cluster.local:8080$p")
-                printf "  %-16s %s\n" "$p" "$code"
-              done'
+          # One probe pod per path: `kubectl run -i` truncates a multi-line
+          # stream, so each path is fetched in its own short-lived pod.
+          for p in /_proxy_healthz / /kiali/ /vizceral/ /promviz/ /chaos/ /chaos-btn/; do
+            code=$(kubectl -n monitoring run tp-probe-$RANDOM --rm -i --restart=Never --quiet \
+              --image=curlimages/curl:8.10.1 --command -- \
+              curl -s -o /dev/null -w '%{http_code}' -m 10 \
+              "http://tools-proxy.monitoring.svc.cluster.local:8080$p" 2>/dev/null | tr -dc '0-9')
+            printf "  %-18s %s\n" "$p" "${code:-ERR}"
+          done
 
       - name: CUTOVER — repoint monitoring/grafana Service at tools-proxy
         if: inputs.phase == 'cutover'
