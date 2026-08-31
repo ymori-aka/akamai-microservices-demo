@@ -534,7 +534,11 @@ func (fe *frontendServer) getProductByID(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Return a JSON-friendly struct including Japanese translations
+	// Return a JSON-friendly struct including translations. The ja/ko/zh
+	// maps (translations.go) already cover all products — this endpoint
+	// just wasn't reading ko/zh yet, so the assistant widget's product
+	// cards (assistant.html, which looks for name_ko/name_zh etc.) fell
+	// back to English for those two languages.
 	type priceJSON struct {
 		CurrencyCode string `json:"currency_code"`
 		Units        int64  `json:"units"`
@@ -544,25 +548,42 @@ func (fe *frontendServer) getProductByID(w http.ResponseWriter, r *http.Request)
 		ID            string    `json:"id"`
 		Name          string    `json:"name"`
 		NameJa        string    `json:"name_ja,omitempty"`
+		NameKo        string    `json:"name_ko,omitempty"`
+		NameZh        string    `json:"name_zh,omitempty"`
 		Description   string    `json:"description"`
 		DescriptionJa string    `json:"description_ja,omitempty"`
+		DescriptionKo string    `json:"description_ko,omitempty"`
+		DescriptionZh string    `json:"description_zh,omitempty"`
 		Picture       string    `json:"picture"`
 		PriceUSD      priceJSON `json:"price_usd"`
 	}
 
-	nameJa := ""
-	descJa := ""
+	nameJa, descJa := "", ""
 	if t, ok := jaTranslations[id]; ok {
 		nameJa = t.Name
 		descJa = t.Description
+	}
+	nameKo, descKo := "", ""
+	if t, ok := koTranslations[id]; ok {
+		nameKo = t.Name
+		descKo = t.Description
+	}
+	nameZh, descZh := "", ""
+	if t, ok := zhTranslations[id]; ok {
+		nameZh = t.Name
+		descZh = t.Description
 	}
 
 	out := productJSON{
 		ID:            p.GetId(),
 		Name:          p.GetName(),
 		NameJa:        nameJa,
+		NameKo:        nameKo,
+		NameZh:        nameZh,
 		Description:   p.GetDescription(),
 		DescriptionJa: descJa,
+		DescriptionKo: descKo,
+		DescriptionZh: descZh,
 		Picture:       p.GetPicture(),
 		PriceUSD: priceJSON{
 			CurrencyCode: p.GetPriceUsd().GetCurrencyCode(),
