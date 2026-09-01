@@ -37,7 +37,14 @@ dblessConfig:
   # Spin/Zuplo path uses). The ai-proxy plugin makes the route speak the OpenAI
   # chat API and forwards to the upstream. provider=openai + upstream_url lets us
   # point at a self-hosted OpenAI-compatible endpoint instead of api.openai.com.
-  # No auth block: the llama.cpp server requires no API key.
+  #
+  # ⚠️ STALE / BROKEN: there is no auth block below, but the Gemma server now
+  # runs with --api_key and answers 401 to unauthenticated requests. This route
+  # therefore fails. Kong is not in the live request path (ClusterIP only; the
+  # AI chat goes Akamai Functions -> Zuplo -> LLM), so this is parked rather
+  # than fixed. To revive it, add an ai-proxy `auth` block that pulls the key
+  # from a Kubernetes Secret via a Kong vault reference — do NOT inline the key
+  # here, this repository is public.
   config: |
     _format_version: "3.0"
     services:

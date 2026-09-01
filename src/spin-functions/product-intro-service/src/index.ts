@@ -47,6 +47,12 @@ const PRODUCTS: Product[] = [
 
 const LLM_ENDPOINT = "http://172.238.48.187:8000";
 
+// Injected at build time by the deploy workflow, which substitutes the
+// __GEMMA_API_KEY__ placeholder from the GEMMA_API_KEY GitHub Secret.
+// The Gemma server runs with --api_key, so requests without this header get
+// a 401 and generateIntro() silently falls back to the English description.
+const GEMMA_API_KEY = "__GEMMA_API_KEY__";
+
 // ---- LLM call ----
 async function generateIntro(product: Product, lang: string, tracer?: Tracer): Promise<string> {
   let prompt: string;
@@ -92,7 +98,10 @@ Description: ${product.description}`;
   const callLLM = async (llmSpan?: { setAttr: (k: string, v: any) => void }) => {
     const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GEMMA_API_KEY}`,
+      },
       body: JSON.stringify({
         model: MODEL,
         messages: [{ role: "user", content: prompt }],

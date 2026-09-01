@@ -44,7 +44,12 @@ jobs:
         env:
           OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
           OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+          GEMMA_API_KEY: ${{ secrets.GEMMA_API_KEY }}
         run: |
+          if [ -z "${GEMMA_API_KEY}" ]; then
+            echo "ERROR: GEMMA_API_KEY GitHub Secret not set"; exit 1
+          fi
+          sed -i "s|__GEMMA_API_KEY__|${GEMMA_API_KEY}|g" src/index.ts
           sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
           sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
           sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
@@ -59,7 +64,12 @@ jobs:
         env:
           OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
           OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+          GEMMA_API_KEY: ${{ secrets.GEMMA_API_KEY }}
         run: |
+          if [ -z "${GEMMA_API_KEY}" ]; then
+            echo "ERROR: GEMMA_API_KEY GitHub Secret not set"; exit 1
+          fi
+          sed -i "s|__GEMMA_API_KEY__|${GEMMA_API_KEY}|g" src/index.ts
           sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
           sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
           sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
