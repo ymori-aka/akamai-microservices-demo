@@ -80,6 +80,20 @@ rules:
       - requestauthentications
     verbs: [get, list, watch, create, update, patch, delete]
 
+  # ── Gateway API (required by ambient mesh) ───────────────────────────────
+  # The ambient waypoint is a Gateway API `Gateway`, so Kiali watches these to
+  # build the topology graph. Without them it crash-loops on startup with
+  # "gateways.gateway.networking.k8s.io is forbidden" — the reflector fails,
+  # the readiness probe never passes, and the pod restarts forever.
+  - apiGroups: [gateway.networking.k8s.io]
+    resources:
+      - gateways
+      - gatewayclasses
+      - httproutes
+      - grpcroutes
+      - referencegrants
+    verbs: [get, list, watch]
+
   # ── Istio telemetry / extensions CRDs ────────────────────────────────────
   - apiGroups: [telemetry.istio.io]
     resources: [telemetries]

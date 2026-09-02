@@ -230,7 +230,17 @@ jobs:
       contents: read
       packages: read
     env:
-      ORDER_DB_DSN: ${{ secrets.ORDER_DB_DSN }}
+      # ORDER_DB_DSN_TYO, not ORDER_DB_DSN. The latter points at the Osaka
+      # Managed PostgreSQL (id 470692), which was deleted on 2026-08-25 when
+      # the Osaka region was decommissioned — its hostname no longer resolves.
+      #
+      # checkoutservice only probes the database once at startup and disables
+      # order persistence for the rest of the pod's life if that probe fails,
+      # while still returning HTTP 200. So pointing this at a dead host does
+      # not break checkout visibly; orders just silently stop being written and
+      # the Business KPI panels go to zero. postgres-exporter fails louder
+      # (CrashLoop) but is easy to dismiss as a monitoring-only problem.
+      ORDER_DB_DSN: ${{ secrets.ORDER_DB_DSN_TYO }}
 
     steps:
       - name: Checkout repository
