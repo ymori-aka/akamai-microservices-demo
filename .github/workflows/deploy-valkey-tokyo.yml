@@ -45,18 +45,25 @@ jobs:
             | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
           export KUBECONFIG="$KC"
 
+          # Both namespaces: `default` for cartservice/frontend/checkoutservice,
+          # `monitoring` for redis-exporter, which scrapes the same Valkey now
+          # that the in-cluster redis-cart Deployment is gone.
           echo "===== create/update valkey-credentials Secret (REDIS_ADDR + REDIS_URL) ====="
-          kubectl create secret generic valkey-credentials \
-            --from-literal=REDIS_ADDR="$VALKEY_ADDR" \
-            --from-literal=REDIS_URL="$VALKEY_URL" \
-            --dry-run=client -o yaml | kubectl apply -f -
+          for ns in default monitoring; do
+            kubectl create secret generic valkey-credentials \
+              --from-literal=REDIS_ADDR="$VALKEY_ADDR" \
+              --from-literal=REDIS_URL="$VALKEY_URL" \
+              --dry-run=client -o yaml | kubectl apply -n "$ns" -f -
+          done
 
           echo "===== create/update valkey-ca-cert Secret ====="
           CA_FILE="${RUNNER_TEMP:-/tmp}/valkey-ca.pem"
           printf '%s' "$VALKEY_CA_CERT" > "$CA_FILE"
-          kubectl create secret generic valkey-ca-cert \
-            --from-file=ca.pem="$CA_FILE" \
-            --dry-run=client -o yaml | kubectl apply -f -
+          for ns in default monitoring; do
+            kubectl create secret generic valkey-ca-cert \
+              --from-file=ca.pem="$CA_FILE" \
+              --dry-run=client -o yaml | kubectl apply -n "$ns" -f -
+          done
           rm -f "$CA_FILE"
 
           echo "===== apply manifests ====="
