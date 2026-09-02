@@ -21,8 +21,23 @@ spec:
         - name: redis-exporter
           image: oliver006/redis_exporter:v1.61.0
           env:
+            # Akamai Managed Valkey, not an in-cluster redis-cart Deployment.
+            # redis-cart was removed when cart storage moved to Valkey, so the
+            # old redis://redis-cart.default.svc.cluster.local:6379 target no
+            # longer resolves and this exporter crash-looped.
+            #
+            # REDIS_URL is the rediss:// form (TLS + credentials inline) from
+            # the valkey-credentials Secret, which deploy-valkey-tokyo.yml
+            # creates in both `default` and `monitoring`.
             - name: REDIS_ADDR
-              value: "redis://redis-cart.default.svc.cluster.local:6379"
+              valueFrom:
+                secretKeyRef:
+                  name: valkey-credentials
+                  key: REDIS_URL
+            # Aiven serves a Let's Encrypt chain, so the system trust store is
+            # enough — no custom CA needed here.
+            - name: REDIS_EXPORTER_SKIP_TLS_VERIFICATION
+              value: "false"
           ports:
             - name: metrics
               containerPort: 9121
