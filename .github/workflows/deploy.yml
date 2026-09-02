@@ -236,6 +236,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Without this, kubectl on the self-hosted runner falls back to its
+      # default context, which points at the decommissioned Osaka cluster
+      # (DNS for *.jp-osa-1-gw.linodelke.net no longer resolves). Every
+      # kubectl step in this job was silently failing as a result — builds
+      # succeeded, nothing ever reached the Tokyo cluster.
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo-deploy.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
       - name: Create ghcr.io imagePullSecret
         continue-on-error: true
         run: |
