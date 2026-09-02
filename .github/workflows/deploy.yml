@@ -278,46 +278,43 @@ jobs:
           # monitoring stack step).
           kubectl apply -f kubernetes-manifests/namespaces.yaml
 
-      - name: Install Istio service mesh (idempotent)
+      # NOTE: this workflow deliberately does NOT install or configure Istio.
+      #
+      # The mesh is ambient (sidecarless) and is owned entirely by
+      # deploy-istio-ambient.yml, which installs istio-base / istiod / istio-cni
+      # / ztunnel via Helm with `profile=ambient` and enrolls the namespace with
+      # `istio.io/dataplane-mode=ambient`.
+      #
+      # This step used to run `istioctl install --set profile=minimal` and
+      # `kubectl label namespace default istio-injection=enabled` on every push,
+      # which are both leftovers from the pre-ambient sidecar setup. They caused
+      # two production outages' worth of damage:
+      #
+      #  1. `profile=minimal` reinstalled istiod without the ambient
+      #     configuration, clobbering what deploy-istio-ambient.yml had set up.
+      #     Because this workflow runs on every push and the ambient one is
+      #     manual, the mesh config kept silently reverting.
+      #
+      #  2. `istio-injection=enabled` conflicts with the ambient label already
+      #     on the namespace. The sidecar injector then tried to add an
+      #     `istio-init` container with NET_ADMIN/NET_RAW to every new pod,
+      #     which the namespace's `pod-security.kubernetes.io/enforce: baseline`
+      #     rejects — blocking *all* pod creation in `default`, so no Deployment
+      #     could ever roll out again.
+      #
+      # If Istio needs installing or upgrading, run deploy-istio-ambient.yml.
+      - name: Verify Istio ambient mesh is present (read-only)
         continue-on-error: true
         run: |
-          ISTIO_VERSION="1.22.3"
-          ISTIOCTL="/tmp/bin/istioctl"
-          mkdir -p "/tmp/bin"
-
-          # Download istioctl only when the cached binary is missing or stale.
-          if ! "${ISTIOCTL}" version --remote=false 2>/dev/null | grep -q "${ISTIO_VERSION}"; then
-            echo "Downloading istioctl ${ISTIO_VERSION}..."
-            curl -L https://istio.io/downloadIstio \
-              | ISTIO_VERSION=${ISTIO_VERSION} TARGET_ARCH=x86_64 sh - 2>&1
-            mv "istio-${ISTIO_VERSION}/bin/istioctl" "${ISTIOCTL}"
-            rm -rf "istio-${ISTIO_VERSION}"
+          echo "=== istio-system pods ==="
+          kubectl -n istio-system get pods -o wide || true
+          echo "=== namespace labels (expect dataplane-mode=ambient, NO istio-injection) ==="
+          kubectl get ns default -o jsonpath='{.metadata.labels}'; echo
+          if kubectl get ns default -o jsonpath='{.metadata.labels}' | grep -q '"istio-injection"'; then
+            echo "WARNING: 'istio-injection' label is present alongside ambient mode."
+            echo "         This blocks pod creation under PodSecurity baseline."
+            echo "         Remove it with: kubectl label namespace default istio-injection-"
           fi
-
-          # Clean up any stale/broken Validating + MutatingWebhookConfiguration
-          # from a previous failed install. istioctl's server-side apply fails
-          # if one exists with an invalid clientConfig (LKE has hit this).
-          kubectl delete validatingwebhookconfiguration istio-validator-istio-system --ignore-not-found
-          kubectl delete validatingwebhookconfiguration istiod-default-validator --ignore-not-found
-          kubectl delete mutatingwebhookconfiguration istio-sidecar-injector --ignore-not-found
-          kubectl delete mutatingwebhookconfiguration istio-revision-tag-default --ignore-not-found
-
-          # Install / upgrade Istio — minimal profile = istiod only.
-          # We don't use the Istio ingress gateway; traffic enters via the
-          # existing Kubernetes LoadBalancer on the frontend service.
-          "${ISTIOCTL}" install --set profile=minimal -y
-
-          # Verify istiod actually came up; warn (don't fail) if not.
-          kubectl -n istio-system rollout status deployment/istiod --timeout=180s || \
-            echo "WARNING: istiod rollout did not complete in 180s"
-          kubectl -n istio-system get pods -l app=istiod -o wide || true
-
-          # Enable automatic Envoy sidecar injection in the app namespace.
-          # Note: redis-cart and mongodb have sidecar.istio.io/inject: "false"
-          # in their pod template annotations because LKE's managed API server
-          # cannot reach the admission webhook (ClusterIP unreachable). Those
-          # workloads are re-applied from YAML in subsequent steps instead.
-          kubectl label namespace default istio-injection=enabled --overwrite
 
       - name: Apply redis-cart and MongoDB (no sidecar injection)
         continue-on-error: true
