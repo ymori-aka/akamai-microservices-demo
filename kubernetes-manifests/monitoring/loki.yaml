@@ -42,6 +42,12 @@ data:
       reject_old_samples_max_age: 168h
       ingestion_rate_mb: 16
       ingestion_burst_size_mb: 32
+      # `compactor.retention_enabled: true` alone does nothing without a
+      # period — it defaults to 744h (31d), which filled the 10Gi PVC and left
+      # Loki in CrashLoopBackOff for a month:
+      #   mkdir /loki/tsdb-shipper-active/scratch: no space left on device
+      # This is a demo cluster; a week of logs is plenty and fits the PVC.
+      retention_period: 168h
 
     compactor:
       working_directory: /loki/compactor
