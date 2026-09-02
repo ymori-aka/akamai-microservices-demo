@@ -479,6 +479,24 @@ jobs:
           kubectl apply -f kubernetes-manifests/istio/mtls.yaml
           kubectl apply -f kubernetes-manifests/istio/canary.yaml
 
+      # LKE does not ship metrics-server, and without it every HPA sits at
+      # `cpu: <unknown>` and never scales — the autoscaling demo silently does
+      # nothing. `kubectl top` doesn't work either.
+      #
+      # --kubelet-insecure-tls is required on LKE: kubelet serving certs are
+      # self-signed and not part of the cluster CA, so the default verification
+      # fails with "x509: cannot validate certificate".
+      - name: Install metrics-server (required by HPA)
+        continue-on-error: true
+        run: |
+          METRICS_SERVER_VERSION="v0.7.2"
+          kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml"
+          kubectl -n kube-system patch deployment metrics-server --type=json \
+            -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
+            || echo "NOTE: --kubelet-insecure-tls already present, skipping"
+          kubectl -n kube-system rollout status deployment/metrics-server --timeout=120s || \
+            echo "WARNING: metrics-server did not become ready in 120s"
+
       - name: Apply HPA
         continue-on-error: true
         run: |
@@ -769,7 +787,16 @@ jobs:
         env:
           OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
           OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+          GEMMA_API_KEY: ${{ secrets.GEMMA_API_KEY }}
         run: |
+          # The Gemma server runs with --api_key. Without this substitution the
+          # literal __GEMMA_API_KEY__ placeholder ships as the Bearer token, the
+          # LLM call 401s, and the handler silently falls back to the English
+          # product description — the AI copy just quietly stops being localised.
+          if [ -z "${GEMMA_API_KEY}" ]; then
+            echo "ERROR: GEMMA_API_KEY GitHub Secret not set"; exit 1
+          fi
+          sed -i "s|__GEMMA_API_KEY__|${GEMMA_API_KEY}|g" src/index.ts
           # Inject OTel config (see docs/spin-otel/SPEC.md §4.4)
           sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
           sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
@@ -785,7 +812,14 @@ jobs:
         env:
           OTEL_ENDPOINT: ${{ secrets.OTEL_PUBLIC_ENDPOINT }}
           OTEL_BEARER_TOKEN: ${{ secrets.OTEL_BEARER_TOKEN }}
+          GEMMA_API_KEY: ${{ secrets.GEMMA_API_KEY }}
         run: |
+          # See the note on recommendation-service above: without this the AI
+          # introduction silently falls back to the English description.
+          if [ -z "${GEMMA_API_KEY}" ]; then
+            echo "ERROR: GEMMA_API_KEY GitHub Secret not set"; exit 1
+          fi
+          sed -i "s|__GEMMA_API_KEY__|${GEMMA_API_KEY}|g" src/index.ts
           sed -i "s|__OTEL_ENDPOINT__|${OTEL_ENDPOINT}|g" src/otel.ts
           sed -i "s|__OTEL_BEARER_TOKEN__|${OTEL_BEARER_TOKEN}|g" src/otel.ts
           sed -i "s|__OTEL_SERVICE_VERSION__|${GITHUB_SHA::7}|g" src/otel.ts
