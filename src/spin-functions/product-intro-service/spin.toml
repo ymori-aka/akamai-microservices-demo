@@ -14,7 +14,11 @@ component = "product-intro-service"
 source = "dist/product-intro-service.wasm"
 exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = [
-  "http://172.238.48.187:8000",
+  # Migrated 2026-09-02: the GPU node moved behind the llm-gpu-sea
+  # NodeBalancer (see src/index.ts). Update this list AND LLM_ENDPOINT
+  # together — a mismatch fails as a generic "NetworkError when attempting
+  # to fetch resource" with no hint it's an egress policy.
+  "https://llm.tserof.net:8001",
   "http://172.237.3.147:4319",
 ]
 

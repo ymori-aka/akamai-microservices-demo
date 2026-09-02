@@ -3,6 +3,11 @@ import { makeTracer, Tracer } from './otel';
 
 const SERVICE = 'product-intro-service';
 const MODEL = 'google_gemma-4-26B-A4B-it-Q4_K_M.gguf';
+// API key is replaced by CI at build time via sed substitution against the
+// __GEMMA_API_KEY__ placeholder (sourced from the GEMMA_API_KEY GitHub
+// Secret), the same pattern shopping-assistant-service uses for
+// __ZUPLO_API_KEY__. Never commit the real key to git.
+const GEMMA_API_KEY = "__GEMMA_API_KEY__";
 
 // ---- Product Catalog (embedded) ----
 interface Product {
@@ -45,7 +50,16 @@ const PRODUCTS: Product[] = [
   { id: "AKMT029", name: "PEACE FOR ALL Tee / Akamai - Black",        description: "Every day, billions of people connect online — working, playing, learning, shopping, and sharing ideas. The 'texture' code featured in this design represents the common language behind every digital experience. For 25 years, Akamai has built a comfortable, secure internet to enrich lives around the world. We remain committed to making the world safer and more deeply connected.",                                                                                             price: 29.99, categories: ["apparel", "t-shirts"] },
 ];
 
-const LLM_ENDPOINT = "http://172.238.48.187:8000";
+// Migrated 2026-09-02: the GPU node moved onto a VPC behind the llm-gpu-sea
+// NodeBalancer, so the old direct node IP (172.238.48.187:8000) no longer
+// answers requests from Akamai Functions. The new listener is HTTPS with a
+// real Let's Encrypt cert for llm.tserof.net and requires Bearer auth (it
+// didn't before) — a fetch here that omits the Authorization header gets 401,
+// which hits the `!response.ok` fallback below and silently returns the
+// item's plain English description instead of a localized intro. That's why
+// this looked like "AI intro is stuck in English" rather than an outright
+// error.
+const LLM_ENDPOINT = "https://llm.tserof.net:8001";
 
 // ---- LLM call ----
 async function generateIntro(product: Product, lang: string, tracer?: Tracer): Promise<string> {
@@ -92,7 +106,10 @@ Description: ${product.description}`;
   const callLLM = async (llmSpan?: { setAttr: (k: string, v: any) => void }) => {
     const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GEMMA_API_KEY}`,
+      },
       body: JSON.stringify({
         model: MODEL,
         messages: [{ role: "user", content: prompt }],

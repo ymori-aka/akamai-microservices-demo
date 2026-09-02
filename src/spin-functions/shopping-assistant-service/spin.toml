@@ -14,7 +14,12 @@ component = "shopping-assistant-service"
 source = "dist/shopping-assistant-service.wasm"
 exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = [
-  "https://chat-ai-ai-gateway-34777e2.zuplo.app",
+  # Migrated to the new Zuplo AI Gateway 2026-09-02 (see src/index.ts). Spin's
+  # WASM sandbox enforces this list independently of LLM_ENDPOINT in the code
+  # — fetch() calls to hosts not listed here fail as a generic "NetworkError
+  # when attempting to fetch resource" with no indication it's an egress
+  # policy. Update both together, or a gateway migration silently breaks.
+  "https://ec-chat-main-c4d1d89.zuplo.app",
   "http://172.237.3.147:4319",
 ]
 
