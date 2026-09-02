@@ -5,8 +5,11 @@
 # and distributed trace drill-down for the Akamai Store demo.
 #
 # Prerequisites:
-#   - Istio installed (minimal profile) via istioctl in CI
-#   - default namespace labeled: istio-injection=enabled
+#   - Istio ambient mesh installed via deploy-istio-ambient.yml
+#     (istio-base / istiod / istio-cni / ztunnel, profile=ambient)
+#   - default namespace labeled: istio.io/dataplane-mode=ambient
+#     (NOT istio-injection=enabled — this mesh is sidecarless, and that label
+#      conflicts with ambient, see kubernetes-manifests/istio/mtls.yaml)
 #   - Prometheus, Tempo, and Grafana running in the monitoring namespace
 #
 # Access: LoadBalancer on port 20001  (anonymous auth — demo mode)

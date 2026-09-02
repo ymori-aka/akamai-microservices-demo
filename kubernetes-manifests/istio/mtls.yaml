@@ -1,13 +1,36 @@
 ---
 # Istio mTLS Policy
 #
-# PeerAuthentication STRICT enforces mutual TLS for all service-to-service
-# traffic in the default namespace.  Every connection shows a padlock icon
-# in Kiali's topology graph — zero extra config per service.
+# PERMISSIVE, not STRICT.  Read this before "tightening" it back.
 #
-# The monitoring namespace is left at PERMISSIVE so that Prometheus can
-# scrape plain-HTTP endpoints (OTel Collector, Redis Exporter, etc.)
-# without needing a sidecar on every target.
+# Mesh-internal traffic still uses mTLS: ztunnel wraps workload-to-workload
+# connections in HBONE regardless of this setting, so Kiali still shows the
+# padlock on service-to-service edges.  PERMISSIVE only additionally allows
+# plaintext.
+#
+# STRICT breaks the store completely (HTTP 502 on every page).  The reason is
+# how traffic enters the cluster:
+#
+#   NodeBalancer --plaintext--> nodePort --kube-proxy DNAT--> frontend Pod IP
+#
+# That path never goes through the waypoint.  The waypoint Gateway is created
+# with `istio.io/waypoint-for: service` (see deploy-istio-ambient.yml), so it
+# only handles *service-addressed* traffic from clients that are themselves in
+# the mesh — those clients' own ztunnel redirects them to the waypoint.  An
+# external LoadBalancer is not a mesh member and has no ztunnel, so its
+# connection arrives at the Pod as raw plaintext.  Under STRICT, the
+# destination ztunnel rejects it outright:
+#
+#   error="connection closed due to policy rejection:
+#          explicitly denied by: istio-system/istio_converted_static_strict"
+#
+# The same applies to kubelet/LoadBalancer health checks and to the
+# monitoring namespace's redis-exporter scraping redis-cart.
+#
+# STRICT would only be viable if ingress terminated at the waypoint itself
+# (i.e. the LoadBalancer targeted the waypoint Gateway rather than the app
+# Service).  That is a larger architecture change; until then this must stay
+# PERMISSIVE.
 
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
@@ -16,7 +39,7 @@ metadata:
   namespace: default
 spec:
   mtls:
-    mode: STRICT
+    mode: PERMISSIVE
 ---
 # Allow plain-text scraping from Prometheus in the monitoring namespace.
 apiVersion: security.istio.io/v1beta1
