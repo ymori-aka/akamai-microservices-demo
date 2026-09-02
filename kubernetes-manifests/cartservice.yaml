@@ -12,6 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# `valkey` branch: cart storage is Akamai Managed Valkey (Aiven-hosted)
+# instead of the in-cluster redis-cart Deployment used on `main`. The
+# redis-cart Deployment/Service have been removed here; REDIS_ADDR now
+# comes from a Secret (full StackExchange.Redis connection string with
+# TLS + auth) and a CA cert is mounted for TLS verification (see
+# Startup.cs and deploy-valkey-tokyo.yml).
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -47,8 +54,26 @@ spec:
         ports:
         - containerPort: 7070
         env:
+        # Full StackExchange.Redis connection string for Akamai Managed
+        # Valkey (Aiven), e.g. "host:port,ssl=true,user=akmadmin,password=...".
+        # Contains a password, so it comes from a Secret rather than a
+        # plain value — created by deploy-valkey-tokyo.yml from the GitHub
+        # Secret VALKEY_ADDR.
         - name: REDIS_ADDR
-          value: "redis-cart:6379"
+          valueFrom:
+            secretKeyRef:
+              name: valkey-credentials
+              key: REDIS_ADDR
+        # Path to the mounted CA cert (see volumes below) used to verify
+        # Valkey's TLS chain in-process (see Startup.cs) — the runtime
+        # image has no shell/update-ca-certificates to install it into the
+        # OS trust store.
+        - name: REDIS_CA_CERT_PATH
+          value: "/etc/valkey-ca/ca.pem"
+        volumeMounts:
+        - name: valkey-ca-cert
+          mountPath: /etc/valkey-ca
+          readOnly: true
         resources:
           requests:
             cpu: 200m
@@ -65,6 +90,10 @@ spec:
           periodSeconds: 10
           grpc:
             port: 7070
+      volumes:
+      - name: valkey-ca-cert
+        secret:
+          secretName: valkey-ca-cert
 ---
 apiVersion: v1
 kind: Service
@@ -85,80 +114,3 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cartservice
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis-cart
-  labels:
-    app: redis-cart
-spec:
-  selector:
-    matchLabels:
-      app: redis-cart
-  template:
-    metadata:
-      labels:
-        app: redis-cart
-      annotations:
-        sidecar.istio.io/inject: "false"
-    spec:
-      securityContext:
-        fsGroup: 1000
-        runAsGroup: 1000
-        runAsNonRoot: true
-        runAsUser: 1000
-      containers:
-      - name: redis
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-          privileged: false
-          readOnlyRootFilesystem: true
-        image: redis:alpine
-        # Cap memory so redis self-evicts instead of being OOMKilled (exit 137)
-        # under sustained loadgenerator traffic. Cart data is ephemeral
-        # (emptyDir), so allkeys-lru eviction is safe; --save "" disables RDB
-        # snapshots to avoid fork/COW memory spikes that also triggered OOM.
-        command: ["redis-server"]
-        args: ["--maxmemory", "450mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
-        ports:
-        - containerPort: 6379
-        readinessProbe:
-          periodSeconds: 5
-          tcpSocket:
-            port: 6379
-        livenessProbe:
-          periodSeconds: 5
-          tcpSocket:
-            port: 6379
-        volumeMounts:
-        - mountPath: /data
-          name: redis-data
-        resources:
-          limits:
-            memory: 512Mi
-            cpu: 250m
-          requests:
-            cpu: 70m
-            memory: 200Mi
-      volumes:
-      - name: redis-data
-        emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-cart
-  labels:
-    app: redis-cart
-spec:
-  type: ClusterIP
-  selector:
-    app: redis-cart
-  ports:
-  - name: tcp-redis
-    port: 6379
-    targetPort: 6379

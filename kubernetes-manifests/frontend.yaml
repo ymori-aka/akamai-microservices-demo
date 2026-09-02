@@ -149,6 +149,15 @@ spec:
           # As part of an optional Google Cloud demo, you can run an optional microservice called the "packaging service".
           # - name: PACKAGING_SERVICE_URL
           #   value: "" # This value would look like "http://123.123.123"
+          # valkey branch: read side of the best-seller ranking. REDIS_URL is
+          # a rediss:// URL for Akamai Managed Valkey; when absent the ranking
+          # section/page is simply omitted (optional=true).
+          - name: REDIS_URL
+            valueFrom:
+              secretKeyRef:
+                name: valkey-credentials
+                key: REDIS_URL
+                optional: true
           resources:
             requests:
               cpu: 100m

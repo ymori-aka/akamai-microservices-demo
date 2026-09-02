@@ -196,6 +196,14 @@ func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
 	plat = platformDetails{}
 	plat.setPlatformDetails(strings.ToLower(env))
 
+	// Best-seller ranking (Valkey sorted set). Best-effort: a Valkey
+	// hiccup must never break the home page, so errors just omit it.
+	bestsellers, err := fe.getTopSellers(r.Context(), 8, currentCurrency(r))
+	if err != nil {
+		log.Warnf("home: could not read best sellers: %v", err)
+		bestsellers = nil
+	}
+
 	if err := templates.ExecuteTemplate(w, "home", injectCommonTemplateData(r, map[string]interface{}{
 		"show_currency": true,
 		"currencies":    currencies,
@@ -203,6 +211,39 @@ func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
 		"cart_size":     cartSize(cart),
 		"banner_color":  os.Getenv("BANNER_COLOR"), // illustrates canary deployments
 		"ad":            fe.chooseAd(r.Context(), []string{}, log),
+		"bestsellers":   bestsellers,
+	})); err != nil {
+		log.Error(err)
+	}
+}
+
+// rankingHandler renders the full best-seller ranking page, backed by
+// the Valkey sorted set (see ranking.go). When ranking is disabled it
+// still renders, showing an empty state.
+func (fe *frontendServer) rankingHandler(w http.ResponseWriter, r *http.Request) {
+	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
+	log.Info("ranking")
+	currencies, err := fe.getCurrencies(r.Context())
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve currencies"), http.StatusInternalServerError)
+		return
+	}
+	cart, err := fe.getCart(r.Context(), sessionID(r))
+	if err != nil {
+		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve cart"), http.StatusInternalServerError)
+		return
+	}
+	top, err := fe.getTopSellers(r.Context(), 20, currentCurrency(r))
+	if err != nil {
+		log.Warnf("ranking: could not read top sellers: %v", err)
+		top = nil
+	}
+	if err := templates.ExecuteTemplate(w, "ranking", injectCommonTemplateData(r, map[string]interface{}{
+		"show_currency":    true,
+		"currencies":       currencies,
+		"cart_size":        cartSize(cart),
+		"ranking":          top,
+		"ranking_enabled":  rankingEnabled(),
 	})); err != nil {
 		log.Error(err)
 	}

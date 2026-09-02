@@ -316,14 +316,24 @@ jobs:
             echo "         Remove it with: kubectl label namespace default istio-injection-"
           fi
 
-      - name: Apply redis-cart and MongoDB (no sidecar injection)
+      - name: Apply cartservice and MongoDB (no sidecar injection)
         continue-on-error: true
         run: |
           # Re-apply from YAML to pick up the sidecar.istio.io/inject: "false"
           # annotation added to prevent LKE webhook failures.
+          #
+          # Cart storage is Akamai Managed Valkey, not an in-cluster
+          # redis-cart Deployment — see kubernetes-manifests/cartservice.yaml.
+          # The REDIS_ADDR / CA cert come from the `valkey-credentials` Secret,
+          # which deploy-valkey-tokyo.yml creates from GitHub Secrets. Nothing
+          # here should recreate redis-cart.
           kubectl apply -f kubernetes-manifests/cartservice.yaml
           kubectl apply -f kubernetes-manifests/mongodb.yaml
-          kubectl rollout status deployment/redis-cart --timeout=120s || true
+          kubectl rollout status deployment/cartservice --timeout=120s || true
+
+          # Left over from the pre-Valkey layout; harmless if already gone.
+          kubectl delete deployment redis-cart -n default --ignore-not-found
+          kubectl delete service redis-cart -n default --ignore-not-found
 
       - name: Remove obsolete RabbitMQ and queuemaster resources
         continue-on-error: true

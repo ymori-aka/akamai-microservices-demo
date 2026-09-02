@@ -37,23 +37,80 @@
 
       <div class="col-12 col-lg-12 px-10-percent">
 
+        <style>
+        /* Vertical best-seller sidebar on the right; products on the left. */
+        .bs-side { padding-top: 22px; }
+        .bs-side-head { display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+        .bs-side-head h3 { margin:0; font-size:19px; font-weight:700; }
+        .bs-side-head .vk {
+          font-size:10px; font-weight:600; color:#0A72B0; background:#e8f5fd;
+          border:1px solid #b9e2f7; padding:2px 8px; border-radius:20px;
+        }
+        .bs-side-head a.more { flex-basis:100%; font-size:12.5px; color:#0A72B0; text-decoration:none; font-weight:600; margin-top:2px; }
+        .bs-row {
+          display:flex; align-items:center; gap:10px; padding:8px 10px; margin-bottom:8px;
+          background:rgba(255,255,255,0.75); border:1px solid rgba(11,143,214,0.12);
+          border-radius:12px; text-decoration:none; transition:transform .18s ease, box-shadow .18s ease;
+        }
+        .bs-row:hover { transform:translateX(3px); box-shadow:0 8px 20px rgba(11,143,214,0.16); }
+        .bs-rank {
+          flex:0 0 26px; height:26px; width:26px; border-radius:50%;
+          display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; color:#fff;
+          background:linear-gradient(135deg,#0B8FD6,#085A8E);
+        }
+        .bs-row.n1 .bs-rank { background:linear-gradient(135deg,#FFB300,#FF8F00); }
+        .bs-row.n2 .bs-rank { background:linear-gradient(135deg,#B0BEC5,#78909C); }
+        .bs-row.n3 .bs-rank { background:linear-gradient(135deg,#C97B3C,#8D5524); }
+        .bs-thumb { flex:0 0 40px; height:40px; width:40px; object-fit:cover; border-radius:8px; background:#f2f2f2; }
+        .bs-meta { flex:1 1 auto; min-width:0; }
+        .bs-name { font-size:12.5px; color:#0C1B26; font-weight:600; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .bs-units { font-size:11px; color:#0A72B0; font-weight:700; }
+        @media (min-width: 992px) { .bs-side { position:sticky; top:80px; } }
+        </style>
+
         <div class="row hot-products-row px-xl-6">
 
-          <div class="col-12">
-            <h3>Hot Products</h3>
+          <div class="col-12 {{ if .bestsellers }}col-lg-9{{ end }}">
+            <div class="row">
+              <div class="col-12">
+                <h3>Hot Products</h3>
+              </div>
+              {{ range $.products }}
+              <div class="col-md-4 hot-product-card">
+                <a href="{{ $.baseUrl }}/product/{{.Item.Id}}">
+                  <img loading="lazy" src="{{ imgURL .Item.Picture }}">
+                  <div class="hot-product-card-img-overlay"></div>
+                </a>
+                <div>
+                  <div class="hot-product-card-name">
+                    {{ if eq $.user_lang "ja" }}{{ jaName .Item.Id }}{{ else if eq $.user_lang "ko" }}{{ koName .Item.Id }}{{ else if eq $.user_lang "zh" }}{{ zhName .Item.Id }}{{ else }}{{ .Item.Name }}{{ end }}
+                  </div>
+                  <div class="hot-product-card-price">{{ renderMoney .Price }}</div>
+                </div>
+              </div>
+              {{ end }}
+            </div>
           </div>
 
-          {{ range $.products }}
-          <div class="col-md-4 hot-product-card">
-            <a href="{{ $.baseUrl }}/product/{{.Item.Id}}">
-              <img loading="lazy" src="{{ imgURL .Item.Picture }}">
-              <div class="hot-product-card-img-overlay"></div>
-            </a>
-            <div>
-              <div class="hot-product-card-name">
-                {{ if eq $.user_lang "ja" }}{{ jaName .Item.Id }}{{ else if eq $.user_lang "ko" }}{{ koName .Item.Id }}{{ else if eq $.user_lang "zh" }}{{ zhName .Item.Id }}{{ else }}{{ .Item.Name }}{{ end }}
+          {{ if .bestsellers }}
+          <div class="col-12 col-lg-3">
+            <div class="bs-side">
+              <div class="bs-side-head">
+                <span style="font-size:18px;">🔥</span>
+                <h3>{{ if eq $.user_lang "ja" }}売れ筋ランキング{{ else if eq $.user_lang "ko" }}베스트셀러{{ else if eq $.user_lang "zh" }}热销排行{{ else }}Best Sellers{{ end }}</h3>
+                <span class="vk">⚡ Valkey</span>
+                <a class="more" href="{{ $.baseUrl }}/ranking">{{ if eq $.user_lang "ja" }}すべて見る →{{ else }}See all →{{ end }}</a>
               </div>
-              <div class="hot-product-card-price">{{ renderMoney .Price }}</div>
+              {{ range .bestsellers }}
+              <a class="bs-row {{ if eq .Rank 1 }}n1{{ else if eq .Rank 2 }}n2{{ else if eq .Rank 3 }}n3{{ end }}" href="{{ $.baseUrl }}/product/{{ .Item.Id }}">
+                <div class="bs-rank">{{ .Rank }}</div>
+                <img class="bs-thumb" loading="lazy" src="{{ imgURL .Item.Picture }}" alt="">
+                <div class="bs-meta">
+                  <div class="bs-name">{{ if eq $.user_lang "ja" }}{{ jaName .Item.Id }}{{ else if eq $.user_lang "ko" }}{{ koName .Item.Id }}{{ else if eq $.user_lang "zh" }}{{ zhName .Item.Id }}{{ else }}{{ .Item.Name }}{{ end }}</div>
+                  <div class="bs-units">{{ .Units }} {{ if eq $.user_lang "ja" }}販売{{ else }}sold{{ end }}</div>
+                </div>
+              </a>
+              {{ end }}
             </div>
           </div>
           {{ end }}
