@@ -1,0 +1,27 @@
+name: Check frontend pods (Tokyo, read-only)
+on:
+  workflow_dispatch:
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+      - name: status
+        run: |
+          echo "=== image ==="
+          kubectl get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+          echo "=== pods ==="
+          kubectl get pods -l app=frontend -o wide
+          echo "=== describe (tail) ==="
+          kubectl describe pod -l app=frontend | tail -40
+          echo "=== logs (tail) ==="
+          kubectl logs -l app=frontend --tail=40 --all-containers=true || true
