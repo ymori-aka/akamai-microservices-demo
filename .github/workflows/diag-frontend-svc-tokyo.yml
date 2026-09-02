@@ -1,0 +1,29 @@
+name: Check frontend-external Service (Tokyo, read-only)
+on:
+  workflow_dispatch:
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+      - name: service state
+        run: |
+          echo "=== annotations ==="
+          kubectl get svc frontend-external -o jsonpath='{.metadata.annotations}' | python3 -m json.tool
+          echo
+          echo "=== ports ==="
+          kubectl get svc frontend-external -o jsonpath='{.spec.ports}' | python3 -m json.tool
+          echo
+          echo "=== external ip ==="
+          kubectl get svc frontend-external -o wide
+          echo "=== endpoints ==="
+          kubectl get endpoints frontend-external -o wide
