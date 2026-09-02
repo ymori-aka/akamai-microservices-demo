@@ -1,0 +1,37 @@
+name: Check Istio mTLS + frontend sidecar (Tokyo, read-only)
+on:
+  workflow_dispatch:
+jobs:
+  diag:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+      - name: istio state
+        run: |
+          echo "=== PeerAuthentication (all namespaces) ==="
+          kubectl get peerauthentication -A -o yaml
+          echo
+          echo "=== frontend pod containers (sidecar present?) ==="
+          kubectl get pod -l app=frontend -o jsonpath='{.items[0].spec.containers[*].name}'
+          echo
+          echo "=== default namespace istio-injection label ==="
+          kubectl get ns default -o jsonpath='{.metadata.labels}'
+          echo
+          echo "=== DestinationRule (all namespaces) ==="
+          kubectl get destinationrule -A -o yaml
+          echo
+          echo "=== recent events, default ns ==="
+          kubectl get events -n default --sort-by=.lastTimestamp 2>/dev/null | tail -30
+          echo
+          echo "=== direct curl from inside cluster to pod:8080 ==="
+          kubectl run curltest-$RANDOM --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet --command -- \
+            curl -s -o /dev/null -m 8 -w 'in-cluster to pod:8080 -> [HTTP %{http_code}]\n' http://10.2.0.108:8080/ || true
