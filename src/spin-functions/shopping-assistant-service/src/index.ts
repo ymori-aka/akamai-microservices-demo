@@ -7,9 +7,17 @@ const SERVICE = 'shopping-assistant-service';
 // API key is replaced by CI at build time via sed substitution against
 // the __ZUPLO_API_KEY__ placeholder (sourced from the ZUPLO_API_KEY
 // GitHub Secret). Never commit the real key to git.
-const LLM_ENDPOINT = "https://chat-ai-ai-gateway-34777e2.zuplo.app";
+//
+// Migrated to the new gateway 2026-09-02 (the old chat-ai-ai-gateway-34777e2
+// endpoint now 500s). Two things this gateway requires that the old one
+// didn't:
+//   - The path must include /config_<id> — the host alone 404s with
+//     "Unsupported AI Gateway endpoint".
+//   - `model` must be "providerName/model", not the bare filename — a bare
+//     model name 400s. The provider configured for Gemma here is "gemma4".
+const LLM_ENDPOINT = "https://ec-chat-main-c4d1d89.zuplo.app/config_3114835392f54da99555e30c95cd15a6";
 const ZUPLO_API_KEY = "__ZUPLO_API_KEY__";
-const MODEL = "google_gemma-4-26B-A4B-it-Q4_K_M.gguf";
+const MODEL = "gemma4/google_gemma-4-26B-A4B-it-Q4_K_M.gguf";
 
 const { preflight, corsify } = cors({ origin: '*' });
 
@@ -50,7 +58,7 @@ router
       const parentId = tracer.lastSpanId();
       try {
         return await tracer.withSpan('llm.chat.completions', 'CLIENT', {
-          'llm.endpoint': 'chat-ai-ai-gateway-34777e2.zuplo.app',
+          'llm.endpoint': 'ec-chat-main-c4d1d89.zuplo.app',
           'llm.model': MODEL,
         }, async (llmSpan) => {
           // Cache-buster: the Zuplo AI Gateway was caching completions with a
