@@ -152,10 +152,18 @@ spec:
               value: /etc/grafana/provisioning
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /var/lib/grafana/dashboards/home.json
-            # Anonymous read-only access for demo viewing (no login).
-            # Admins still log in normally to edit dashboards/users.
+            # Anonymous access is OFF. Grafana is published on a public
+            # LoadBalancer at grafana.tserof.net, so "read-only" still meant
+            # anyone on the internet could enumerate dashboards, datasources
+            # and, via Explore (see GF_USERS_VIEWERS_CAN_EDIT below), run
+            # arbitrary queries against Prometheus/Loki/Tempo.
+            #
+            # This instance was already compromised once through that surface
+            # (50 rogue `_phx_*` datasources plus an SSRF probe), so the demo
+            # convenience is not worth it. Set to "true" only for a walkthrough
+            # where the endpoint is not publicly reachable.
             - name: GF_AUTH_ANONYMOUS_ENABLED
-              value: "true"
+              value: "false"
             - name: GF_AUTH_ANONYMOUS_ORG_NAME
               value: "Main Org."
             - name: GF_AUTH_ANONYMOUS_ORG_ROLE
