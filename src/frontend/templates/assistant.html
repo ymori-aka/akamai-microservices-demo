@@ -215,6 +215,30 @@
 .bot-product-description strong { font-size: 14px; display: block; margin-bottom: 4px; }
 .bot-product-price { color: var(--blue, #009BDE); font-weight: 600; margin-top: 6px; font-size: 14px; }
 
+/* Smart Router decision, shown under the answer it produced */
+.routing-badge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: -4px 0 12px 0;
+  margin-right: 20%;
+  padding-left: 4px;
+  animation: fadeInUp .2s ease;
+}
+.routing-pill {
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 20px;
+  background: #e7e7e7;
+  color: #555;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.routing-pill-low    { background: #e3f2e6; color: #2e6b39; }
+.routing-pill-medium { background: #fdf1dc; color: #8a5a12; }
+.routing-pill-high   { background: #fbe4e4; color: #9c3535; }
+.routing-pill-skip   { background: #eceff4; color: #667; }
+
 .demo-prompts {
   position: absolute;
   bottom: 98px; left: 14px; right: 14px;
@@ -386,6 +410,38 @@
     return { p: p, span: span };
   }
 
+  // Shows what the AI Gateway's Smart Router decided for this prompt. The data
+  // comes from the gateway's x-ai-* response headers via the Spin function, so
+  // it is absent on the Kong lane and whenever Smart Router did not run.
+  function renderRoutingBadge(p, routing) {
+    if (!routing || !routing.complexity) return;
+
+    var wrap = document.createElement("div");
+    wrap.classList.add("routing-badge");
+
+    function pill(text, cls) {
+      var s = document.createElement("span");
+      s.classList.add("routing-pill");
+      if (cls) s.classList.add(cls);
+      s.innerText = text;
+      wrap.appendChild(s);
+    }
+
+    pill(routing.complexity, "routing-pill-" + routing.complexity);
+    if (routing.intent) pill(routing.intent);
+    if (routing.model) pill(routing.model);
+    if (isFinite(routing.confidence)) pill("conf " + routing.confidence.toFixed(2));
+    if (isFinite(routing.classify_ms)) pill(routing.classify_ms + "ms");
+    // routing.applied is false when confidence was below the threshold or the
+    // intent was unknown — the prompt then stays on the caller's model.
+    if (routing.applied === false) {
+      pill((LANG === "ja" ? "振り分けなし: " : "not routed: ") + (routing.reason || "?"), "routing-pill-skip");
+    }
+
+    p.insertAdjacentElement("afterend", wrap);
+    botMessages.scrollTop = botMessages.scrollHeight;
+  }
+
   function appendUserMessage(text) {
     var p = document.createElement("p");
     p.classList.add("user-message");
@@ -481,6 +537,7 @@
       var displayReply = reply.replace(/\[[A-Z0-9]{6,8}\]/g, "").trim();
       loading.span.innerText = displayReply;
       loading.p.classList.remove("bot-message-loading");
+      renderRoutingBadge(loading.p, data.routing);
 
       // Render product cards
       var ids = extractProductIds(reply);

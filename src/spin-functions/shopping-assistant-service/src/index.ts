@@ -109,8 +109,35 @@ router
           }
           if (usage.total_tokens) llmSpan.setAttr('llm.tokens.total', usage.total_tokens);
 
+          // Smart Router's classification only exists on the gateway side, so
+          // ec-chat's smart-router-headers-outbound policy copies it onto
+          // x-ai-* response headers. Pass it through so the chat UI can show
+          // which tier the prompt landed in and which model answered.
+          const h = response.headers;
+          const complexity = h.get('x-ai-complexity');
+          const routing = complexity
+            ? {
+                intent: h.get('x-ai-intent'),
+                complexity,
+                confidence: Number(h.get('x-ai-confidence')),
+                applied: h.get('x-ai-routing-applied') === 'true',
+                reason: h.get('x-ai-routing-reason'),
+                classify_ms: Number(h.get('x-ai-classify-ms')),
+                // What Smart Router picked; falls back to whatever the gateway
+                // actually served when routing did not apply.
+                model: h.get('x-ai-routed-model') ?? data.model ?? null,
+                provider: data.provider ?? null,
+              }
+            : null;
+
+          if (routing) {
+            llmSpan.setAttr('llm.routed.intent', routing.intent ?? '');
+            llmSpan.setAttr('llm.routed.complexity', routing.complexity);
+            llmSpan.setAttr('llm.routed.model', routing.model ?? '');
+          }
+
           const content: string = data.choices?.[0]?.message?.content ?? '';
-          return json({ message: content.trim() });
+          return json({ message: content.trim(), routing });
         }, parentId);
       } catch (e) {
         console.error(`Error calling LLM: ${e}`);

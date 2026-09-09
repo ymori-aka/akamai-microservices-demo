@@ -942,6 +942,11 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	log.Infof("chatbot: assistant response backend=%s status=%d body=%s", backendLabel, spinResp.StatusCode, string(respBody))
 
 	var reply string
+	// Smart Router classification, passed straight through from the Spin
+	// function (which reads it off the gateway's x-ai-* response headers).
+	// Kept as RawMessage so the frontend gets whatever the gateway reported
+	// without this handler having to track the shape.
+	var routing json.RawMessage
 	switch req.Backend {
 	case "kong":
 		// OpenAI chat-completions shape returned by Kong ai-proxy.
@@ -973,7 +978,8 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	default:
 		// Zuplo / Spin function shape: {message}.
 		var spinResult struct {
-			Message string `json:"message"`
+			Message string          `json:"message"`
+			Routing json.RawMessage `json:"routing"`
 		}
 		if err := json.Unmarshal(respBody, &spinResult); err != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -981,13 +987,18 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		reply = spinResult.Message
+		routing = spinResult.Routing
 		if reply == "" {
 			reply = fmt.Sprintf("[DEBUG] empty reply | status=%d body=%s", spinResp.StatusCode, string(respBody))
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": reply})
+	out := map[string]any{"message": reply}
+	if len(routing) > 0 && string(routing) != "null" {
+		out["routing"] = routing
+	}
+	json.NewEncoder(w).Encode(out)
 }
 
 func (fe *frontendServer) setCurrencyHandler(w http.ResponseWriter, r *http.Request) {
