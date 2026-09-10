@@ -89,7 +89,13 @@
               Kong AI Gateway{{ if not $.kong_enabled }} (not configured yet){{ end }}
             </label>
             <label class="chat-backend-option">
-              <input type="radio" name="chat-backend" value="zuplo" {{ if not $.kong_enabled }}checked{{ end }}> Zuplo (demo)
+              <input type="radio" name="chat-backend" value="zuplo" {{ if and (not $.kong_enabled) (not $.direct_enabled) }}checked{{ end }}> Zuplo via Functions
+            </label>
+            {{/* Frontend → Zuplo directly. Preferred: Akamai Functions cuts
+                 requests off at ~30s, which a multi-turn chat regularly hits. */}}
+            <label class="chat-backend-option{{ if not $.direct_enabled }} chat-backend-disabled{{ end }}">
+              <input type="radio" name="chat-backend" value="direct" {{ if $.direct_enabled }}checked{{ else }}disabled{{ end }}>
+              Zuplo (direct){{ if not $.direct_enabled }} (not configured yet){{ end }}
             </label>
           </div>
 
@@ -515,7 +521,9 @@
 
     try {
       var selected = document.querySelector('input[name="chat-backend"]:checked');
-      var backend = selected ? selected.value : "kong";
+      // Empty lets the server pick (direct → kong → functions); hard-coding
+      // "kong" here sent requests to a lane that is currently disabled.
+      var backend = selected ? selected.value : "";
 
       var res = await fetch(BASE_URL + "/bot", {
         method: "POST",
@@ -530,8 +538,10 @@
       // Update history
       chatHistory.push({ role: "user",      content: text  });
       chatHistory.push({ role: "assistant", content: reply });
-      // Keep last 10 turns to avoid token overflow
-      if (chatHistory.length > 20) chatHistory = chatHistory.slice(chatHistory.length - 20);
+      // Keep last 4 turns. This used to be 10, but every turn adds prefill and
+      // Akamai Functions cuts the request off at ~30s — long conversations were
+      // the reliable way to hit that ceiling.
+      if (chatHistory.length > 8) chatHistory = chatHistory.slice(chatHistory.length - 8);
 
       // Show message text (strip [ID] tags for cleaner display)
       var displayReply = reply.replace(/\[[A-Z0-9]{6,8}\]/g, "").trim();

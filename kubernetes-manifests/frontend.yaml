@@ -83,6 +83,28 @@ spec:
             value: "adservice:9555"
           - name: SHOPPING_ASSISTANT_SERVICE_ADDR
             value: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
+          # Frontend → Zuplo AI Gateway directly, skipping the Akamai Functions
+          # hop. Functions terminates a request at ~30s wall clock and returns a
+          # plain-text "Internal Server Error", which the chat surfaces as a JSON
+          # decode error. Gateway-side logs never showed a request over 22.5s, so
+          # the ceiling was the Functions runtime, not the LLM. A multi-turn chat
+          # crosses it regularly because prefill grows with history.
+          # Non-empty makes this the DEFAULT chat backend (UI radio + handler).
+          - name: ZUPLO_CHAT_ADDR
+            value: "https://ec-chat-main-c4d1d89.zuplo.app/config_3114835392f54da99555e30c95cd15a6"
+          # Application API key for the gateway. The Functions lane carried this
+          # inside the Spin bundle; calling the gateway from here needs it in the
+          # cluster. optional=true so the frontend still rolls out before the
+          # secret exists — while unset, the direct lane returns a clear error
+          # and the Functions lane still works. Created by
+          # .github/workflows/set-zuplo-chat-secret.yml from the GitHub secret
+          # ZUPLO_API_KEY.
+          - name: ZUPLO_CHAT_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: zuplo-chat-credentials
+                key: api-key
+                optional: true
           # Kong AI Gateway endpoint (in-cluster ClusterIP). Non-empty makes Kong
           # the DEFAULT chat backend (UI radio + handler default).
           # DISABLED 2026-06-08: the Kong AI route is broken ("no Route matched

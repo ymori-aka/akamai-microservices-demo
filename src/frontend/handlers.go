@@ -546,6 +546,9 @@ func (fe *frontendServer) assistantHandler(w http.ResponseWriter, r *http.Reques
 		// Toggle support: chat UI shows a backend radio. Kong option is enabled
 		// once SHOPPING_ASSISTANT_KONG_ADDR is set in the deployment env.
 		"kong_enabled": os.Getenv("SHOPPING_ASSISTANT_KONG_ADDR") != "",
+		// Direct-to-gateway lane, enabled once ZUPLO_CHAT_ADDR is set. Preferred
+		// over the Functions lane because Akamai Functions caps requests at ~30s.
+		"direct_enabled": os.Getenv("ZUPLO_CHAT_ADDR") != "",
 	})); err != nil {
 		log.Println(err)
 	}
@@ -745,6 +748,38 @@ func faiScreen(ctx context.Context, log logrus.FieldLogger, prompt string) (allo
 // chatBotHandler handles the shopping assistant chat.
 // It fetches the product catalog, builds an OpenAI-compatible prompt,
 // calls the Gemma 4 LLM directly, and returns the response.
+// routingFromHeaders turns the AI Gateway's x-ai-* response headers into the
+// JSON the chat UI renders as a routing badge. Returns nil when Smart Router
+// did not run, so callers can omit the field entirely.
+//
+// servedModel is the model the gateway reported in the response body; it is
+// used when Smart Router classified the prompt but did not override routing.
+func routingFromHeaders(h http.Header, servedModel string) json.RawMessage {
+	complexity := h.Get("x-ai-complexity")
+	if complexity == "" {
+		return nil
+	}
+	model := h.Get("x-ai-routed-model")
+	if model == "" {
+		model = servedModel
+	}
+	conf, _ := strconv.ParseFloat(h.Get("x-ai-confidence"), 64)
+	ms, _ := strconv.Atoi(h.Get("x-ai-classify-ms"))
+	b, err := json.Marshal(map[string]any{
+		"intent":      h.Get("x-ai-intent"),
+		"complexity":  complexity,
+		"confidence":  conf,
+		"applied":     h.Get("x-ai-routing-applied") == "true",
+		"reason":      h.Get("x-ai-routing-reason"),
+		"classify_ms": ms,
+		"model":       model,
+	})
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request) {
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 
@@ -825,6 +860,19 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	// "zuplo" → Akamai Functions / Zuplo path (demo only).
 	var assistantURL, backendLabel string
 	switch req.Backend {
+	case "direct":
+		// Frontend → Zuplo AI Gateway, skipping the Akamai Functions hop.
+		// Functions cuts every request off at ~30s wall clock and returns a
+		// plain-text "Internal Server Error"; the gateway itself never took
+		// longer than 22.5s in the logs, so the ceiling was the Functions
+		// runtime, not the LLM. This lane removes that ceiling.
+		assistantURL = os.Getenv("ZUPLO_CHAT_ADDR")
+		backendLabel = "direct"
+		if assistantURL == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] Direct backend selected but ZUPLO_CHAT_ADDR is not set"})
+			return
+		}
 	case "zuplo":
 		assistantURL = os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR")
 		backendLabel = "zuplo"
@@ -842,8 +890,12 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	default:
-		// Unspecified → prefer Kong; fall back to Zuplo only if Kong is unset.
-		if v := os.Getenv("SHOPPING_ASSISTANT_KONG_ADDR"); v != "" {
+		// Unspecified → prefer the direct gateway lane (no 30s Functions
+		// ceiling), then Kong, then the Functions lane.
+		if v := os.Getenv("ZUPLO_CHAT_ADDR"); v != "" {
+			assistantURL = v
+			backendLabel = "direct"
+		} else if v := os.Getenv("SHOPPING_ASSISTANT_KONG_ADDR"); v != "" {
 			assistantURL = v
 			backendLabel = "kong"
 		} else if v := os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR"); v != "" {
@@ -876,9 +928,33 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	// kong:  Kong ai-proxy speaks the OpenAI chat API. POST
 	//        {addr}/v1/chat/completions with {model,messages,...}; ai-proxy forwards
 	//        to the Gemma upstream and returns the OpenAI {choices:[{message:{content}}]}.
+	// Switch on backendLabel, not req.Backend: when the UI sends no backend the
+	// block above resolves one, and keying off req.Backend here would build the
+	// Spin body shape for a lane that speaks OpenAI.
 	var reqPath string
 	var reqBytes []byte
-	switch req.Backend {
+	switch backendLabel {
+	case "direct":
+		// Zuplo's AI Gateway is OpenAI-compatible, so this is the same shape as
+		// the Kong lane. The model must be "providerName/model" and must appear
+		// in the app's Model Filtering allow list, or the gateway returns 403.
+		reqPath = "/v1/chat/completions"
+		model := os.Getenv("ZUPLO_CHAT_MODEL")
+		if model == "" {
+			model = "gemma4/google_gemma-4-26B-A4B-it-Q4_K_M.gguf"
+		}
+		type OpenAIRequest struct {
+			Model       string       `json:"model"`
+			Messages    []LLMMessage `json:"messages"`
+			MaxTokens   int          `json:"max_tokens"`
+			Temperature float64      `json:"temperature"`
+		}
+		reqBytes, _ = json.Marshal(OpenAIRequest{
+			Model:       model,
+			Messages:    messages,
+			MaxTokens:   512,
+			Temperature: 0.7,
+		})
 	case "kong":
 		reqPath = "/v1/chat/completions"
 		model := os.Getenv("SHOPPING_ASSISTANT_KONG_MODEL")
@@ -904,9 +980,16 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			MaxTokens   int          `json:"max_tokens"`
 			Temperature float64      `json:"temperature"`
 		}
+		// Akamai Functions kills the request at ~30s wall clock and returns a
+		// plain-text "Internal Server Error", which surfaces in the chat as a
+		// JSON decode error. Smart Router adds ~2s of classification on top of
+		// generation, and Qwen (the medium/high tier) runs at ~38 tok/s, so 512
+		// output tokens plus a few turns of history lands right on the limit —
+		// measured 13.6s and 30.2s for the identical request. 320 keeps the
+		// worst case near half the budget without visibly truncating answers.
 		reqBytes, _ = json.Marshal(SpinRequest{
 			Messages:    messages,
-			MaxTokens:   512,
+			MaxTokens:   320,
 			Temperature: 0.7,
 		})
 	}
@@ -918,6 +1001,20 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	spinReq.Header.Set("Content-Type", "application/json")
+	if backendLabel == "direct" {
+		// The Functions lane carried this key inside the Spin bundle; calling
+		// the gateway from here means the frontend needs it instead. Supplied
+		// via the zuplo-chat-credentials secret.
+		if k := os.Getenv("ZUPLO_CHAT_API_KEY"); k != "" {
+			spinReq.Header.Set("Authorization", "Bearer "+k)
+		}
+		// The gateway's semantic cache keys on more than the body, so without a
+		// unique param every prompt can come back with the first cached answer.
+		q := spinReq.URL.Query()
+		q.Set("nocache", fmt.Sprintf("%d", time.Now().UnixNano()))
+		spinReq.URL.RawQuery = q.Encode()
+		spinReq.Header.Set("Cache-Control", "no-cache, no-store")
+	}
 
 	// Wrap the transport with otelhttp so the outgoing call to the
 	// Akamai Functions assistant inherits the inbound /bot span and
@@ -947,7 +1044,44 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	// Kept as RawMessage so the frontend gets whatever the gateway reported
 	// without this handler having to track the shape.
 	var routing json.RawMessage
-	switch req.Backend {
+	switch backendLabel {
+	case "direct":
+		// Same OpenAI shape as Kong, but the Smart Router classification is on
+		// the x-ai-* response headers (set by ec-chat's
+		// smart-router-headers-outbound policy) rather than in the body.
+		var oai struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+			Model string `json:"model"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(respBody, &oai); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"message": fmt.Sprintf("[DEBUG] direct decode error: %v | body: %s", err, string(respBody))})
+			return
+		}
+		if len(oai.Choices) > 0 {
+			reply = oai.Choices[0].Message.Content
+		}
+		if reply == "" {
+			msg := ""
+			if oai.Error != nil {
+				msg = oai.Error.Message
+			}
+			// A Firewall for AI block lands here as a 400 with the rule in the
+			// message, so surface that rather than a bare debug dump.
+			if msg != "" {
+				reply = msg
+			} else {
+				reply = fmt.Sprintf("[DEBUG] direct empty reply | status=%d body=%s", spinResp.StatusCode, string(respBody))
+			}
+		}
+		routing = routingFromHeaders(spinResp.Header, oai.Model)
 	case "kong":
 		// OpenAI chat-completions shape returned by Kong ai-proxy.
 		var oai struct {
