@@ -1,0 +1,77 @@
+name: Deploy Datadog Agent (Tokyo)
+
+# Datadog Operator (helm) + DatadogAgent を Tokyo LKE に入れる。
+# 既存の監視スタックには触らない(並行送信)。
+# 事前に GitHub Secret DD_API_KEY を登録しておくこと。
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  datadog:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+          kubectl get nodes
+
+      - name: Install Datadog Operator
+        run: |
+          set -e
+          helm repo add datadog https://helm.datadoghq.com
+          helm repo update datadog
+          helm upgrade --install datadog-operator datadog/datadog-operator \
+            --namespace datadog --create-namespace --wait --timeout 5m
+
+      - name: API key Secret
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+        run: |
+          set -e
+          if [ -z "${DD_API_KEY}" ]; then
+            echo "✗ FAIL: DD_API_KEY GitHub Secret missing"
+            exit 1
+          fi
+          kubectl create secret generic datadog-secret \
+            --from-literal=api-key="${DD_API_KEY}" \
+            --dry-run=client -o yaml | kubectl apply -n datadog -f -
+
+      - name: Apply DatadogAgent
+        run: |
+          set -e
+          kubectl apply -f kubernetes-manifests/datadog/datadog-agent.yaml
+
+      - name: Wait and show status
+        run: |
+          set +e
+          for i in $(seq 1 30); do
+            TOTAL=$(kubectl -n datadog get pods --no-headers 2>/dev/null | wc -l)
+            NOT_READY=$(kubectl -n datadog get pods --no-headers 2>/dev/null | grep -vcE 'Running|Completed')
+            echo "attempt $i: pods=$TOTAL not_ready=$NOT_READY"
+            [ "$TOTAL" -ge 5 ] && [ "$NOT_READY" -eq 0 ] && break
+            sleep 10
+          done
+          kubectl -n datadog get pods -o wide
+          kubectl -n datadog get datadogagent datadog -o jsonpath='{.status}'; echo
+          echo "===== agent status (1台目) ====="
+          P=$(kubectl -n datadog get pods -l agent.datadoghq.com/component=agent -o name | head -1)
+          kubectl -n datadog exec "$P" -c agent -- agent status 2>&1 \
+            | grep -iE 'API key|Forwarder|Logs Agent|kubelet|x509|certificate|Error' | head -40
+          echo "===== node memory ====="
+          kubectl top nodes

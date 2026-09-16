@@ -1,0 +1,53 @@
+# Datadog Agent (Operator 管理) — Tokyo LKE 610031
+#
+# 既存の Prometheus / Loki / Tempo / Grafana は残したまま、Datadog へ並行送信する。
+# 適用は .github/workflows/deploy-datadog-tokyo.yml から(管理PCからは Tokyo API 不達)。
+# kustomization.yaml には含めない(deploy-tokyo.yml の apply -k で巻き込まないため)。
+#
+# 意図的に OFF にしているもの:
+#   - admissionController: Wiz の webhook が既にあり、istiod webhook で rollout が
+#     止まった前例もあるため、これ以上 Pod 作成経路に webhook を増やさない
+#   - APM / Single Step Instrumentation: アプリは OTel/OpenCensus 計装済み。
+#     トレースは otel-collector の datadog exporter から送る(次段階)
+kind: DatadogAgent
+apiVersion: datadoghq.com/v2alpha1
+metadata:
+  name: datadog
+  namespace: datadog
+spec:
+  global:
+    clusterName: lke-tokyo-610031
+    site: ap1.datadoghq.com
+    credentials:
+      apiSecret:
+        secretName: datadog-secret
+        keyName: api-key
+    tags:
+      - env:akamai-ec-demo
+  features:
+    clusterChecks:
+      enabled: true
+    orchestratorExplorer:
+      enabled: true
+    logCollection:
+      enabled: true
+      containerCollectAll: true
+    admissionController:
+      enabled: false
+    apm:
+      enabled: false
+  override:
+    # ノードのメモリ実使用が最大 76% (2026-09-16) なので requests/limits を明示
+    nodeAgent:
+      containers:
+        agent:
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+    clusterAgent:
+      replicas: 1
+      containers:
+        cluster-agent:
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 300m, memory: 256Mi }
