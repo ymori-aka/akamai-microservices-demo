@@ -1,0 +1,50 @@
+name: CHK - otel-collector / Datadog exporter (read-only)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: Collector pod / logs / memory
+        run: |
+          set +e
+          kubectl -n monitoring get pods -l app=otel-collector -o wide
+          echo "===== collector log (datadog / error / ready) ====="
+          kubectl -n monitoring logs deploy/otel-collector --since=30m 2>&1 \
+            | grep -iE 'datadog|error|Everything is ready|dropping' | cut -c1-300 | tail -40
+          echo "===== collector memory ====="
+          kubectl -n monitoring top pod -l app=otel-collector
+          kubectl top nodes
+
+      - name: Public receiver reachability
+        run: |
+          set +e
+          kubectl -n monitoring get svc otel-collector-public -o wide
+          IP=$(kubectl -n monitoring get svc otel-collector-public -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "===== from runner ====="
+          curl -s -o /dev/null -w "HTTP %{http_code} (%{time_total}s)\n" -m 10 -X POST "http://${IP}:4319/v1/traces"
+          echo "===== from inside cluster (ClusterIP :4318, expect 4xx/200) ====="
+          kubectl -n monitoring run curl-chk-$RANDOM --rm -i --restart=Never --image=curlimages/curl:8.10.1 -- \
+            curl -s -o /dev/null -w "HTTP %{http_code}\n" -m 10 -X POST \
+            -H 'Content-Type: application/json' -d '{"resourceSpans":[]}' \
+            http://otel-collector.monitoring.svc.cluster.local:4318/v1/traces
+          echo "===== Spin (otlp/public) からの受信: collector 内部メトリクス ====="
+          # contrib イメージにはシェル/wget が無いので Pod IP の :8888 を外から読む
+          PIP=$(kubectl -n monitoring get pods -l app=otel-collector -o jsonpath='{.items[0].status.podIP}')
+          kubectl -n monitoring run curl-chk-$RANDOM --rm -i --restart=Never --image=curlimages/curl:8.10.1 -- \
+            curl -s -m 10 "http://${PIP}:8888/metrics" \
+            | grep -E '^otelcol_receiver_accepted_(spans|log_records)|^otelcol_exporter_(sent|send_failed)_(spans|log_records|metric_points)' | head -30
