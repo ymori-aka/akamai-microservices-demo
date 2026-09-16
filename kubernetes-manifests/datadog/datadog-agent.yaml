@@ -55,6 +55,11 @@ spec:
       image:
         name: ghcr.io/ymori-aka/datadog-agent-akamai-cloud-pulse:main
         pullPolicy: Always
+      env:
+        # 負荷生成 (k6) と konnectivity-agent のログは量が多く調査価値が低いので収集しない
+        # (kube-system 全体は除外しない: calico-node のログは障害調査で使う)
+        - name: DD_CONTAINER_EXCLUDE_LOGS
+          value: "name:^k6$ name:^konnectivity-agent$"
       containers:
         agent:
           resources:

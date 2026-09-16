@@ -62,6 +62,30 @@ data:
           - key: deployment.environment
             value: akamai-ec-demo
             action: upsert
+      # Datadog 向けホスト名の固定。何もしないと Collector や一部サービスの Pod 名が
+      # そのままホスト名になり、Pod 再起動のたびに APM ホストが増える。
+      # 送信元 Pod のノード名 (Agent 導入済みのホスト) を引き、取れないもの
+      # (Spin 関数など) は固定名にまとめる。
+      k8sattributes/datadog:
+        passthrough: false
+        pod_association:
+          - sources:
+              - from: connection
+        extract:
+          metadata:
+            - k8s.node.name
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.deployment.name
+      transform/datadog_host:
+        error_mode: ignore
+        trace_statements: &dd_host_statements
+          - context: resource
+            statements:
+              - set(attributes["datadog.host.name"], attributes["k8s.node.name"]) where attributes["k8s.node.name"] != nil
+              - set(attributes["datadog.host.name"], "otel-collector-tokyo") where attributes["datadog.host.name"] == nil
+        metric_statements: *dd_host_statements
+        log_statements: *dd_host_statements
       # Datadog intake のサイズ上限(traces 3.2MB 等)に合わせて小さめにする
       batch/datadog:
         send_batch_size: 100
@@ -121,16 +145,53 @@ data:
         # ---- Datadog 向け(既存パイプラインとは独立。同じ receiver から fan-out) ----
         traces/datadog:
           receivers: [otlp, otlp/public, opencensus]
-          processors: [memory_limiter, resource/datadog, batch/datadog]
+          processors: [memory_limiter, k8sattributes/datadog, transform/datadog_host, resource/datadog, batch/datadog]
           exporters: [datadog/connector, datadog]
         metrics/datadog:
-          receivers: [otlp, otlp/public, datadog/connector]
-          processors: [memory_limiter, resource/datadog, batch/datadog]
+          receivers: [otlp, otlp/public]
+          processors: [memory_limiter, k8sattributes/datadog, transform/datadog_host, resource/datadog, batch/datadog]
+          exporters: [datadog]
+        # connector が出す APM stats はスパン側のホスト名を引き継ぐので加工しない
+        metrics/datadog_apm_stats:
+          receivers: [datadog/connector]
+          processors: [memory_limiter, batch/datadog]
           exporters: [datadog]
         logs/datadog:
           receivers: [otlp, otlp/public]
-          processors: [memory_limiter, resource/datadog, batch/datadog]
+          processors: [memory_limiter, k8sattributes/datadog, transform/datadog_host, resource/datadog, batch/datadog]
           exporters: [datadog]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: monitoring
+---
+# k8sattributes 用 (送信元 Pod -> ノード名/Deployment 名の解決のみ。読み取り専用)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-k8sattributes
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-k8sattributes
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: otel-collector-k8sattributes
+  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -147,6 +208,8 @@ spec:
       labels:
         app: otel-collector
     spec:
+      # k8sattributes が送信元 Pod のノード名を引くために使う
+      serviceAccountName: otel-collector
       containers:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.101.0

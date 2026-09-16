@@ -152,6 +152,10 @@ spec:
     spec:
       activeDeadlineSeconds: 240
       template:
+        metadata:
+          annotations:
+            # Datadog が Job 名 (audit-log-ingester-<時刻>) をサービス名にしてしまうので固定する
+            ad.datadoghq.com/ingester.logs: '[{"source":"python","service":"audit-log-ingester"}]'
         spec:
           restartPolicy: Never
           securityContext:

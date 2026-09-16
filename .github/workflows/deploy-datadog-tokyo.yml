@@ -77,6 +77,8 @@ jobs:
         run: |
           set -e
           kubectl apply -f kubernetes-manifests/datadog/datadog-agent.yaml
+          # Datadog 用のサービス名アノテーションを持つ CronJob (本体は deploy.yml でも適用される)
+          kubectl apply -f kubernetes-manifests/monitoring/audit-log-ingester.yaml
 
       - name: Restart node agents (pull latest check image)
         if: inputs.restart_agents
