@@ -79,6 +79,9 @@ spec:
                 services:
                   - service_type: dbaas
                   - service_type: nodebalancer
+                  # Object Storage は jp-tyo-3 のみ Cloud Pulse 対応(jp-osa は空が返るだけ)
+                  - service_type: objectstorage
+                    entity_regions: [jp-tyo-3]
       containers:
         cluster-agent:
           resources:
