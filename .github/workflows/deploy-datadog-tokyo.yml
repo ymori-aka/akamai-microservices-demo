@@ -10,6 +10,10 @@ on:
         description: "Tokyo LKE cluster id"
         required: true
         default: "610031"
+      restart_agents:
+        description: "node agent を再起動して :main イメージを取り直す"
+        type: boolean
+        default: false
 
 jobs:
   datadog:
@@ -73,6 +77,15 @@ jobs:
         run: |
           set -e
           kubectl apply -f kubernetes-manifests/datadog/datadog-agent.yaml
+
+      - name: Restart node agents (pull latest check image)
+        if: inputs.restart_agents
+        run: |
+          set -e
+          # nodeAgent のイメージタグは :main 固定(pullPolicy: Always)なので、
+          # check を更新したら Pod を作り直さないと反映されない
+          kubectl -n datadog rollout restart ds/datadog-agent
+          kubectl -n datadog rollout status ds/datadog-agent --timeout=300s
 
       - name: Wait and show status
         run: |
