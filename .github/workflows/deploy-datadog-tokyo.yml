@@ -37,6 +37,11 @@ jobs:
       - name: Install Datadog Operator
         run: |
           set -e
+          # runner の ~/.config は書き込み不可なので deploy-kong.yml と同じく RUNNER_TEMP に逃がす
+          export HELM_CONFIG_HOME="${RUNNER_TEMP:-/tmp}/helm-config"
+          export HELM_CACHE_HOME="${RUNNER_TEMP:-/tmp}/helm-cache"
+          export HELM_DATA_HOME="${RUNNER_TEMP:-/tmp}/helm-data"
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME"
           helm repo add datadog https://helm.datadoghq.com
           helm repo update datadog
           helm upgrade --install datadog-operator datadog/datadog-operator \
