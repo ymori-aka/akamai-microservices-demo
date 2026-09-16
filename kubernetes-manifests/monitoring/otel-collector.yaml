@@ -55,6 +55,23 @@ data:
       memory_limiter:
         check_interval: 1s
         limit_mib: 400
+      # Datadog 向けパイプライン専用。既存パイプライン(Tempo/Loki/Prometheus)の
+      # ラベルを変えないよう、env タグはここでだけ付ける。
+      resource/datadog:
+        attributes:
+          - key: deployment.environment
+            value: akamai-ec-demo
+            action: upsert
+      # Datadog intake のサイズ上限(traces 3.2MB 等)に合わせて小さめにする
+      batch/datadog:
+        send_batch_size: 100
+        send_batch_max_size: 500
+        timeout: 10s
+
+    connectors:
+      # 0.101.0 の datadog exporter は APM stats を計算しないため connector で計算する
+      # (traces -> metrics。出力は datadog exporter 専用パイプラインにだけ流す)
+      datadog/connector:
 
     exporters:
       # Exposes metrics at :8889/metrics for Prometheus to scrape
@@ -77,6 +94,14 @@ data:
         default_labels_enabled:
           exporter: true
           job: true
+      # Datadog (AP1) へ並行送信。API キーは Secret datadog-api-key から env で渡す
+      datadog:
+        api:
+          site: ap1.datadoghq.com
+          key: "${env:DD_API_KEY}"
+        # Collector Pod 自体をホストとして登録させない(Infra ホスト課金を避ける)
+        host_metadata:
+          enabled: false
 
     service:
       extensions: [bearertokenauth]
@@ -93,6 +118,19 @@ data:
           receivers: [otlp, otlp/public]
           processors: [memory_limiter, batch]
           exporters: [loki]
+        # ---- Datadog 向け(既存パイプラインとは独立。同じ receiver から fan-out) ----
+        traces/datadog:
+          receivers: [otlp, otlp/public, opencensus]
+          processors: [memory_limiter, resource/datadog, batch/datadog]
+          exporters: [datadog/connector, datadog]
+        metrics/datadog:
+          receivers: [otlp, otlp/public, datadog/connector]
+          processors: [memory_limiter, resource/datadog, batch/datadog]
+          exporters: [datadog]
+        logs/datadog:
+          receivers: [otlp, otlp/public]
+          processors: [memory_limiter, resource/datadog, batch/datadog]
+          exporters: [datadog]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -119,6 +157,13 @@ spec:
                 secretKeyRef:
                   name: otel-bearer-token
                   key: token
+            # optional にしない: Secret が無いときは新 Pod が起動せず、旧 Pod が
+            # 動き続ける(空キーで exporter が起動失敗→Tempo/Loki まで止まるのを防ぐ)
+            - name: DD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: datadog-api-key
+                  key: api-key
           ports:
             - name: otlp-grpc
               containerPort: 4317

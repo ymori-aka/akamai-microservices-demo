@@ -28,6 +28,10 @@ jobs:
             --dry-run=client -o yaml \
             | kubectl apply -n monitoring -f -
 
+          # otel-collector の datadog exporter 用 (Secret が無いと新 Pod は起動しない)
+          kubectl create secret generic datadog-api-key \
+            --from-literal=api-key="${{ secrets.DD_API_KEY }}" \
+            --dry-run=client -o yaml | kubectl apply -n monitoring -f -
           kubectl apply -f kubernetes-manifests/monitoring/otel-collector.yaml
           kubectl -n monitoring rollout restart deployment/otel-collector
           kubectl -n monitoring rollout status deployment/otel-collector --timeout=180s
