@@ -77,13 +77,15 @@ jobs:
       - name: Wait and show status
         run: |
           set +e
+          # Operator が Pod を作り終えるまで待ってから、コンテナ単位の Ready を待つ
+          # (STATUS=Running でも READY 1/2 のことがあるので Running では判定しない)
           for i in $(seq 1 30); do
             TOTAL=$(kubectl -n datadog get pods --no-headers 2>/dev/null | wc -l)
-            NOT_READY=$(kubectl -n datadog get pods --no-headers 2>/dev/null | grep -vcE 'Running|Completed')
-            echo "attempt $i: pods=$TOTAL not_ready=$NOT_READY"
-            [ "$TOTAL" -ge 5 ] && [ "$NOT_READY" -eq 0 ] && break
+            echo "attempt $i: pods=$TOTAL"
+            [ "$TOTAL" -ge 5 ] && break
             sleep 10
           done
+          kubectl -n datadog wait --for=condition=Ready pod --all --timeout=300s
           kubectl -n datadog get pods -o wide
           kubectl -n datadog get datadogagent datadog -o jsonpath='{.status}'; echo
           echo "===== agent status (1台目) ====="
@@ -96,7 +98,7 @@ jobs:
           echo "===== akamai_cloud_pulse ====="
           for P in $(kubectl -n datadog get pods -l agent.datadoghq.com/component=agent -o name); do
             kubectl -n datadog exec "$P" -c agent -- agent status 2>&1 \
-              | grep -A12 'akamai_cloud_pulse' | head -14
+              | grep -A22 '^    akamai_cloud_pulse (' | head -24
           done
           echo "===== node memory ====="
           kubectl top nodes
