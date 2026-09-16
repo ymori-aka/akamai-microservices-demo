@@ -9,6 +9,12 @@
 #     止まった前例もあるため、これ以上 Pod 作成経路に webhook を増やさない
 #   - APM / Single Step Instrumentation: アプリは OTel/OpenCensus 計装済み。
 #     トレースは otel-collector の datadog exporter から送る(次段階)
+#
+# Akamai Cloud Pulse (dbaas / nodebalancer) は自作 check
+# (ymori-aka/datadog-akamai-cloud-pulse) を cluster check で 1 か所だけ実行する。
+#   - nodeAgent は check 同梱イメージ(ghcr.io の公開パッケージ、main ブランチ版)
+#   - PAT は Secret cloud-pulse/pat(ACLP_PAT と同じ無期限 read-only トークン)を
+#     secret backend 経由で読む。Agent に渡すのは datadog NS のこの Secret だけ
 kind: DatadogAgent
 apiVersion: datadoghq.com/v2alpha1
 metadata:
@@ -18,6 +24,13 @@ spec:
   global:
     clusterName: lke-tokyo-610031
     site: ap1.datadoghq.com
+    secretBackend:
+      command: /readsecret_multiple_providers.sh
+      enableGlobalPermissions: false
+      roles:
+        - namespace: datadog
+          secrets:
+            - cloud-pulse
     credentials:
       apiSecret:
         secretName: datadog-secret
@@ -39,6 +52,9 @@ spec:
   override:
     # ノードのメモリ実使用が最大 76% (2026-09-16) なので requests/limits を明示
     nodeAgent:
+      image:
+        name: ghcr.io/ymori-aka/datadog-agent-akamai-cloud-pulse:main
+        pullPolicy: Always
       containers:
         agent:
           resources:
@@ -46,6 +62,18 @@ spec:
             limits: { cpu: 500m, memory: 512Mi }
     clusterAgent:
       replicas: 1
+      extraConfd:
+        configDataMap:
+          akamai_cloud_pulse.yaml: |-
+            cluster_check: true
+            init_config:
+            instances:
+              - personal_access_token: ENC[k8s_secret@datadog/cloud-pulse/pat]
+                min_collection_interval: 60
+                empty_default_hostname: true
+                services:
+                  - service_type: dbaas
+                  - service_type: nodebalancer
       containers:
         cluster-agent:
           resources:

@@ -29,6 +29,9 @@ jobs:
             | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
           chmod 600 "$KC"
           echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+          # GITHUB_ENV は次のステップから有効。このステップ内は明示しないと
+          # runner 既定の(削除済み Osaka の)kubeconfig を見に行く。
+          export KUBECONFIG="$KC"
           kubectl get nodes
 
       - name: Install Datadog Operator
@@ -52,6 +55,15 @@ jobs:
             --from-literal=api-key="${DD_API_KEY}" \
             --dry-run=client -o yaml | kubectl apply -n datadog -f -
 
+      - name: Cloud Pulse PAT Secret
+        env:
+          ACLP_PAT: ${{ secrets.ACLP_PAT }}
+        run: |
+          set -e
+          kubectl create secret generic cloud-pulse \
+            --from-literal=pat="${ACLP_PAT}" \
+            --dry-run=client -o yaml | kubectl apply -n datadog -f -
+
       - name: Apply DatadogAgent
         run: |
           set -e
@@ -73,5 +85,13 @@ jobs:
           P=$(kubectl -n datadog get pods -l agent.datadoghq.com/component=agent -o name | head -1)
           kubectl -n datadog exec "$P" -c agent -- agent status 2>&1 \
             | grep -iE 'API key|Forwarder|Logs Agent|kubelet|x509|certificate|Error' | head -40
+          echo "===== cluster checks ====="
+          C=$(kubectl -n datadog get pods -l agent.datadoghq.com/component=cluster-agent -o name | head -1)
+          kubectl -n datadog exec "$C" -- datadog-cluster-agent clusterchecks 2>&1 | head -30
+          echo "===== akamai_cloud_pulse ====="
+          for P in $(kubectl -n datadog get pods -l agent.datadoghq.com/component=agent -o name); do
+            kubectl -n datadog exec "$P" -c agent -- agent status 2>&1 \
+              | grep -A12 'akamai_cloud_pulse' | head -14
+          done
           echo "===== node memory ====="
           kubectl top nodes
