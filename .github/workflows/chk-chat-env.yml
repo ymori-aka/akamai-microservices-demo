@@ -1,0 +1,53 @@
+name: chk-chat-env
+
+# Read-only. Why the /bot endpoint answers
+# "[DEBUG] No chat backend configured": the handler needs one of
+# ZUPLO_CHAT_ADDR / SHOPPING_ASSISTANT_KONG_ADDR / SHOPPING_ASSISTANT_SERVICE_ADDR
+# and reads them from the *pod's* environment, so the Deployment spec alone
+# does not settle it. Dumps the running pods' env and image next to the
+# Deployment's, then calls /bot on each pod IP so a single bad replica shows up.
+#
+# The runner's default kubeconfig still points at the deleted Osaka cluster, so
+# every step here fetches the Tokyo kubeconfig explicitly.
+
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: dump chat backend env
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          echo "===== Deployment spec: chat env ====="
+          kubectl get deploy frontend -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' \
+            | grep -iE 'ASSISTANT|ZUPLO|KONG|ENABLE' || echo "(none)"
+
+          echo "===== Deployment image ====="
+          kubectl get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+
+          echo "===== ReplicaSets ====="
+          kubectl get rs -l app=frontend --sort-by=.metadata.creationTimestamp -o wide | tail -5
+
+          echo "===== per-pod image + live env (this is what the handler reads) ====="
+          for P in $(kubectl get pod -l app=frontend -o name); do
+            echo "--- $P"
+            kubectl get "$P" -o jsonpath='{.spec.containers[0].image}{"  started="}{.status.startTime}{"\n"}'
+            kubectl exec "$P" -c server -- env 2>/dev/null | grep -iE 'ASSISTANT|ZUPLO|KONG|ENABLE' || echo "  (exec failed or no matching env)"
+          done
+
+          echo "===== /bot on each pod IP (empty backend = default lane) ====="
+          for IP in $(kubectl get pod -l app=frontend -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}'); do
+            echo "--- pod $IP"
+            kubectl run curl-probe-$RANDOM --rm -i --restart=Never --image=curlimages/curl:8.10.1 --timeout=60s -- \
+              curl -s -m 45 -X POST "http://$IP:8080/bot" -H 'Content-Type: application/json' \
+              -d '{"message":"hi","history":[]}' 2>/dev/null | head -c 300
+            echo ""
+          done
