@@ -6,7 +6,7 @@ name: chk-gateway-headers
 # 落としている)かを切り分けるため。アプリの API キーは k8s secret
 # zuplo-chat-credentials から読み、ログには出さない。
 
-on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true }, prompt: { default: "", required: false } } } }
 
 jobs:
   c:
@@ -29,7 +29,12 @@ jobs:
           echo "gateway = $URL"
           echo "model   = $MODEL"
 
-          BODY=$(python3 -c "import json,random; p='ECサイトの在庫管理と決済を別サービスに分ける構成を設計してください (%d)' % random.randint(1000,9999); print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':p}],'max_tokens':64,'temperature':0}))")
+          # セマンティックキャッシュは body でキーを作るので、文面が似ていると
+          # HIT して Smart Router まで到達しない(= x-ai-* が出ない)。切り分けでは
+          # 毎回まったく違う話題を渡すこと。prompt 未指定なら乱数入りの既定文。
+          PROMPT='${{ inputs.prompt }}'
+          BODY=$(PROMPT="$PROMPT" python3 -c "import json,os,random; p=os.environ['PROMPT'] or ('全く新しい話題%d: 倉庫の温度管理とアラート設計について、複数拠点をまたぐ構成を提案して' % random.randint(100000,999999)); print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':p}],'max_tokens':64,'temperature':0}))")
+          echo "prompt  = $(echo "$BODY" | head -c 200)"
           echo "===== レスポンスヘッダ(x-ai-* / cache) ====="
           curl -s -D - -o /tmp/gw-body.json -m 120 "$URL/v1/chat/completions" \
             -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
