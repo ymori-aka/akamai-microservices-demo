@@ -406,6 +406,11 @@ jobs:
           IMAGE_TAG="ghcr.io/ymori-aka/frontend:sha-$(echo ${{ github.sha }} | cut -c1-7)"
           kubectl apply -f kubernetes-manifests/frontend.yaml
           kubectl set image deployment/frontend server=${IMAGE_TAG}
+          # canary も同じ sha に合わせる。canary は app=frontend ラベルで
+          # frontend-external のエンドポイントに入るため、古いイメージのままだと
+          # 一部のリクエストだけ挙動が違う(2026-09-18 に routing/cache が
+          # canary 経由のときだけ返らなかった)。存在しない環境もあるので失敗は無視。
+          kubectl set image deployment/frontend-canary server=${IMAGE_TAG} 2>/dev/null || true
           kubectl rollout status deployment/frontend --timeout=300s || {
             echo "frontend rollout failed — dumping pod state for diagnostics"
             kubectl get pod -l app=frontend
