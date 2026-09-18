@@ -29,11 +29,7 @@ jobs:
           echo "gateway = $URL"
           echo "model   = $MODEL"
 
-          BODY=$(python3 -c "
-import json,random
-p='ECサイトの在庫管理と決済を別サービスに分ける構成を設計してください (%d)' % random.randint(1000,9999)
-print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':p}],'max_tokens':64,'temperature':0}))
-")
+          BODY=$(python3 -c "import json,random; p='ECサイトの在庫管理と決済を別サービスに分ける構成を設計してください (%d)' % random.randint(1000,9999); print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':p}],'max_tokens':64,'temperature':0}))")
           echo "===== レスポンスヘッダ(x-ai-* / cache) ====="
           curl -s -D - -o /tmp/gw-body.json -m 120 "$URL/v1/chat/completions" \
             -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
