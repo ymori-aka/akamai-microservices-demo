@@ -1,0 +1,43 @@
+name: chk-gateway-headers
+
+# Read-only. Zuplo AI Gateway を直接叩いて x-ai-* / Cache-Status ヘッダを見る。
+# ストアの UI に routing(high/medium/low とモデル)が出なくなったとき、
+# 犯人がゲートウェイ側(Smart Router が動いていない)か、ストア側(ヘッダを
+# 落としている)かを切り分けるため。アプリの API キーは k8s secret
+# zuplo-chat-credentials から読み、ログには出さない。
+
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+
+jobs:
+  c:
+    runs-on: self-hosted
+    steps:
+      - name: call gateway, dump headers
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          KEY=$(kubectl get secret zuplo-chat-credentials -o jsonpath='{.data.api-key}' | base64 -d)
+          URL=$(kubectl get deploy frontend -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="ZUPLO_CHAT_ADDR")]}{.value}{end}')
+          MODEL=$(kubectl get deploy frontend -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="ZUPLO_CHAT_MODEL")]}{.value}{end}')
+          [ -z "$MODEL" ] && MODEL="gemma4/google_gemma-4-26B-A4B-it-Q4_K_M.gguf"
+          echo "gateway = $URL"
+          echo "model   = $MODEL"
+
+          BODY=$(python3 -c "
+import json,random
+p='ECサイトの在庫管理と決済を別サービスに分ける構成を設計してください (%d)' % random.randint(1000,9999)
+print(json.dumps({'model':'$MODEL','messages':[{'role':'user','content':p}],'max_tokens':64,'temperature':0}))
+")
+          echo "===== レスポンスヘッダ(x-ai-* / cache) ====="
+          curl -s -D - -o /tmp/gw-body.json -m 120 "$URL/v1/chat/completions" \
+            -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+            -d "$BODY" | grep -iE '^HTTP/|^x-ai|^cache-status|^x-zuplo' || echo "(該当ヘッダなし)"
+
+          echo "===== ボディ先頭 ====="
+          head -c 400 /tmp/gw-body.json; echo ""
