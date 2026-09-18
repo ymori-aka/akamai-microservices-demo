@@ -61,18 +61,23 @@ router
           'llm.endpoint': 'ec-chat-main-c4d1d89.zuplo.app',
           'llm.model': MODEL,
         }, async (llmSpan) => {
-          // Cache-buster: the Zuplo AI Gateway was caching completions with a
-          // body-insensitive key, so every chat returned the first cached
-          // answer (and the Firewall-for-AI block appeared bypassed). Force a
-          // cache miss per request via a unique query param + no-cache headers
-          // so each prompt gets a fresh completion.
-          const nocache = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          const response = await fetch(`${LLM_ENDPOINT}/v1/chat/completions?nocache=${nocache}`, {
+          // The gateway used to cache completions with a body-insensitive key
+          // (semanticTolerance was 0.4, i.e. anything above 0.6 similarity hit),
+          // so every chat returned the first cached answer and the
+          // Firewall-for-AI block appeared bypassed. That is fixed on the
+          // gateway side, so the semantic cache is now left enabled and its
+          // outcome is surfaced in the UI. Send `"nocache": true` in the body
+          // to force a fresh completion for a particular request.
+          const bustCache = body.nocache === true;
+          const url = bustCache
+            ? `${LLM_ENDPOINT}/v1/chat/completions?nocache=${Date.now()}-${Math.random().toString(36).slice(2)}`
+            : `${LLM_ENDPOINT}/v1/chat/completions`;
+          const response = await fetch(url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${ZUPLO_API_KEY}`,
-              'Cache-Control': 'no-cache, no-store',
+              ...(bustCache ? { 'Cache-Control': 'no-cache, no-store' } : {}),
             },
             body: JSON.stringify({
               model: MODEL,
@@ -136,8 +141,28 @@ router
             llmSpan.setAttr('llm.routed.model', routing.model ?? '');
           }
 
+          // Semantic cache outcome (RFC 9211 Cache-Status plus Zuplo's own
+          // headers). A HIT means no GPU produced this answer, so the UI shows
+          // it explicitly rather than letting a cached reply look like a fresh
+          // generation.
+          const cacheState = h.get('x-ai-gateway-cache');
+          const cache = cacheState
+            ? {
+                state: cacheState.toUpperCase(),
+                similarity: Number(h.get('x-ai-gateway-cache-similarity')),
+                status: h.get('cache-status'),
+              }
+            : null;
+          if (cache) {
+            llmSpan.setAttr('llm.cache.state', cache.state);
+            if (isFinite(cache.similarity)) llmSpan.setAttr('llm.cache.similarity', cache.similarity);
+            tracer.recordCounter('spin_llm_cache_total', 1, {
+              service: SERVICE, model: MODEL, state: cache.state,
+            });
+          }
+
           const content: string = data.choices?.[0]?.message?.content ?? '';
-          return json({ message: content.trim(), routing });
+          return json({ message: content.trim(), routing, cache });
         }, parentId);
       } catch (e) {
         console.error(`Error calling LLM: ${e}`);
