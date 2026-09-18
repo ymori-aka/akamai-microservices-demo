@@ -780,6 +780,45 @@ func routingFromHeaders(h http.Header, servedModel string) json.RawMessage {
 	return b
 }
 
+// metaFromResponse collects the per-request numbers the assistant UI shows next
+// to an answer: HTTP status, wall time, token usage, why generation stopped and
+// whether the gateway's semantic cache served it. The cache fields come from
+// Zuplo's x-ai-gateway-cache / x-ai-gateway-cache-similarity headers (it also
+// sets RFC 9211 Cache-Status). A cache HIT means no GPU ran for this prompt, so
+// it must be visible rather than looking like a fresh generation.
+func metaFromResponse(h http.Header, status int, elapsed time.Duration, usage chatUsage, finish string) json.RawMessage {
+	m := map[string]any{
+		"status":   status,
+		"total_ms": elapsed.Milliseconds(),
+	}
+	if finish != "" {
+		m["finish"] = finish
+	}
+	if usage.TotalTokens > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0 {
+		m["tokens_in"] = usage.PromptTokens
+		m["tokens_out"] = usage.CompletionTokens
+		m["tokens_total"] = usage.TotalTokens
+	}
+	if c := h.Get("x-ai-gateway-cache"); c != "" {
+		m["cache"] = strings.ToUpper(c)
+		if sim, err := strconv.ParseFloat(h.Get("x-ai-gateway-cache-similarity"), 64); err == nil {
+			m["cache_similarity"] = sim
+		}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// chatUsage is the OpenAI usage block; the Spin lane forwards the same numbers.
+type chatUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request) {
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 
@@ -795,6 +834,9 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		// Backend selects which gateway to call: "zuplo" (default, current
 		// Akamai Functions/Zuplo path) or "kong" (Kong AI Gateway, when set).
 		Backend string `json:"backend"`
+		// NoCache bypasses the gateway's semantic cache for this one request
+		// (demo: show that the same prompt really is regenerated).
+		NoCache bool `json:"nocache"`
 	}
 	var req IncomingReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1008,12 +1050,18 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		if k := os.Getenv("ZUPLO_CHAT_API_KEY"); k != "" {
 			spinReq.Header.Set("Authorization", "Bearer "+k)
 		}
-		// The gateway's semantic cache keys on more than the body, so without a
-		// unique param every prompt can come back with the first cached answer.
-		q := spinReq.URL.Query()
-		q.Set("nocache", fmt.Sprintf("%d", time.Now().UnixNano()))
-		spinReq.URL.RawQuery = q.Encode()
-		spinReq.Header.Set("Cache-Control", "no-cache, no-store")
+		// The gateway's semantic cache used to key on more than the body
+		// (semanticTolerance 0.4 matched anything above 0.6 similarity), so
+		// every prompt came back with the first cached answer and this lane
+		// busted the cache on every request. That is fixed gateway-side, so the
+		// cache is left working and its outcome is reported in the UI. Send
+		// "nocache": true in the /bot body to force a fresh completion.
+		if req.NoCache {
+			q := spinReq.URL.Query()
+			q.Set("nocache", fmt.Sprintf("%d", time.Now().UnixNano()))
+			spinReq.URL.RawQuery = q.Encode()
+			spinReq.Header.Set("Cache-Control", "no-cache, no-store")
+		}
 	}
 
 	// Wrap the transport with otelhttp so the outgoing call to the
@@ -1026,6 +1074,7 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		}),
 		Timeout: 60 * time.Second,
 	}
+	callStart := time.Now()
 	spinResp, err := spinClient.Do(spinReq)
 	if err != nil {
 		log.WithError(err).Error("chatbot: failed to call assistant service")
@@ -1044,6 +1093,8 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	// Kept as RawMessage so the frontend gets whatever the gateway reported
 	// without this handler having to track the shape.
 	var routing json.RawMessage
+	// Per-request numbers for the UI (status, wall time, tokens, cache).
+	var meta json.RawMessage
 	switch backendLabel {
 	case "direct":
 		// Same OpenAI shape as Kong, but the Smart Router classification is on
@@ -1054,8 +1105,10 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 				Message struct {
 					Content string `json:"content"`
 				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
-			Model string `json:"model"`
+			Model string    `json:"model"`
+			Usage chatUsage `json:"usage"`
 			Error *struct {
 				Message string `json:"message"`
 			} `json:"error"`
@@ -1082,6 +1135,11 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		routing = routingFromHeaders(spinResp.Header, oai.Model)
+		finish := ""
+		if len(oai.Choices) > 0 {
+			finish = oai.Choices[0].FinishReason
+		}
+		meta = metaFromResponse(spinResp.Header, spinResp.StatusCode, time.Since(callStart), oai.Usage, finish)
 	case "kong":
 		// OpenAI chat-completions shape returned by Kong ai-proxy.
 		var oai struct {
@@ -1114,6 +1172,11 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		var spinResult struct {
 			Message string          `json:"message"`
 			Routing json.RawMessage `json:"routing"`
+			Cache   *struct {
+				State      string  `json:"state"`
+				Similarity float64 `json:"similarity"`
+			} `json:"cache"`
+			Usage chatUsage `json:"usage"`
 		}
 		if err := json.Unmarshal(respBody, &spinResult); err != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -1122,6 +1185,14 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		}
 		reply = spinResult.Message
 		routing = spinResult.Routing
+		// The Spin function talks to the gateway itself, so the cache headers
+		// are only visible to it; it forwards them in the body.
+		spinHdr := http.Header{}
+		if spinResult.Cache != nil {
+			spinHdr.Set("x-ai-gateway-cache", spinResult.Cache.State)
+			spinHdr.Set("x-ai-gateway-cache-similarity", strconv.FormatFloat(spinResult.Cache.Similarity, 'f', -1, 64))
+		}
+		meta = metaFromResponse(spinHdr, spinResp.StatusCode, time.Since(callStart), spinResult.Usage, "")
 		if reply == "" {
 			reply = fmt.Sprintf("[DEBUG] empty reply | status=%d body=%s", spinResp.StatusCode, string(respBody))
 		}
@@ -1131,6 +1202,9 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	out := map[string]any{"message": reply}
 	if len(routing) > 0 && string(routing) != "null" {
 		out["routing"] = routing
+	}
+	if len(meta) > 0 && string(meta) != "null" {
+		out["meta"] = meta
 	}
 	json.NewEncoder(w).Encode(out)
 }

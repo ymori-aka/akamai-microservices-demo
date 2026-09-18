@@ -61,10 +61,14 @@ spec:
               drop: [ALL]
             privileged: false
             readOnlyRootFilesystem: true
-          # Uses the same latest image as stable.
-          # Replace with a different tag to test a real new version:
-          #   image: ghcr.io/ymori-aka/frontend:sha-<canary-sha>
-          image: ghcr.io/ymori-aka/frontend:latest
+          # ⚠️ :latest は stable と同じものとは限らない。deploy.yml は stable を
+          # sha タグ(frontend:sha-<7桁>)で更新する一方、:latest は別に押される
+          # ため、canary だけ数世代古いイメージで動いてしまう。実際 2026-09-18 に
+          # canary だけ routing / cache のフィールドを返さず、デモの表示が
+          # リクエストごとにばらついた。トラフィックの一部を受ける以上、
+          # stable と同じ sha に固定する。本物の新バージョンを試すときだけ
+          # 別の sha に差し替える。
+          image: ghcr.io/ymori-aka/frontend:sha-d92937b
           ports:
             - containerPort: 8080
           readinessProbe:

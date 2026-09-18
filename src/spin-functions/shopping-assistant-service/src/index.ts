@@ -162,7 +162,10 @@ router
           }
 
           const content: string = data.choices?.[0]?.message?.content ?? '';
-          return json({ message: content.trim(), routing, cache });
+          // The frontend renders these next to the answer (tokens / finish
+          // reason / cache), so forward what the gateway reported.
+          const finish = data.choices?.[0]?.finish_reason ?? null;
+          return json({ message: content.trim(), routing, cache, usage, finish });
         }, parentId);
       } catch (e) {
         console.error(`Error calling LLM: ${e}`);

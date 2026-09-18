@@ -246,6 +246,9 @@
 .routing-pill-skip   { background: #eceff4; color: #667; }
 .routing-pill-cache-hit  { background: #e5eefb; color: #2b5797; }
 .routing-pill-cache-miss { background: #f2f4f7; color: #55606e; }
+.routing-pill-meta       { background: #f2f4f7; color: #55606e; }
+.routing-pill-status-ok  { background: #e5f3ff; color: #1f5d8f; }
+.routing-pill-status-err { background: #fbe4e4; color: #9c3535; }
 
 .demo-prompts {
   position: absolute;
@@ -421,8 +424,8 @@
   // Shows what the AI Gateway's Smart Router decided for this prompt. The data
   // comes from the gateway's x-ai-* response headers via the Spin function, so
   // it is absent on the Kong lane and whenever Smart Router did not run.
-  function renderRoutingBadge(p, routing, cache) {
-    if ((!routing || !routing.complexity) && !cache) return;
+  function renderRoutingBadge(p, routing, cache, meta) {
+    if ((!routing || !routing.complexity) && !cache && !meta) return;
 
     var wrap = document.createElement("div");
     wrap.classList.add("routing-badge");
@@ -446,12 +449,29 @@
     // Semantic cache: a HIT means the gateway replayed a stored answer and no
     // GPU ran for this prompt. Show it so a cached reply is never mistaken for
     // a fresh generation during a demo.
+    // The direct lane reports the cache on meta; the Spin lane on cache.
+    if (!cache && meta && meta.cache) {
+      cache = { state: meta.cache, similarity: meta.cache_similarity };
+    }
     if (cache && cache.state === "HIT") {
       var hitLabel = LANG === "ja" ? "キャッシュ" : "cache hit";
       if (isFinite(cache.similarity)) hitLabel += " " + cache.similarity.toFixed(2);
       pill(hitLabel, "routing-pill-cache-hit");
     } else if (cache && cache.state === "MISS") {
       pill(LANG === "ja" ? "新規生成" : "generated", "routing-pill-cache-miss");
+    }
+    // Per-request numbers: HTTP status, wall time, tokens and why generation
+    // stopped. "first token" is deliberately absent — measuring it needs a
+    // streaming response, and /bot returns the completion in one piece.
+    if (meta) {
+      if (isFinite(meta.status)) {
+        pill(String(meta.status), meta.status === 200 ? "routing-pill-status-ok" : "routing-pill-status-err");
+      }
+      if (isFinite(meta.total_ms)) pill("total " + meta.total_ms + " ms", "routing-pill-meta");
+      if (isFinite(meta.tokens_total) && meta.tokens_total > 0) {
+        pill("tokens " + meta.tokens_in + " in / " + meta.tokens_out + " out / " + meta.tokens_total + " total", "routing-pill-meta");
+      }
+      if (meta.finish) pill("finish: " + meta.finish, "routing-pill-meta");
     }
     // routing.applied is false when confidence was below the threshold or the
     // intent was unknown — the prompt then stays on the caller's model.
@@ -562,7 +582,7 @@
       var displayReply = reply.replace(/\[[A-Z0-9]{6,8}\]/g, "").trim();
       loading.span.innerText = displayReply;
       loading.p.classList.remove("bot-message-loading");
-      renderRoutingBadge(loading.p, data.routing, data.cache);
+      renderRoutingBadge(loading.p, data.routing, data.cache, data.meta);
 
       // Render product cards
       var ids = extractProductIds(reply);
