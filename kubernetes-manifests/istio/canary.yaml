@@ -90,6 +90,23 @@ spec:
               value: "checkoutservice:5050"
             - name: AD_SERVICE_ADDR
               value: "adservice:9555"
+            # チャットのバックエンド。これが無いと /bot が
+            # "[DEBUG] No chat backend configured" を返す。canary は
+            # frontend-external の Service セレクタ(app=frontend)に入るので、
+            # env を欠いたままだとチャットの一部リクエストだけが失敗する。
+            # 値は kubernetes-manifests/frontend.yaml と揃えること。
+            - name: ENABLE_ASSISTANT
+              value: "true"
+            - name: SHOPPING_ASSISTANT_SERVICE_ADDR
+              value: "https://82aa5f47-2d62-42f0-b54d-146b51bf5904.fwf.app"
+            - name: ZUPLO_CHAT_ADDR
+              value: "https://ec-chat-main-c4d1d89.zuplo.app/config_3114835392f54da99555e30c95cd15a6"
+            - name: ZUPLO_CHAT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zuplo-chat-credentials
+                  key: api-key
+                  optional: true
             - name: ENV_PLATFORM
               value: "akamai"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

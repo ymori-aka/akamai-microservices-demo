@@ -1,0 +1,40 @@
+name: Apply frontend canary (Tokyo)
+
+# kubernetes-manifests/istio/canary.yaml だけを Tokyo クラスタへ適用する。
+# フルデプロイ(deploy.yml)を回さずに canary の env を直したいときに使う。
+# runner の既定 kubeconfig は削除済みの Osaka クラスタを指すので明示取得する。
+
+on: { workflow_dispatch: { inputs: { tokyo_cluster_id: { default: "610031", required: true } } } }
+
+jobs:
+  apply:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: apply + rollout + verify
+        env: { LINODE_PAT: "${{ secrets.LINODE_PAT }}" }
+        run: |
+          set +e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          export KUBECONFIG="$KC"
+
+          kubectl apply -f kubernetes-manifests/istio/canary.yaml
+          kubectl rollout status deploy/frontend-canary --timeout=180s
+
+          echo "===== canary pod の chat env ====="
+          for P in $(kubectl get pod -l version=canary -o name); do
+            echo "--- $P"
+            kubectl get "$P" -o jsonpath='{range .spec.containers[0].env[*]}{.name}{"\n"}{end}' | grep -iE 'ASSISTANT|ZUPLO' || echo "  (none)"
+          done
+
+          echo "===== /bot を全 frontend pod で確認(DEBUG が消えていること) ====="
+          for IP in $(kubectl get pod -l app=frontend -o jsonpath='{range .items[*]}{.status.podIP}{"\n"}{end}'); do
+            echo "--- pod $IP"
+            kubectl run curl-probe-$RANDOM --rm -i --restart=Never --image=curlimages/curl:8.10.1 --timeout=90s -- \
+              curl -s -m 60 -X POST "http://$IP:8080/bot" -H 'Content-Type: application/json' \
+              -d '{"message":"hi","history":[]}' 2>/dev/null | head -c 200
+            echo ""
+          done
