@@ -22,6 +22,12 @@ jobs:
           export KUBECONFIG="$KC"
 
           kubectl apply -f kubernetes-manifests/istio/canary.yaml
+          # canary.yaml に書いた sha はすぐ古くなるので、適用後に stable の
+          # 現行イメージへ揃える。canary は app=frontend でトラフィックの一部を
+          # 受けるため、ここがずれると一部のリクエストだけ古い挙動になる。
+          STABLE_IMG=$(kubectl get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].image}')
+          echo "stable image = $STABLE_IMG"
+          kubectl set image deployment/frontend-canary server="$STABLE_IMG"
           kubectl rollout status deploy/frontend-canary --timeout=180s
 
           echo "===== canary pod の chat env ====="
