@@ -397,7 +397,7 @@
     chip.addEventListener("click", function() {
       if (botInput.disabled) return;
       botInput.value = chip.dataset.prompt || "";
-      sendMessage();
+      sendMessage({ noCache: true });
     });
   });
 
@@ -549,9 +549,13 @@
     botMessages.scrollTop = botMessages.scrollHeight;
   }
 
-  async function sendMessage() {
+  async function sendMessage(opts) {
     var text = botInput.value.trim();
     if (!text) return;
+    // デモのチップは毎回「実際に生成させたい」。同じ文面を繰り返すと
+    // セマンティックキャッシュに当たり、振り分けが起きないので tier の
+    // pill も出ない(キャッシュは Smart Router より手前で返す)。
+    var noCache = !!(opts && opts.noCache);
 
     appendUserMessage(text);
     botInput.value = "";
@@ -570,7 +574,7 @@
       var res = await fetch(BASE_URL + "/bot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG, backend: backend })
+        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG, backend: backend, nocache: noCache })
       });
 
       if (!res.ok) throw new Error("HTTP " + res.status);

@@ -879,6 +879,16 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	systemPrompt := fmt.Sprintf("You are the Akamai Store assistant. Reply in the user's language. "+
 		"When recommending, pick up to 3 items from this catalog and include each [AKMT___] ID. "+
 		"Do not invent items. Catalog: %s", catalogLines.String())
+	// The gateway's semantic cache keys on the system prompt plus the last
+	// message, so a URL parameter cannot bust it (measured: ?nocache= still
+	// hit). A nonce in the system prompt does, and putting it here rather than
+	// in the user's message keeps it out of the transcript and out of the
+	// model's answer. Used by the demo buttons, which must show a real
+	// classification every time — a cache hit returns before Smart Router runs,
+	// so the tier badge would be missing.
+	if req.NoCache {
+		systemPrompt = fmt.Sprintf("%s (req %d)", systemPrompt, time.Now().UnixNano())
+	}
 
 	// --- build OpenAI messages array ---
 	type LLMMessage struct {
