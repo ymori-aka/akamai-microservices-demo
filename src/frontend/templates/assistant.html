@@ -82,14 +82,18 @@
               {{/* high は「アーキテクチャ / 複数システム / セキュリティ / 大きな変更」で付く。
                    注文者の言葉のままでも、複数宛先 × 日時指定 × 支払い分割のように
                    手続きが複数系統にまたがると intent=agentic / complexity=high になる。
-                   この文面は high / confidence 0.90 を実測済み。
+                   この文面は 6 回中 5 回 high(conf 0.3〜0.95)。
+                   ⚠️ 100% にはならない。分類器(Qwen3.5-4B)のサンプリングが揺れるため、
+                   同じ文面でも medium に落ちることがある。確実に固定したいなら分類器を
+                   --temp 0 --top-k 1 で起動すること(ゲートウェイが temperature を
+                   明示送信していなければ効く)。
                    ⚠️ 言い回しに非常に敏感なので、変えたら必ず測り直すこと。実測例:
                      個人情報を渡したくない、匿名配送は?      -> low 0.9 (intent=qa)
                      海外の家族に送りたい、関税や返品は?      -> low 0.9 (intent=qa)
                      返品→再入庫→ポイント返還の流れを設計     -> medium 0.7
                    「プライバシー」や「海外発送」は単発の質問と見なされて high にならない。 */}}
               <button type="button" class="demo-chip demo-chip-pass"
-                data-prompt="{{ if eq $.user_lang "ja" }}誕生日プレゼントを3人分まとめて注文して、それぞれ別の住所に指定日で届けたいです。支払いも分けられますか{{ else }}I want to order birthday gifts for three people in one go, each shipped to a different address on a date I choose. Can the payments be split too?{{ end }}"
+                data-prompt="{{ if eq $.user_lang "ja" }}誕生日プレゼントを3人分、別々の住所に指定日で届けて支払いも分けたいです。さらに領収書は会社宛にして、住所や電話番号は配送業者以外に渡さないようにできますか{{ else }}I want birthday gifts for three people delivered to three addresses on dates I choose, with the payments split. The receipt should be addressed to my company, and my address and phone number must not be shared with anyone but the carrier. Is that possible?{{ end }}"
               >{{ if eq $.user_lang "ja" }}設計相談 (high){{ else }}Architecture (high){{ end }}</button>
             </div>
           </div>

@@ -876,7 +876,13 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 
 	// Short, byte-cheap instruction (English keeps it small even for JA chats;
 	// the model still replies in the user's language).
+	// The chat bubble renders the reply as plain text, so Markdown arrives as
+	// literal "**bold**" and pipe-tables that read as noise on stage. Ask for
+	// plain prose instead. Models drift back to Markdown when the answer is
+	// list-shaped, so the instruction names the specific syntax to avoid.
 	systemPrompt := fmt.Sprintf("You are the Akamai Store assistant. Reply in the user's language. "+
+		"Write plain text only: no Markdown, no tables, no ** bold **, no ## headings, no bullet or numbered list syntax. "+
+		"If you need to enumerate, write short sentences or separate lines instead. "+
 		"When recommending, pick up to 3 items from this catalog and include each [AKMT___] ID. "+
 		"Do not invent items. Catalog: %s", catalogLines.String())
 	// The gateway's semantic cache keys on the system prompt plus the last
