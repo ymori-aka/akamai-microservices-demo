@@ -80,11 +80,14 @@
                 data-prompt="{{ if eq $.user_lang "ja" }}予算2万円以内で、通勤にも週末にも使える組み合わせを3パターン、それぞれ理由も添えて提案してください。{{ else }}Within a 20,000 yen budget, propose three outfit combinations that work for both commuting and weekends, with the reasoning for each.{{ end }}"
               >{{ if eq $.user_lang "ja" }}複合提案 (medium){{ else }}Multi-step (medium){{ end }}</button>
               {{/* high は「アーキテクチャ / 複数システム / セキュリティ / 大きな変更」で付く。
-                   この文面は complexity=high, confidence 0.90 を実測済み。言い回しを
-                   変えると簡単に medium に落ちる("簡潔に"を足しただけで medium になった)
-                   ので、デモ前に変えたなら必ず測り直すこと。 */}}
+                   ストアの運営者目線のままでも、セール時の負荷・在庫・決済の整合という
+                   組み合わせで high になる。この文面は complexity=high, confidence 0.90 を
+                   実測済み。言い回しに敏感で、同じ趣旨でも「返品→再入庫→ポイント返還」は
+                   medium(0.7)、「簡潔に」を足すと medium に落ちた。変えたら必ず測り直すこと。
+                   他に high 0.9 を確認した文面:
+                     会員の個人情報を守りながら複数の配送業者に注文データを連携する仕組みを設計してください */}}
               <button type="button" class="demo-chip demo-chip-pass"
-                data-prompt="{{ if eq $.user_lang "ja" }}複数倉庫の在庫を決済システムと整合させる構成を設計して{{ else }}Design an architecture that keeps inventory across multiple warehouses consistent with the payment system.{{ end }}"
+                data-prompt="{{ if eq $.user_lang "ja" }}ブラックフライデーで注文が10倍になっても在庫と決済がずれない仕組みにしたいです。どう設計すべきですか{{ else }}On Black Friday our orders go up tenfold. How should we design this so stock and payments never drift apart?{{ end }}"
               >{{ if eq $.user_lang "ja" }}設計相談 (high){{ else }}Architecture (high){{ end }}</button>
             </div>
           </div>
