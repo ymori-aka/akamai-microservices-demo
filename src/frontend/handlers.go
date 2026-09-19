@@ -1001,10 +1001,15 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			MaxTokens   int          `json:"max_tokens"`
 			Temperature float64      `json:"temperature"`
 		}
+		// High tier(DeepSeek V4 Flash)は reasoning モデルで、本文の前に思考を
+		// 出す。512 だと思考だけで使い切って本文が途中で切れた(実測: out 512 /
+		// finish=length、思考 1,306 字に対し本文 357 字)。1536 なら同じ質問が
+		// out 808 / finish=stop で完結する。Gemma や gpt-oss は自分で止まるので
+		// 上限を上げても応答が伸びるわけではない。
 		reqBytes, _ = json.Marshal(OpenAIRequest{
 			Model:       model,
 			Messages:    messages,
-			MaxTokens:   512,
+			MaxTokens:   1536,
 			Temperature: 0.7,
 		})
 	case "kong":
