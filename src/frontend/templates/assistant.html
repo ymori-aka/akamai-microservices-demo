@@ -80,14 +80,16 @@
                 data-prompt="{{ if eq $.user_lang "ja" }}予算2万円以内で、通勤にも週末にも使える組み合わせを3パターン、それぞれ理由も添えて提案してください。{{ else }}Within a 20,000 yen budget, propose three outfit combinations that work for both commuting and weekends, with the reasoning for each.{{ end }}"
               >{{ if eq $.user_lang "ja" }}複合提案 (medium){{ else }}Multi-step (medium){{ end }}</button>
               {{/* high は「アーキテクチャ / 複数システム / セキュリティ / 大きな変更」で付く。
-                   ストアの運営者目線のままでも、セール時の負荷・在庫・決済の整合という
-                   組み合わせで high になる。この文面は complexity=high, confidence 0.90 を
-                   実測済み。言い回しに敏感で、同じ趣旨でも「返品→再入庫→ポイント返還」は
-                   medium(0.7)、「簡潔に」を足すと medium に落ちた。変えたら必ず測り直すこと。
-                   他に high 0.9 を確認した文面:
-                     会員の個人情報を守りながら複数の配送業者に注文データを連携する仕組みを設計してください */}}
+                   注文者の言葉のままでも、複数宛先 × 日時指定 × 支払い分割のように
+                   手続きが複数系統にまたがると intent=agentic / complexity=high になる。
+                   この文面は high / confidence 0.90 を実測済み。
+                   ⚠️ 言い回しに非常に敏感なので、変えたら必ず測り直すこと。実測例:
+                     個人情報を渡したくない、匿名配送は?      -> low 0.9 (intent=qa)
+                     海外の家族に送りたい、関税や返品は?      -> low 0.9 (intent=qa)
+                     返品→再入庫→ポイント返還の流れを設計     -> medium 0.7
+                   「プライバシー」や「海外発送」は単発の質問と見なされて high にならない。 */}}
               <button type="button" class="demo-chip demo-chip-pass"
-                data-prompt="{{ if eq $.user_lang "ja" }}ブラックフライデーで注文が10倍になっても在庫と決済がずれない仕組みにしたいです。どう設計すべきですか{{ else }}On Black Friday our orders go up tenfold. How should we design this so stock and payments never drift apart?{{ end }}"
+                data-prompt="{{ if eq $.user_lang "ja" }}誕生日プレゼントを3人分まとめて注文して、それぞれ別の住所に指定日で届けたいです。支払いも分けられますか{{ else }}I want to order birthday gifts for three people in one go, each shipped to a different address on a date I choose. Can the payments be split too?{{ end }}"
               >{{ if eq $.user_lang "ja" }}設計相談 (high){{ else }}Architecture (high){{ end }}</button>
             </div>
           </div>
