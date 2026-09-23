@@ -600,9 +600,17 @@
       var data = await res.json();
       var reply = data.message || "";
 
-      // Update history
-      chatHistory.push({ role: "user",      content: text  });
-      chatHistory.push({ role: "assistant", content: reply });
+      // Update history — but only with turns that went through. Firewall for AI
+      // screens the whole conversation, so a blocked prompt left in the history
+      // got every later request blocked too (a harmless "do you have polo
+      // shirts?" came back 400 right after the bomb demo button). It also made
+      // later blocks report the wrong rule, because the firewall was reacting
+      // to an earlier turn rather than the current prompt.
+      var blocked = data.meta && isFinite(data.meta.status) && data.meta.status !== 200;
+      if (!blocked) {
+        chatHistory.push({ role: "user",      content: text  });
+        chatHistory.push({ role: "assistant", content: reply });
+      }
       // Keep last 4 turns. This used to be 10, but every turn adds prefill and
       // Akamai Functions cuts the request off at ~30s — long conversations were
       // the reliable way to hit that ceiling.
