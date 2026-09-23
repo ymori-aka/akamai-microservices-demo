@@ -885,6 +885,15 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		"If you need to enumerate, write short sentences or separate lines instead. "+
 		"When recommending, pick up to 3 items from this catalog and include each [AKMT___] ID. "+
 		"Do not invent items. Catalog: %s", catalogLines.String())
+	// req.Lang (the UI language) used to be parsed and then ignored, leaving the
+	// reply language entirely to the model's guess from "Reply in the user's
+	// language". State it explicitly: English UI should get English replies even
+	// when the catalog or earlier turns contain Japanese, while a user who types
+	// in another language still gets that language back.
+	uiLang := map[string]string{"en": "English", "ja": "Japanese", "ko": "Korean", "zh": "Chinese"}[req.Lang]
+	if uiLang != "" {
+		systemPrompt += fmt.Sprintf(" The user's interface language is %s. Reply in %s unless the user's latest message is clearly written in another language.", uiLang, uiLang)
+	}
 	// The gateway's semantic cache keys on the system prompt plus the last
 	// message, so a URL parameter cannot bust it (measured: ?nocache= still
 	// hit). A nonce in the system prompt does, and putting it here rather than
@@ -1012,10 +1021,14 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		// finish=length、思考 1,306 字に対し本文 357 字)。1536 なら同じ質問が
 		// out 808 / finish=stop で完結する。Gemma や gpt-oss は自分で止まるので
 		// 上限を上げても応答が伸びるわけではない。
+		// さらに英語の質問では思考がより長く、1536 でも思考だけで使い切って本文が
+		// 空になった(high のデモ文面、finish=length / content 空)。3072 に上げる。
+		// DeepSeek は約175 tok/s なので上限まで出ても 20 秒以内で 60 秒の
+		// タイムアウトには届かない。
 		reqBytes, _ = json.Marshal(OpenAIRequest{
 			Model:       model,
 			Messages:    messages,
-			MaxTokens:   1536,
+			MaxTokens:   3072,
 			Temperature: 0.7,
 		})
 	case "kong":
@@ -1149,8 +1162,21 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			}
 			// A Firewall for AI block lands here as a 400 with the rule in the
 			// message, so surface that rather than a bare debug dump.
+			finishReason := ""
+			if len(oai.Choices) > 0 {
+				finishReason = oai.Choices[0].FinishReason
+			}
 			if msg != "" {
 				reply = msg
+			} else if finishReason == "length" {
+				// A reasoning model spent the whole token budget thinking and
+				// never reached the answer. Say so plainly instead of dumping
+				// the raw response on stage.
+				if req.Lang == "ja" {
+					reply = "回答が長くなりすぎて途中で止まりました。質問を少し絞ってもう一度お試しください。"
+				} else {
+					reply = "The answer ran too long and was cut off before it finished. Please try a narrower question."
+				}
 			} else {
 				reply = fmt.Sprintf("[DEBUG] direct empty reply | status=%d body=%s", spinResp.StatusCode, string(respBody))
 			}
