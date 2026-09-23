@@ -1119,7 +1119,7 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	defer spinResp.Body.Close()
 
 	respBody, _ := io.ReadAll(spinResp.Body)
-	log.Infof("chatbot: assistant response backend=%s status=%d body=%s", backendLabel, spinResp.StatusCode, string(respBody))
+	log.Infof("chatbot: assistant response backend=%s lang=%s status=%d body=%s", backendLabel, req.Lang, spinResp.StatusCode, string(respBody))
 
 	var reply string
 	// Smart Router classification, passed straight through from the Spin

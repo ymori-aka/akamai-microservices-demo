@@ -1,0 +1,25 @@
+name: Smoke test store assistant
+
+# 手動実行用。デモ前(Akamai AI Summit Japan 10/2 など)にチャットの状態を
+# 全 Pod(canary 含む)について確かめる。deploy.yml の smoke-assistant ジョブと
+# 同じスクリプトを使う。赤なら何かが壊れている。
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo-smoke.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+      - name: Check every frontend pod
+        run: bash scripts/smoke-assistant.sh

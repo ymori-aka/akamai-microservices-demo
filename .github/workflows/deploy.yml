@@ -780,6 +780,35 @@ jobs:
   # -------------------------------------------------------
   # Job 3: Build and deploy Spin apps to Akamai Functions
   # -------------------------------------------------------
+  # Every fix to the chat kept "coming back undone" because nothing checked the
+  # result across all pods: frontend-external also sends ~1/3 of traffic to
+  # frontend-canary, which deploy used to reset to a stale image. This job hits
+  # every frontend pod (canary included) in English and Japanese and turns the
+  # run red if any pod answers in the wrong language, returns a [DEBUG] reply,
+  # lacks the meta badges, or runs a different image. It is a separate job so a
+  # failure never skips the remaining deploy steps.
+  smoke-assistant:
+    name: Smoke test store assistant (all pods)
+    runs-on: self-hosted
+    needs: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo-smoke.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/610031/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+      - name: Wait for rollouts
+        run: |
+          kubectl rollout status deploy/frontend --timeout=300s
+          kubectl rollout status deploy/frontend-canary --timeout=300s || true
+      - name: Check every frontend pod
+        run: bash scripts/smoke-assistant.sh
+
   deploy-spin:
     name: Deploy Spin Apps to Akamai Functions
     runs-on: ubuntu-latest
