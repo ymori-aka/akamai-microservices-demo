@@ -456,22 +456,30 @@
       wrap.appendChild(s);
     }
 
+    // The direct lane reports the cache on meta; the Spin lane on cache.
+    if (!cache && meta && meta.cache) {
+      cache = { state: meta.cache, similarity: meta.cache_similarity };
+    }
+    var cacheHit = !!(cache && cache.state === "HIT");
+
     if (routing && routing.complexity) {
       pill(routing.complexity, "routing-pill-" + routing.complexity);
       if (routing.intent) pill(routing.intent);
       if (routing.model) pill(routing.model);
       if (isFinite(routing.confidence)) pill("conf " + routing.confidence.toFixed(2));
       if (isFinite(routing.classify_ms)) pill(routing.classify_ms + "ms");
+    } else if (cacheHit) {
+      // On a cache hit the gateway answers before Smart Router runs, and the
+      // cache stores only the reply body, not the x-ai-* headers. So there is
+      // no tier / model for this request — say so, in the slot where the tier
+      // would be, instead of leaving the row looking broken.
+      pill(LANG === "ja" ? "分類なし（キャッシュ）" : "not classified (cached)", "routing-pill-skip");
     }
 
     // Semantic cache: a HIT means the gateway replayed a stored answer and no
     // GPU ran for this prompt. Show it so a cached reply is never mistaken for
     // a fresh generation during a demo.
-    // The direct lane reports the cache on meta; the Spin lane on cache.
-    if (!cache && meta && meta.cache) {
-      cache = { state: meta.cache, similarity: meta.cache_similarity };
-    }
-    if (cache && cache.state === "HIT") {
+    if (cacheHit) {
       var hitLabel = LANG === "ja" ? "キャッシュ" : "cache hit";
       if (isFinite(cache.similarity)) hitLabel += " " + cache.similarity.toFixed(2);
       pill(hitLabel, "routing-pill-cache-hit");
