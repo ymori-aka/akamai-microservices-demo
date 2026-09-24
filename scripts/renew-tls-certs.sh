@@ -37,15 +37,16 @@ days_left() { # days_left HOST PORT SNI → 残り日数(取れなければ -1)
 }
 
 echo "== certbot を準備 =="
-# runner に python3-venv が無い場合は --target 方式にフォールバックする
-if python3 -m venv "$WORK/venv" 2>/dev/null; then
-  "$WORK/venv/bin/pip" install -q --upgrade pip certbot dnspython
-  PYBIN="$WORK/venv/bin/python"; CERTBOT="$WORK/venv/bin/certbot"
-else
-  python3 -m pip install -q --target "$WORK/pylib" certbot dnspython
-  export PYTHONPATH="$WORK/pylib"
-  PYBIN=python3; CERTBOT="python3 -m certbot"
-fi
+# self-hosted runner(mgmt-server)には python3-venv(ensurepip)が無い。共有の
+# runner にパッケージを足さずに済むよう、pip 無しで venv を作り、PyPA 公式の
+# get-pip.py で pip を入れる。
+rm -rf "$WORK/venv"
+python3 -m venv --without-pip "$WORK/venv"
+curl -fsSL https://bootstrap.pypa.io/get-pip.py -o "$WORK/get-pip.py"
+"$WORK/venv/bin/python" "$WORK/get-pip.py" -q
+rm -f "$WORK/get-pip.py"
+"$WORK/venv/bin/python" -m pip install -q certbot dnspython
+PYBIN="$WORK/venv/bin/python"; CERTBOT="$WORK/venv/bin/certbot"
 
 # DNS-01 フック: TXT を作成し、Linode の権威 NS に出るまで待つ / 後片付けで削除
 cat > "$WORK/auth.sh" <<EOF
