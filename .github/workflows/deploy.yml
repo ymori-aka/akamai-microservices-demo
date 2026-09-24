@@ -542,6 +542,13 @@ jobs:
             --from-literal=token="${{ secrets.OTEL_BEARER_TOKEN }}" \
             --dry-run=client -o yaml \
             | kubectl apply -n monitoring -f -
+          # GPU inference hosts' OTLP receiver (:4320) has its own token. Skipped when
+          # the GitHub secret is empty, so an empty token is never accepted.
+          if [ -n "${{ secrets.OTEL_GPU_BEARER_TOKEN }}" ]; then
+            kubectl create secret generic otel-gpu-bearer-token \
+              --from-literal=token="${{ secrets.OTEL_GPU_BEARER_TOKEN }}" \
+              --dry-run=client -o yaml | kubectl apply -n monitoring -f -
+          fi
 
           # otel-collector の datadog exporter 用 (Secret が無いと新 Pod は起動しない)
           kubectl create secret generic datadog-api-key \

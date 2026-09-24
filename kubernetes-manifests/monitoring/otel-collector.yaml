@@ -21,6 +21,11 @@ data:
       bearertokenauth:
         scheme: "Bearer"
         token: "${env:OTEL_BEARER_TOKEN}"
+      # Separate token for the GPU inference hosts (us-sea), so they never hold
+      # the token the Spin apps use and either can be rotated alone.
+      bearertokenauth/gpu:
+        scheme: "Bearer"
+        token: "${env:OTEL_GPU_BEARER_TOKEN}"
 
     receivers:
       # Internal cluster receiver — no auth, ClusterIP only.
@@ -39,6 +44,15 @@ data:
             endpoint: "0.0.0.0:4319"
             auth:
               authenticator: bearertokenauth
+
+      # Public receiver for the GPU inference hosts: an otelcol on each host
+      # scrapes llama-server /metrics and forwards Laya's traces here.
+      otlp/gpu:
+        protocols:
+          http:
+            endpoint: "0.0.0.0:4320"
+            auth:
+              authenticator: bearertokenauth/gpu
 
       # OpenCensus receiver — the custom ymori-aka app images (frontend,
       # cartservice, currencyservice, productcatalogservice, checkoutservice)
@@ -91,11 +105,38 @@ data:
         send_batch_size: 100
         send_batch_max_size: 500
         timeout: 10s
+      # Keeps only the store assistant's gateway spans (set in the frontend's
+      # /bot handler) for the spanmetrics connector below.
+      filter/assistant_spans:
+        error_mode: ignore
+        traces:
+          span:
+            - 'not IsMatch(name, "^(assistant\\.gateway|ai_gateway\\.classify)$")'
 
     connectors:
       # 0.101.0 の datadog exporter は APM stats を計算しないため connector で計算する
       # (traces -> metrics。出力は datadog exporter 専用パイプラインにだけ流す)
       datadog/connector:
+      # Latency histograms + call counts for the store assistant, split by
+      # classifier (router), tier, served model, cache and outcome. The
+      # assistant.gateway span is the whole gateway call; ai_gateway.classify
+      # is derived from the gateway's x-ai-classify-ms header. Exported to
+      # Prometheus as boutique_assistant_* and to Datadog as assistant.*.
+      spanmetrics/assistant:
+        namespace: assistant
+        histogram:
+          unit: ms
+          explicit:
+            buckets: [50ms, 100ms, 250ms, 500ms, 1s, 1500ms, 2s, 3s, 5s, 8s, 13s, 20s, 30s, 45s, 60s]
+        dimensions:
+          - name: ai_gateway.router
+          - name: ai_gateway.complexity
+          - name: gen_ai.response.model
+          - name: ai_gateway.cache
+          - name: ai_gateway.outcome
+          - name: chat.lang
+        exclude_dimensions: [span.kind]
+        metrics_flush_interval: 15s
 
     exporters:
       # Exposes metrics at :8889/metrics for Prometheus to scrape
@@ -128,28 +169,41 @@ data:
           enabled: false
 
     service:
-      extensions: [bearertokenauth]
+      extensions: [bearertokenauth, bearertokenauth/gpu]
       pipelines:
         metrics:
-          receivers: [otlp, otlp/public]
+          receivers: [otlp, otlp/public, otlp/gpu]
           processors: [memory_limiter, batch]
           exporters: [prometheus]
         traces:
-          receivers: [otlp, otlp/public, opencensus]
+          receivers: [otlp, otlp/public, otlp/gpu, opencensus]
           processors: [memory_limiter, batch]
           exporters: [otlp/tempo]
         logs:
-          receivers: [otlp, otlp/public]
+          receivers: [otlp, otlp/public, otlp/gpu]
           processors: [memory_limiter, batch]
           exporters: [loki]
         # ---- Datadog 向け(既存パイプラインとは独立。同じ receiver から fan-out) ----
         traces/datadog:
-          receivers: [otlp, otlp/public, opencensus]
+          receivers: [otlp, otlp/public, otlp/gpu, opencensus]
           processors: [memory_limiter, k8sattributes/datadog, transform/datadog_host, resource/datadog, batch/datadog]
           exporters: [datadog/connector, datadog]
         metrics/datadog:
-          receivers: [otlp, otlp/public]
+          receivers: [otlp, otlp/public, otlp/gpu]
           processors: [memory_limiter, k8sattributes/datadog, transform/datadog_host, resource/datadog, batch/datadog]
+          exporters: [datadog]
+        # store assistant の spanmetrics (frontend の span だけを入力にする)
+        traces/assistant_metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, filter/assistant_spans]
+          exporters: [spanmetrics/assistant]
+        metrics/assistant:
+          receivers: [spanmetrics/assistant]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+        metrics/assistant_datadog:
+          receivers: [spanmetrics/assistant]
+          processors: [memory_limiter, transform/datadog_host, resource/datadog, batch/datadog]
           exporters: [datadog]
         # connector が出す APM stats はスパン側のホスト名を引き継ぐので加工しない
         metrics/datadog_apm_stats:
@@ -157,7 +211,7 @@ data:
           processors: [memory_limiter, batch/datadog]
           exporters: [datadog]
         logs/datadog:
-          receivers: [otlp, otlp/public]
+          receivers: [otlp, otlp/public, otlp/gpu]
           processors: [memory_limiter, k8sattributes/datadog, transform/datadog_host, resource/datadog, batch/datadog]
           exporters: [datadog]
 ---
@@ -220,6 +274,11 @@ spec:
                 secretKeyRef:
                   name: otel-bearer-token
                   key: token
+            - name: OTEL_GPU_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: otel-gpu-bearer-token
+                  key: token
             # optional にしない: Secret が無いときは新 Pod が起動せず、旧 Pod が
             # 動き続ける(空キーで exporter が起動失敗→Tempo/Loki まで止まるのを防ぐ)
             - name: DD_API_KEY
@@ -234,6 +293,8 @@ spec:
               containerPort: 4318
             - name: otlp-http-pub
               containerPort: 4319
+            - name: otlp-http-gpu
+              containerPort: 4320
             - name: opencensus
               containerPort: 55678
             - name: metrics
@@ -299,4 +360,7 @@ spec:
     - name: otlp-http-pub
       port: 4319
       targetPort: 4319
+    - name: otlp-http-gpu
+      port: 4320
+      targetPort: 4320
       protocol: TCP

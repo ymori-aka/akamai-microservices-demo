@@ -38,6 +38,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/frontend/genproto"
 	"github.com/GoogleCloudPlatform/microservices-demo/src/frontend/money"
@@ -801,6 +805,72 @@ func routingFromHeaders(h http.Header, servedModel string) json.RawMessage {
 	return b
 }
 
+// annotateGatewaySpan records the gateway's decision on the assistant.gateway
+// span. The gateway reports classification time only as a number
+// (x-ai-classify-ms), so it is also emitted as a child span of that length
+// starting at the call, to get the same histogram treatment; its start time is
+// approximate (the classifier runs after auth and Firewall for AI), so the
+// span is marked derived.
+func annotateGatewaySpan(ctx context.Context, span oteltrace.Span, h http.Header, status int, servedModel string, usage chatUsage, finish string, callStart time.Time) {
+	outcome := "ok"
+	if status != http.StatusOK {
+		outcome = "http_error"
+	}
+	cache := strings.ToUpper(h.Get("x-ai-gateway-cache"))
+	if cache == "" {
+		cache = "NONE"
+	}
+	model := h.Get("x-ai-routed-model")
+	if model == "" {
+		model = servedModel
+	}
+	complexity := h.Get("x-ai-complexity")
+	if complexity == "" {
+		complexity = "none"
+	}
+	attrs := []attribute.KeyValue{
+		attribute.String("ai_gateway.outcome", outcome),
+		attribute.Int("http.response.status_code", status),
+		attribute.String("ai_gateway.cache", cache),
+		attribute.String("ai_gateway.complexity", complexity),
+		attribute.String("gen_ai.response.model", model),
+		attribute.Int("gen_ai.usage.input_tokens", usage.PromptTokens),
+		attribute.Int("gen_ai.usage.output_tokens", usage.CompletionTokens),
+	}
+	if finish != "" {
+		attrs = append(attrs, attribute.String("gen_ai.response.finish_reason", finish))
+	}
+	if sim, err := strconv.ParseFloat(h.Get("x-ai-gateway-cache-similarity"), 64); err == nil {
+		attrs = append(attrs, attribute.Float64("ai_gateway.cache_similarity", sim))
+	}
+	ms, msErr := strconv.Atoi(h.Get("x-ai-classify-ms"))
+	if h.Get("x-ai-complexity") != "" {
+		conf, _ := strconv.ParseFloat(h.Get("x-ai-confidence"), 64)
+		attrs = append(attrs,
+			attribute.Float64("ai_gateway.confidence", conf),
+			attribute.String("ai_gateway.intent", h.Get("x-ai-intent")),
+			attribute.Bool("ai_gateway.routing_applied", h.Get("x-ai-routing-applied") == "true"),
+			attribute.String("ai_gateway.routing_reason", h.Get("x-ai-routing-reason")),
+		)
+		if msErr == nil {
+			attrs = append(attrs, attribute.Int("ai_gateway.classify_ms", ms))
+		}
+	}
+	span.SetAttributes(attrs...)
+	if status >= 500 {
+		span.SetStatus(codes.Error, fmt.Sprintf("gateway returned %d", status))
+	}
+	if msErr == nil && ms > 0 && h.Get("x-ai-complexity") != "" {
+		_, cs := otel.Tracer("frontend/assistant").Start(ctx, "ai_gateway.classify",
+			oteltrace.WithTimestamp(callStart),
+			oteltrace.WithAttributes(
+				attribute.Bool("derived", true),
+				attribute.String("ai_gateway.complexity", h.Get("x-ai-complexity")),
+			))
+		cs.End(oteltrace.WithTimestamp(callStart.Add(time.Duration(ms) * time.Millisecond)))
+	}
+}
+
 // metaFromResponse collects the per-request numbers the assistant UI shows next
 // to an answer: HTTP status, wall time, token usage, why generation stopped and
 // whether the gateway's semantic cache served it. The cache fields come from
@@ -1123,7 +1193,21 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		})
 	}
 
-	spinReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+	// One span around the whole gateway call, carrying what the gateway
+	// decided (router, tier, model, cache, tokens) as attributes. The OTel
+	// Collector's spanmetrics connector turns it into latency histograms per
+	// router / tier / model for Grafana and Datadog; see otel-collector.yaml.
+	gwCtx, gwSpan := otel.Tracer("frontend/assistant").Start(r.Context(), "assistant.gateway",
+		oteltrace.WithAttributes(
+			attribute.String("chat.backend", backendLabel),
+			attribute.String("chat.lang", req.Lang),
+			attribute.String("ai_gateway.router", router),
+			attribute.Bool("ai_gateway.nocache", req.NoCache),
+			attribute.Int("chat.history_turns", len(req.History)),
+		))
+	defer gwSpan.End()
+
+	spinReq, err := http.NewRequestWithContext(gwCtx, http.MethodPost,
 		assistantURL+reqPath, strings.NewReader(string(reqBytes)))
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to create assistant request"), http.StatusInternalServerError)
@@ -1164,6 +1248,13 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	callStart := time.Now()
 	spinResp, err := spinClient.Do(spinReq)
 	if err != nil {
+		outcome := "error"
+		if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "Client.Timeout") {
+			outcome = "timeout"
+		}
+		gwSpan.SetAttributes(attribute.String("ai_gateway.outcome", outcome))
+		gwSpan.RecordError(err)
+		gwSpan.SetStatus(codes.Error, outcome)
 		log.WithError(err).Error("chatbot: failed to call assistant service")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] call error: " + err.Error()})
@@ -1240,6 +1331,7 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			finish = oai.Choices[0].FinishReason
 		}
 		meta = metaFromResponse(spinResp.Header, spinResp.StatusCode, time.Since(callStart), oai.Usage, finish)
+		annotateGatewaySpan(gwCtx, gwSpan, spinResp.Header, spinResp.StatusCode, oai.Model, oai.Usage, finish, callStart)
 	case "kong":
 		// OpenAI chat-completions shape returned by Kong ai-proxy.
 		var oai struct {
