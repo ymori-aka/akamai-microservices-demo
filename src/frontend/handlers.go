@@ -15,6 +15,7 @@
 package main
 
 import (
+	"regexp"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -812,6 +813,10 @@ func metaFromResponse(h http.Header, status int, elapsed time.Duration, usage ch
 	return b
 }
 
+// cacheScopeRe strips anything but letters and digits from a client-supplied
+// cache scope before it goes into the system prompt.
+var cacheScopeRe = regexp.MustCompile(`[^A-Za-z0-9]`)
+
 // chatUsage is the OpenAI usage block; the Spin lane forwards the same numbers.
 type chatUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
@@ -837,6 +842,11 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		// NoCache bypasses the gateway's semantic cache for this one request
 		// (demo: show that the same prompt really is regenerated).
 		NoCache bool `json:"nocache"`
+		// CacheScope partitions the cache per page load. The demo buttons send
+		// one random scope per page, so the first click of a button is a real
+		// generation (tier/model badges shown) and clicking it again is a cache
+		// hit — both halves of the story with buttons alone.
+		CacheScope string `json:"cache_scope"`
 	}
 	var req IncomingReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -903,6 +913,11 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	// so the tier badge would be missing.
 	if req.NoCache {
 		systemPrompt = fmt.Sprintf("%s (req %d)", systemPrompt, time.Now().UnixNano())
+	} else if scope := cacheScopeRe.ReplaceAllString(req.CacheScope, ""); scope != "" {
+		if len(scope) > 16 {
+			scope = scope[:16]
+		}
+		systemPrompt = fmt.Sprintf("%s (demo %s)", systemPrompt, scope)
 	}
 
 	// --- build OpenAI messages array ---

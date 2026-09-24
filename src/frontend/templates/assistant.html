@@ -386,6 +386,8 @@
 
 <script>
   var LANG = "{{ $.user_lang }}";
+  // One cache partition per page load for the demo buttons (see sendMessage).
+  var DEMO_CACHE_SCOPE = Math.random().toString(36).slice(2, 12);
   var BASE_URL = "{{ $.baseUrl }}";
 
   // Conversation history for multi-turn
@@ -408,7 +410,9 @@
     chip.addEventListener("click", function() {
       if (botInput.disabled) return;
       botInput.value = chip.dataset.prompt || "";
-      sendMessage({ noCache: true });
+      // First click of a button on this page = real generation (tier/model
+      // shown); clicking the same button again = cache hit. Reload to reset.
+      sendMessage({ cacheScope: DEMO_CACHE_SCOPE });
     });
   });
 
@@ -575,6 +579,7 @@
     // セマンティックキャッシュに当たり、振り分けが起きないので tier の
     // pill も出ない(キャッシュは Smart Router より手前で返す)。
     var noCache = !!(opts && opts.noCache);
+    var cacheScope = (opts && opts.cacheScope) || "";
 
     appendUserMessage(text);
     botInput.value = "";
@@ -593,7 +598,7 @@
       var res = await fetch(BASE_URL + "/bot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG, backend: backend, nocache: noCache })
+        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG, backend: backend, nocache: noCache, cache_scope: cacheScope })
       });
 
       if (!res.ok) throw new Error("HTTP " + res.status);
