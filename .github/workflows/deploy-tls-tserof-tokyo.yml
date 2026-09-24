@@ -39,6 +39,18 @@ jobs:
           printf '%s' "$TSEROF_TLS_CERT" > "$CERT_FILE"
           printf '%s' "$TSEROF_TLS_KEY" > "$KEY_FILE"
 
+          # renew-tls-certs.yml renews tserof-tls in-cluster without touching
+          # the TSEROF_TLS_* GitHub secrets, so they go stale. Refuse to
+          # overwrite a newer in-cluster cert with an older one from secrets.
+          NEW_END=$(openssl x509 -noout -enddate -in "$CERT_FILE" | cut -d= -f2)
+          CUR_END=$(kubectl get secret tserof-tls -n default -o jsonpath='{.data.tls\.crt}' 2>/dev/null \
+            | base64 -d | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2 || true)
+          if [ -n "$CUR_END" ] && [ "$(date -d "$NEW_END" +%s)" -lt "$(date -d "$CUR_END" +%s)" ]; then
+            rm -f "$CERT_FILE" "$KEY_FILE"
+            echo "::error::TSEROF_TLS_CERT ($NEW_END) is older than the in-cluster cert ($CUR_END). Certs are renewed by renew-tls-certs.yml; not rolling back."
+            exit 1
+          fi
+
           echo "===== create/update tserof-tls Secret (default ns, for frontend) ====="
           kubectl create secret tls tserof-tls \
             --cert="$CERT_FILE" --key="$KEY_FILE" -n default \

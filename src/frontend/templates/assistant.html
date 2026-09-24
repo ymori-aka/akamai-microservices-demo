@@ -100,20 +100,36 @@
             </div>
           </div>
 
+          {{/* Kong and the Akamai Functions lane are kept visible but greyed
+               out: the demo runs on the direct lane and compares classifiers
+               instead. The server-side code for both lanes is still there. */}}
           <div class="chat-backend-toggle">
             <span class="chat-backend-label">Backend:</span>
-            <label class="chat-backend-option{{ if not $.kong_enabled }} chat-backend-disabled{{ end }}">
-              <input type="radio" name="chat-backend" value="kong" {{ if $.kong_enabled }}checked{{ else }}disabled{{ end }}>
-              Kong AI Gateway{{ if not $.kong_enabled }} (not configured yet){{ end }}
+            <label class="chat-backend-option chat-backend-disabled">
+              <input type="radio" name="chat-backend" value="kong" disabled> Kong AI Gateway
             </label>
-            <label class="chat-backend-option">
-              <input type="radio" name="chat-backend" value="zuplo" {{ if and (not $.kong_enabled) (not $.direct_enabled) }}checked{{ end }}> Zuplo via Functions
+            <label class="chat-backend-option chat-backend-disabled">
+              <input type="radio" name="chat-backend" value="zuplo" disabled> Zuplo via Functions
             </label>
-            {{/* Frontend → Zuplo directly. Preferred: Akamai Functions cuts
-                 requests off at ~30s, which a multi-turn chat regularly hits. */}}
             <label class="chat-backend-option{{ if not $.direct_enabled }} chat-backend-disabled{{ end }}">
               <input type="radio" name="chat-backend" value="direct" {{ if $.direct_enabled }}checked{{ else }}disabled{{ end }}>
               Zuplo (direct){{ if not $.direct_enabled }} (not configured yet){{ end }}
+            </label>
+          </div>
+          {{/* Each option is a separate Zuplo app with its own inbound chain;
+               see chatRouters in handlers.go. */}}
+          <div class="chat-backend-toggle">
+            <span class="chat-backend-label">{{ if eq $.user_lang "ja" }}判定エンジン{{ else }}Classifier{{ end }}:</span>
+            <label class="chat-backend-option">
+              <input type="radio" name="chat-router" value="qwen" checked> Smart Router + Qwen
+            </label>
+            <label class="chat-backend-option{{ if not $.laya_enabled }} chat-backend-disabled{{ end }}">
+              <input type="radio" name="chat-router" value="laya" {{ if not $.laya_enabled }}disabled{{ end }}>
+              Laya{{ if not $.laya_enabled }} ({{ if eq $.user_lang "ja" }}未設定{{ else }}not configured yet{{ end }}){{ end }}
+            </label>
+            <label class="chat-backend-option{{ if not $.laya_sr_enabled }} chat-backend-disabled{{ end }}">
+              <input type="radio" name="chat-router" value="laya-sr" {{ if not $.laya_sr_enabled }}disabled{{ end }}>
+              Smart Router + Laya{{ if not $.laya_sr_enabled }} ({{ if eq $.user_lang "ja" }}未設定{{ else }}not configured yet{{ end }}){{ end }}
             </label>
           </div>
 
@@ -267,6 +283,7 @@
 .routing-pill-meta       { background: #f2f4f7; color: #55606e; }
 .routing-pill-status-ok  { background: #e5f3ff; color: #1f5d8f; }
 .routing-pill-status-err { background: #fbe4e4; color: #9c3535; }
+.routing-pill-router     { background: #ede7f6; color: #4a3a7a; font-weight: 600; }
 
 .demo-prompts {
   position: absolute;
@@ -446,7 +463,9 @@
   // Shows what the AI Gateway's Smart Router decided for this prompt. The data
   // comes from the gateway's x-ai-* response headers via the Spin function, so
   // it is absent on the Kong lane and whenever Smart Router did not run.
-  function renderRoutingBadge(p, routing, cache, meta) {
+  var ROUTER_LABELS = { "qwen": "Smart Router + Qwen", "laya": "Laya", "laya-sr": "Smart Router + Laya" };
+
+  function renderRoutingBadge(p, routing, cache, meta, router) {
     if ((!routing || !routing.complexity) && !cache && !meta) return;
 
     var wrap = document.createElement("div");
@@ -465,6 +484,10 @@
       cache = { state: meta.cache, similarity: meta.cache_similarity };
     }
     var cacheHit = !!(cache && cache.state === "HIT");
+
+    // Which classifier answered, so screenshots of different runs can be told
+    // apart. Shown first because every other pill depends on it.
+    if (router && ROUTER_LABELS[router]) pill(ROUTER_LABELS[router], "routing-pill-router");
 
     if (routing && routing.complexity) {
       pill(routing.complexity, "routing-pill-" + routing.complexity);
@@ -594,11 +617,13 @@
       // Empty lets the server pick (direct → kong → functions); hard-coding
       // "kong" here sent requests to a lane that is currently disabled.
       var backend = selected ? selected.value : "";
+      var routerSel = document.querySelector('input[name="chat-router"]:checked');
+      var router = routerSel ? routerSel.value : "";
 
       var res = await fetch(BASE_URL + "/bot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG, backend: backend, nocache: noCache, cache_scope: cacheScope })
+        body: JSON.stringify({ message: text, history: chatHistory, lang: LANG, backend: backend, router: router, nocache: noCache, cache_scope: cacheScope })
       });
 
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -625,7 +650,7 @@
       var displayReply = reply.replace(/\[[A-Z0-9]{6,8}\]/g, "").trim();
       loading.span.innerText = displayReply;
       loading.p.classList.remove("bot-message-loading");
-      renderRoutingBadge(loading.p, data.routing, data.cache, data.meta);
+      renderRoutingBadge(loading.p, data.routing, data.cache, data.meta, data.router);
 
       // Render product cards
       var ids = extractProductIds(reply);

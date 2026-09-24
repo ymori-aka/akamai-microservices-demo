@@ -111,6 +111,33 @@ spec:
                   name: zuplo-chat-credentials
                   key: api-key
                   optional: true
+            # Classifier comparison apps (assistant radio). Each is a separate Zuplo
+            # app; the radio option stays greyed out until both its URL and key are
+            # in the zuplo-router-apps secret (optional, so the Pod starts without it).
+            - name: ZUPLO_CHAT_ADDR_LAYA
+              valueFrom:
+                secretKeyRef:
+                  name: zuplo-router-apps
+                  key: laya-addr
+                  optional: true
+            - name: ZUPLO_CHAT_API_KEY_LAYA
+              valueFrom:
+                secretKeyRef:
+                  name: zuplo-router-apps
+                  key: laya-key
+                  optional: true
+            - name: ZUPLO_CHAT_ADDR_LAYA_SR
+              valueFrom:
+                secretKeyRef:
+                  name: zuplo-router-apps
+                  key: laya-sr-addr
+                  optional: true
+            - name: ZUPLO_CHAT_API_KEY_LAYA_SR
+              valueFrom:
+                secretKeyRef:
+                  name: zuplo-router-apps
+                  key: laya-sr-key
+                  optional: true
             - name: ENV_PLATFORM
               value: "akamai"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

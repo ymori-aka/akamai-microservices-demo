@@ -550,9 +550,29 @@ func (fe *frontendServer) assistantHandler(w http.ResponseWriter, r *http.Reques
 		// Direct-to-gateway lane, enabled once ZUPLO_CHAT_ADDR is set. Preferred
 		// over the Functions lane because Akamai Functions caps requests at ~30s.
 		"direct_enabled": os.Getenv("ZUPLO_CHAT_ADDR") != "",
+		// Classifier radio on the direct lane: each option is its own Zuplo app
+		// and is greyed out until that app's URL and key are in the env.
+		"laya_enabled":    chatRouterConfigured("laya"),
+		"laya_sr_enabled": chatRouterConfigured("laya-sr"),
 	})); err != nil {
 		log.Println(err)
 	}
+}
+
+// chatRouters maps the assistant's classifier radio to the Zuplo app that runs
+// it. The apps differ only in their inbound chain: "qwen" is Smart Router with
+// the Qwen3.5-4B classifier, "laya" swaps Smart Router for the
+// laya-router-inbound policy, and "laya-sr" keeps Smart Router but points its
+// classifierModel at Laya.
+var chatRouters = map[string]struct{ addrEnv, keyEnv string }{
+	"qwen":    {"ZUPLO_CHAT_ADDR", "ZUPLO_CHAT_API_KEY"},
+	"laya":    {"ZUPLO_CHAT_ADDR_LAYA", "ZUPLO_CHAT_API_KEY_LAYA"},
+	"laya-sr": {"ZUPLO_CHAT_ADDR_LAYA_SR", "ZUPLO_CHAT_API_KEY_LAYA_SR"},
+}
+
+func chatRouterConfigured(name string) bool {
+	c, ok := chatRouters[name]
+	return ok && os.Getenv(c.addrEnv) != "" && os.Getenv(c.keyEnv) != ""
 }
 
 func (fe *frontendServer) logoutHandler(w http.ResponseWriter, r *http.Request) {
@@ -847,6 +867,9 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		// generation (tier/model badges shown) and clicking it again is a cache
 		// hit — both halves of the story with buttons alone.
 		CacheScope string `json:"cache_scope"`
+		// Router picks the classifier on the direct lane (see chatRouters).
+		// Empty or unknown means "qwen", the production app.
+		Router string `json:"router"`
 	}
 	var req IncomingReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -989,6 +1012,21 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	router := ""
+	if backendLabel == "direct" {
+		router = req.Router
+		if _, ok := chatRouters[router]; !ok {
+			router = "qwen"
+		}
+		if router != "qwen" {
+			if !chatRouterConfigured(router) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"message": "[DEBUG] Classifier " + router + " selected but its Zuplo app is not configured"})
+				return
+			}
+			assistantURL = os.Getenv(chatRouters[router].addrEnv)
+		}
+	}
 	// Trim trailing slash for safety
 	assistantURL = strings.TrimRight(assistantURL, "/")
 
@@ -1096,7 +1134,7 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		// The Functions lane carried this key inside the Spin bundle; calling
 		// the gateway from here means the frontend needs it instead. Supplied
 		// via the zuplo-chat-credentials secret.
-		if k := os.Getenv("ZUPLO_CHAT_API_KEY"); k != "" {
+		if k := os.Getenv(chatRouters[router].keyEnv); k != "" {
 			spinReq.Header.Set("Authorization", "Bearer "+k)
 		}
 		// The gateway's semantic cache used to key on more than the body
@@ -1134,7 +1172,7 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 	defer spinResp.Body.Close()
 
 	respBody, _ := io.ReadAll(spinResp.Body)
-	log.Infof("chatbot: assistant response backend=%s lang=%s status=%d body=%s", backendLabel, req.Lang, spinResp.StatusCode, string(respBody))
+	log.Infof("chatbot: assistant response backend=%s router=%s lang=%s status=%d body=%s", backendLabel, router, req.Lang, spinResp.StatusCode, string(respBody))
 
 	var reply string
 	// Smart Router classification, passed straight through from the Spin
@@ -1262,6 +1300,9 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	out := map[string]any{"message": reply}
+	if router != "" {
+		out["router"] = router
+	}
 	if len(routing) > 0 && string(routing) != "null" {
 		out["routing"] = routing
 	}

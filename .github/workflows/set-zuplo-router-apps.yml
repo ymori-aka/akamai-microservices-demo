@@ -1,0 +1,85 @@
+name: Set classifier comparison apps + restart frontend (Tokyo)
+# The assistant's "Classifier" radio compares three Zuplo apps that differ only
+# in their inbound chain:
+#   qwen    -> ZUPLO_CHAT_ADDR / zuplo-chat-credentials (production app)
+#   laya    -> laya-router-inbound instead of Smart Router
+#   laya-sr -> Smart Router with classifierModel pointed at Laya
+# The laya / laya-sr options stay greyed out until their URL and key are in the
+# `zuplo-router-apps` secret. This workflow builds that secret from these
+# GitHub secrets (any pair may be missing; that option then stays greyed out):
+#   ZUPLO_ROUTER_LAYA_ADDR, ZUPLO_ROUTER_LAYA_KEY
+#   ZUPLO_ROUTER_LAYA_SR_ADDR, ZUPLO_ROUTER_LAYA_SR_KEY
+# Values are never printed. Env from a secret is read at Pod start, so both
+# frontend Deployments are restarted, then the smoke test checks every pod.
+#
+# Does not apply manifests, so it cannot roll anything back (see
+# set-zuplo-chat-secret.yml for why deploy-tokyo.yml must not be used here).
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+concurrency:
+  group: frontend-tokyo
+  cancel-in-progress: false
+
+jobs:
+  set-secret:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 0) Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+          kubectl config current-context
+
+      - name: 1) Create/update zuplo-router-apps secret
+        env:
+          LAYA_ADDR: ${{ secrets.ZUPLO_ROUTER_LAYA_ADDR }}
+          LAYA_KEY: ${{ secrets.ZUPLO_ROUTER_LAYA_KEY }}
+          LAYA_SR_ADDR: ${{ secrets.ZUPLO_ROUTER_LAYA_SR_ADDR }}
+          LAYA_SR_KEY: ${{ secrets.ZUPLO_ROUTER_LAYA_SR_KEY }}
+        run: |
+          set -e
+          args=()
+          if [ -n "$LAYA_ADDR" ] && [ -n "$LAYA_KEY" ]; then
+            args+=(--from-literal=laya-addr="$LAYA_ADDR" --from-literal=laya-key="$LAYA_KEY")
+            echo "laya: configured"
+          else
+            echo "laya: not configured (ZUPLO_ROUTER_LAYA_ADDR/KEY missing) -> stays greyed out"
+          fi
+          if [ -n "$LAYA_SR_ADDR" ] && [ -n "$LAYA_SR_KEY" ]; then
+            args+=(--from-literal=laya-sr-addr="$LAYA_SR_ADDR" --from-literal=laya-sr-key="$LAYA_SR_KEY")
+            echo "laya-sr: configured"
+          else
+            echo "laya-sr: not configured (ZUPLO_ROUTER_LAYA_SR_ADDR/KEY missing) -> stays greyed out"
+          fi
+          if [ ${#args[@]} -eq 0 ]; then
+            echo "::error::No classifier app secrets set. Add them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          kubectl create secret generic zuplo-router-apps "${args[@]}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          echo "zuplo-router-apps applied (values not printed)."
+
+      - name: 2) Restart frontend + canary
+        run: |
+          set -e
+          kubectl -n default rollout restart deployment/frontend
+          kubectl -n default rollout restart deployment/frontend-canary 2>/dev/null || true
+          kubectl -n default rollout status deployment/frontend --timeout=180s
+          kubectl -n default rollout status deployment/frontend-canary --timeout=180s 2>/dev/null || true
+
+      - name: 3) Smoke test every frontend pod and classifier
+        run: bash scripts/smoke-assistant.sh
