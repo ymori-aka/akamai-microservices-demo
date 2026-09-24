@@ -1,0 +1,42 @@
+name: Renew TLS certificates (Let's Encrypt)
+
+# llm.tserof.net(NodeBalancer llm-gpu-sea の HTTPS 全ポート)と
+# tserof.net 系(ストア / Grafana)の証明書を自動更新する。
+# 残り 30 日を切ったものだけ更新するので、毎週回しても Let's Encrypt の
+# レート制限には当たらない。中身は scripts/renew-tls-certs.sh。
+#
+# 手動実行:
+#   force=true   期限に関係なく更新
+#   staging=true LE のテスト環境で発行できるかだけ試す(配布しない)
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # 毎週月曜 03:17 UTC(日本時間 12:17)
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "期限に関係なく更新する"
+        type: boolean
+        default: false
+      staging:
+        description: "LE のテスト環境で発行だけ試す(配布しない)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: renew-tls-certs
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Renew and apply
+        env:
+          LINODE_CERT_TOKEN: ${{ secrets.LINODE_CERT_TOKEN }}
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+          FORCE: ${{ inputs.force || 'false' }}
+          STAGING: ${{ inputs.staging || 'false' }}
+          RENEW_WITHIN_DAYS: "30"
+        run: bash scripts/renew-tls-certs.sh
