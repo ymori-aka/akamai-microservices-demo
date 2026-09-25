@@ -1,0 +1,62 @@
+name: Reset Grafana admin password (Tokyo)
+# Sets the Grafana `admin` password to the GitHub secret GRAFANA_ADMIN_PASSWORD.
+#
+# Updating grafana-secret alone is not enough: GF_SECURITY_ADMIN_PASSWORD is
+# only applied when Grafana creates its database, and after that the password
+# lives in grafana.db on the PVC. So this also runs
+# `grafana cli admin reset-admin-password` inside the running Pod, then checks
+# that the new password logs in. The password is never printed.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  reset:
+    runs-on: self-hosted
+    steps:
+      - name: 0) Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: 1) Update grafana-secret and reset the password in grafana.db
+        env:
+          PW: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          set -e
+          if [ ${#PW} -lt 8 ]; then
+            echo "::error::GRAFANA_ADMIN_PASSWORD is empty or shorter than 8 characters."
+            exit 1
+          fi
+          # Keep the Secret in step with the DB so a future fresh volume gets the same password.
+          kubectl -n monitoring create secret generic grafana-secret \
+            --from-literal=admin-user=admin --from-literal=admin-password="$PW" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          POD=$(kubectl -n monitoring get pod -l app=grafana -o jsonpath='{.items[0].metadata.name}')
+          echo "grafana pod: $POD"
+          printf '%s' "$PW" | kubectl -n monitoring exec -i "$POD" -- sh -c \
+            'read -r P; grafana cli --homepath /usr/share/grafana admin reset-admin-password "$P" >/dev/null && echo "reset-admin-password: done"'
+
+      - name: 2) Verify the new password logs in
+        env:
+          PW: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          set +e
+          kubectl -n monitoring port-forward svc/grafana 13000:3000 >/dev/null 2>&1 &
+          PF=$!
+          sleep 5
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:$PW" http://127.0.0.1:13000/api/user)
+          kill $PF 2>/dev/null
+          echo "GET /api/user as admin -> $CODE"
+          [ "$CODE" = "200" ] || { echo "::error::login with the new password failed ($CODE)"; exit 1; }
