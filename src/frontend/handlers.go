@@ -558,6 +558,7 @@ func (fe *frontendServer) assistantHandler(w http.ResponseWriter, r *http.Reques
 		// and is greyed out until that app's URL and key are in the env.
 		"laya_enabled":    chatRouterConfigured("laya"),
 		"laya_sr_enabled": chatRouterConfigured("laya-sr"),
+		"plamo_enabled":   chatRouterConfigured("plamo"),
 	})); err != nil {
 		log.Println(err)
 	}
@@ -567,11 +568,15 @@ func (fe *frontendServer) assistantHandler(w http.ResponseWriter, r *http.Reques
 // it. The apps differ only in their inbound chain: "qwen" is Smart Router with
 // the Qwen3.5-4B classifier, "laya" swaps Smart Router for the
 // laya-router-inbound policy, and "laya-sr" keeps Smart Router but points its
-// classifierModel at Laya.
+// classifierModel at Laya. "plamo" is not a classifier: its app has no
+// router at all and every prompt goes to PLaMo 3 31B base (self-hosted on the
+// RTX 4000 Ada x2 host, chat template added in vLLM), to show a domestic base
+// model answering as is.
 var chatRouters = map[string]struct{ addrEnv, keyEnv string }{
 	"qwen":    {"ZUPLO_CHAT_ADDR", "ZUPLO_CHAT_API_KEY"},
 	"laya":    {"ZUPLO_CHAT_ADDR_LAYA", "ZUPLO_CHAT_API_KEY_LAYA"},
 	"laya-sr": {"ZUPLO_CHAT_ADDR_LAYA_SR", "ZUPLO_CHAT_API_KEY_LAYA_SR"},
+	"plamo":   {"ZUPLO_CHAT_ADDR_PLAMO", "ZUPLO_CHAT_API_KEY_PLAMO"},
 }
 
 func chatRouterConfigured(name string) bool {
@@ -1133,6 +1138,17 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		if model == "" {
 			model = "gemma4/google_gemma-4-26B-A4B-it-Q4_K_M.gguf"
 		}
+		maxTokens, temperature := 3072, 0.7
+		if router == "plamo" {
+			// A base model does not stop on its own the way the chat models do
+			// and repeats itself at higher temperatures (measured: a delivery
+			// question ran to the 400-token cap), so keep it short and cool.
+			model = os.Getenv("ZUPLO_CHAT_MODEL_PLAMO")
+			if model == "" {
+				model = "plamo/plamo-3-nict-31b-base"
+			}
+			maxTokens, temperature = 600, 0.3
+		}
 		type OpenAIRequest struct {
 			Model       string       `json:"model"`
 			Messages    []LLMMessage `json:"messages"`
@@ -1151,8 +1167,8 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 		reqBytes, _ = json.Marshal(OpenAIRequest{
 			Model:       model,
 			Messages:    messages,
-			MaxTokens:   3072,
-			Temperature: 0.7,
+			MaxTokens:   maxTokens,
+			Temperature: temperature,
 		})
 	case "kong":
 		reqPath = "/v1/chat/completions"

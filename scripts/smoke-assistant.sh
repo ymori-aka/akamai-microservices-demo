@@ -63,7 +63,7 @@ PY
 # Classifier radio: "qwen" is always on; the Laya apps only once their URL and
 # key are in the zuplo-router-apps secret (the UI greys them out until then).
 routers="qwen"
-for r in laya laya-sr; do
+for r in laya laya-sr plamo; do
   a=$(kubectl get secret zuplo-router-apps -o go-template="{{index .data \"$r-addr\"}}" 2>/dev/null || true)
   k=$(kubectl get secret zuplo-router-apps -o go-template="{{index .data \"$r-key\"}}" 2>/dev/null || true)
   case "$a$k" in *"no value"*|"") ;; *) [ -n "$a" ] && [ -n "$k" ] && routers="$routers $r" ;; esac
@@ -86,7 +86,11 @@ for pod in $(kubectl get pod -l app=frontend --field-selector=status.phase=Runni
     verdict=$(curl -s -m 120 -X POST "http://127.0.0.1:$port/bot" -H 'Content-Type: application/json' -d "$body" | python3 /tmp/smoke-check.py "$lang" "$router")
     rc=$?
     echo "${pod#pod/} [$img] router=$router UI=$lang -> $verdict"
-    if [ $rc -ne 0 ]; then
+    if [ $rc -ne 0 ] && [ "$router" = plamo ]; then
+      # PLaMo is a base model shown as is; its answers vary run to run, so a
+      # miss here is reported but does not fail the deploy.
+      echo "::warning::${pod#pod/} router=plamo UI=$lang: $verdict"
+    elif [ $rc -ne 0 ]; then
       echo "::error::${pod#pod/} router=$router UI=$lang: $verdict"
       fail=1
     fi

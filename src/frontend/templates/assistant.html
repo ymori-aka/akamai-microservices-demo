@@ -131,6 +131,12 @@
               <input type="radio" name="chat-router" value="laya-sr" {{ if not $.laya_sr_enabled }}disabled{{ end }}>
               Smart Router + Laya{{ if not $.laya_sr_enabled }} ({{ if eq $.user_lang "ja" }}未設定{{ else }}not configured yet{{ end }}){{ end }}
             </label>
+            {{/* Not a classifier: every prompt goes straight to PLaMo 3 31B base.
+                 The license asks for a visible "Built with PLaMo". */}}
+            <label class="chat-backend-option{{ if not $.plamo_enabled }} chat-backend-disabled{{ end }}">
+              <input type="radio" name="chat-router" value="plamo" {{ if not $.plamo_enabled }}disabled{{ end }}>
+              PLaMo 3 31B ({{ if eq $.user_lang "ja" }}base・振り分けなし{{ else }}base, no routing{{ end }}){{ if not $.plamo_enabled }} ({{ if eq $.user_lang "ja" }}未設定{{ else }}not configured yet{{ end }}){{ end }}
+            </label>
           </div>
 
           <div class="bot-input">
@@ -463,7 +469,7 @@
   // Shows what the AI Gateway's Smart Router decided for this prompt. The data
   // comes from the gateway's x-ai-* response headers via the Spin function, so
   // it is absent on the Kong lane and whenever Smart Router did not run.
-  var ROUTER_LABELS = { "qwen": "Smart Router + Qwen", "laya": "Laya", "laya-sr": "Smart Router + Laya" };
+  var ROUTER_LABELS = { "qwen": "Smart Router + Qwen", "laya": "Laya", "laya-sr": "Smart Router + Laya", "plamo": "PLaMo 3 31B base · Built with PLaMo" };
 
   function renderRoutingBadge(p, routing, cache, meta, router) {
     if ((!routing || !routing.complexity) && !cache && !meta) return;

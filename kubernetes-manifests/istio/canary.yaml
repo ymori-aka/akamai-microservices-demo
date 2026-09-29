@@ -138,6 +138,18 @@ spec:
                   name: zuplo-router-apps
                   key: laya-sr-key
                   optional: true
+            - name: ZUPLO_CHAT_ADDR_PLAMO
+              valueFrom:
+                secretKeyRef:
+                  name: zuplo-router-apps
+                  key: plamo-addr
+                  optional: true
+            - name: ZUPLO_CHAT_API_KEY_PLAMO
+              valueFrom:
+                secretKeyRef:
+                  name: zuplo-router-apps
+                  key: plamo-key
+                  optional: true
             - name: ENV_PLATFORM
               value: "akamai"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

@@ -4,11 +4,13 @@ name: Set classifier comparison apps + restart frontend (Tokyo)
 #   qwen    -> ZUPLO_CHAT_ADDR / zuplo-chat-credentials (production app)
 #   laya    -> laya-router-inbound instead of Smart Router
 #   laya-sr -> Smart Router with classifierModel pointed at Laya
+#   plamo   -> no router; every prompt goes to PLaMo 3 31B base (self-hosted)
 # The laya / laya-sr options stay greyed out until their URL and key are in the
 # `zuplo-router-apps` secret. This workflow builds that secret from these
 # GitHub secrets (any pair may be missing; that option then stays greyed out):
 #   ZUPLO_ROUTER_LAYA_ADDR, ZUPLO_ROUTER_LAYA_KEY
 #   ZUPLO_ROUTER_LAYA_SR_ADDR, ZUPLO_ROUTER_LAYA_SR_KEY
+#   ZUPLO_ROUTER_PLAMO_ADDR, ZUPLO_ROUTER_PLAMO_KEY
 # Values are never printed. Env from a secret is read at Pod start, so both
 # frontend Deployments are restarted, then the smoke test checks every pod.
 #
@@ -50,6 +52,8 @@ jobs:
           LAYA_KEY: ${{ secrets.ZUPLO_ROUTER_LAYA_KEY }}
           LAYA_SR_ADDR: ${{ secrets.ZUPLO_ROUTER_LAYA_SR_ADDR }}
           LAYA_SR_KEY: ${{ secrets.ZUPLO_ROUTER_LAYA_SR_KEY }}
+          PLAMO_ADDR: ${{ secrets.ZUPLO_ROUTER_PLAMO_ADDR }}
+          PLAMO_KEY: ${{ secrets.ZUPLO_ROUTER_PLAMO_KEY }}
         run: |
           set -e
           args=()
@@ -64,6 +68,12 @@ jobs:
             echo "laya-sr: configured"
           else
             echo "laya-sr: not configured (ZUPLO_ROUTER_LAYA_SR_ADDR/KEY missing) -> stays greyed out"
+          fi
+          if [ -n "$PLAMO_ADDR" ] && [ -n "$PLAMO_KEY" ]; then
+            args+=(--from-literal=plamo-addr="$PLAMO_ADDR" --from-literal=plamo-key="$PLAMO_KEY")
+            echo "plamo: configured"
+          else
+            echo "plamo: not configured (ZUPLO_ROUTER_PLAMO_ADDR/KEY missing) -> stays greyed out"
           fi
           if [ ${#args[@]} -eq 0 ]; then
             echo "::error::No classifier app secrets set. Add them under Settings → Secrets and variables → Actions."

@@ -132,6 +132,18 @@ spec:
                 name: zuplo-router-apps
                 key: laya-sr-key
                 optional: true
+          - name: ZUPLO_CHAT_ADDR_PLAMO
+            valueFrom:
+              secretKeyRef:
+                name: zuplo-router-apps
+                key: plamo-addr
+                optional: true
+          - name: ZUPLO_CHAT_API_KEY_PLAMO
+            valueFrom:
+              secretKeyRef:
+                name: zuplo-router-apps
+                key: plamo-key
+                optional: true
           # Kong AI Gateway endpoint (in-cluster ClusterIP). Non-empty makes Kong
           # the DEFAULT chat backend (UI radio + handler default).
           # DISABLED 2026-06-08: the Kong AI route is broken ("no Route matched
