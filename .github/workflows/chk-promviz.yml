@@ -1,0 +1,54 @@
+name: CHK - promviz / tools-proxy after NodeBalancer shrink (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  chk:
+    runs-on: self-hosted
+    steps:
+      - name: Fetch Tokyo kubeconfig
+        env:
+          LINODE_PAT: ${{ secrets.LINODE_PAT }}
+        run: |
+          set -e
+          KC="${RUNNER_TEMP:-/tmp}/kubeconfig-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
+          chmod 600 "$KC"
+          echo "KUBECONFIG=$KC" >> "$GITHUB_ENV"
+
+      - name: Pods, services, endpoints
+        run: |
+          set +e
+          kubectl -n monitoring get pods -l 'app in (promviz,promviz-front,vizceral,tools-proxy)' -o wide
+          echo "--- svc ---"
+          kubectl -n monitoring get svc promviz promviz-front vizceral tools-proxy grafana
+          echo "--- endpoints ---"
+          kubectl -n monitoring get endpoints promviz promviz-front vizceral tools-proxy
+          echo "--- promviz-front env ---"
+          kubectl -n monitoring get deploy promviz-front -o jsonpath='{.spec.template.spec.containers[0].env}{"\n"}'
+
+      - name: Logs
+        run: |
+          set +e
+          for d in promviz-front promviz tools-proxy; do
+            echo "===== $d (last 25) ====="
+            kubectl -n monitoring logs deploy/$d --tail=25 2>&1 | sed 's/^/  /'
+          done
+
+      - name: Probe promviz-front directly and via tools-proxy
+        run: |
+          set +e
+          for u in http://promviz-front.monitoring.svc.cluster.local:80/ http://tools-proxy.monitoring.svc.cluster.local:8080/promviz/; do
+            code=$(kubectl -n monitoring run chk-pv-$RANDOM --rm -i --restart=Never --quiet \
+              --image=curlimages/curl:8.10.1 --command -- \
+              curl -s -o /dev/null -w '%{http_code}' -m 10 "$u" 2>/dev/null | tr -dc '0-9')
+            echo "  $u -> ${code:-ERR}"
+          done
