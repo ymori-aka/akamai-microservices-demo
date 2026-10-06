@@ -112,13 +112,12 @@ metadata:
   namespace: monitoring
   labels: { app: promviz }
 spec:
-  # LoadBalancer (not ClusterIP): promviz-front is a browser SPA that fetches
-  # UPDATE_URL DIRECTLY from the user's browser (it does not proxy server-side),
-  # so the graph endpoint must be reachable from outside the cluster. promviz
-  # sets CORS Access-Control-Allow-Origin: * so the cross-origin fetch from the
-  # promviz-front LB origin is allowed. The deploy workflow discovers this LB's
-  # IP and injects it into promviz-front's UPDATE_URL.
-  type: LoadBalancer
+  # ClusterIP: promviz-front is a browser SPA that fetches UPDATE_URL directly
+  # from the user's browser, so the graph endpoint has to be reachable from
+  # outside — but it is reached through tools-proxy at
+  # https://grafana.tserof.net/promviz-api/ instead of its own NodeBalancer.
+  # Same-origin, so no CORS and no mixed-content block on the https page.
+  type: ClusterIP
   selector: { app: promviz }
   ports:
     - name: api
@@ -143,11 +142,11 @@ spec:
         - name: promviz-front
           image: mjhddevlion/promviz-front:v0.1.0
           env:
-            # The browser polls this through the same LB origin (relative
-            # path is rewritten by the front container), so point it at the
-            # in-cluster promviz API.
+            # Fetched by the BROWSER, so it must be a public, same-origin
+            # https URL: tools-proxy serves the promviz API under
+            # /promviz-api/ on the Grafana NodeBalancer.
             - name: UPDATE_URL
-              value: http://promviz.monitoring.svc.cluster.local:9091/graph
+              value: https://grafana.tserof.net/promviz-api/graph
             - name: INTERVAL
               value: "5000"
             # promviz-front keeps an in-memory replay buffer of one graph
@@ -170,7 +169,9 @@ metadata:
   namespace: monitoring
   labels: { app: promviz-front }
 spec:
-  type: LoadBalancer
+  # ClusterIP: published through tools-proxy at
+  # https://grafana.tserof.net/promviz/ (see monitoring/tools-proxy.yaml).
+  type: ClusterIP
   selector: { app: promviz-front }
   ports:
     - name: http

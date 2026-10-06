@@ -243,12 +243,23 @@ metadata:
     service.beta.kubernetes.io/linode-loadbalancer-port-443: '{"tls-secret-name": "tserof-tls", "protocol": "https"}'
 spec:
   type: LoadBalancer
+  # NOTE: this Service is the shared public entrypoint for ALL the in-cluster
+  # tool UIs, not just Grafana. Its selector deliberately points at
+  # tools-proxy (monitoring/tools-proxy.yaml), an nginx that fans out by path:
+  #   /           -> grafana (via the grafana-backend ClusterIP Service)
+  #   /kiali/ /vizceral/ /promviz/ /promviz-api/ /chaos/ /chaos-btn/
+  # Reusing this Service object keeps the public IP and the tserof-tls
+  # termination, so no DNS or certificate change is needed — and it is why
+  # those tools no longer need a NodeBalancer each ($10/mo apiece).
+  # Do NOT "fix" this back to app: grafana: that silently re-creates five
+  # NodeBalancers on the next deploy. To roll back deliberately, run
+  # deploy-tools-proxy-tokyo.yml with phase=rollback.
   selector:
-    app: grafana
+    app: tools-proxy
   ports:
     - name: http
       port: 3000
-      targetPort: 3000
+      targetPort: 8080
     - name: https
       port: 443
-      targetPort: 3000
+      targetPort: 8080

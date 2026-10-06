@@ -245,7 +245,8 @@ metadata:
   labels:
     app: kiali
 spec:
-  type: LoadBalancer
+  # ClusterIP: published through tools-proxy (see monitoring/tools-proxy.yaml).
+  type: ClusterIP
   selector:
     app: kiali
   ports:

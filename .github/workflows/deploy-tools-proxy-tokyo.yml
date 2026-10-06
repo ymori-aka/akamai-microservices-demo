@@ -57,7 +57,7 @@ jobs:
           echo "path -> HTTP status (200/302 = OK, 404/502 = そのツールは要調整)"
           # One probe pod per path: `kubectl run -i` truncates a multi-line
           # stream, so each path is fetched in its own short-lived pod.
-          for p in /_proxy_healthz / /kiali/ /vizceral/ /promviz/ /chaos/ /chaos-btn/; do
+          for p in /_proxy_healthz / /kiali/ /kiali-mon/ /vizceral/ /promviz/ /promviz-api/graph /chaos/ /chaos-btn/; do
             code=$(kubectl -n monitoring run tp-probe-$RANDOM --rm -i --restart=Never --quiet \
               --image=curlimages/curl:8.10.1 --command -- \
               curl -s -o /dev/null -w '%{http_code}' -m 10 \
@@ -88,6 +88,7 @@ jobs:
         run: |
           set -e
           kubectl -n istio-system patch svc kiali          -p '{"spec":{"type":"ClusterIP"}}'
+          kubectl -n monitoring   patch svc kiali          -p '{"spec":{"type":"ClusterIP"}}'
           kubectl -n monitoring   patch svc vizceral       -p '{"spec":{"type":"ClusterIP"}}'
           kubectl -n monitoring   patch svc promviz-front  -p '{"spec":{"type":"ClusterIP"}}'
           kubectl -n monitoring   patch svc promviz        -p '{"spec":{"type":"ClusterIP"}}'

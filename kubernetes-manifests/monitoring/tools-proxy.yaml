@@ -18,6 +18,7 @@
 #   grafana.tserof.net/kiali/      -> kiali
 #   grafana.tserof.net/vizceral/   -> vizceral
 #   grafana.tserof.net/promviz/    -> promviz-front
+#   grafana.tserof.net/promviz-api/-> promviz        (the SPA's UPDATE_URL)
 #   grafana.tserof.net/chaos/      -> chaos-dashboard
 #   grafana.tserof.net/chaos-btn/  -> chaos-button
 #
@@ -118,6 +119,31 @@ data:
         sub_filter 'href="/'   'href="/promviz/';
         sub_filter 'src="/'    'src="/promviz/';
         sub_filter '"/static/' '"/promviz/static/';
+      }
+
+      # ---- promviz API (the SPA's UPDATE_URL) ----
+      # promviz-front fetches the graph JSON from the BROWSER, so the endpoint
+      # must be same-origin: cross-origin plain HTTP from an https:// page is
+      # blocked as mixed content. Serving it here means promviz itself no
+      # longer needs its own public LoadBalancer.
+      location /promviz-api/ {
+        proxy_pass http://promviz.monitoring.svc.cluster.local:9091/;
+        proxy_set_header Host            $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 60s;
+      }
+
+      # ---- Kiali (monitoring ns copy: server.web_root=/kiali) ----
+      # Probed alongside /kiali/ so a `test` run shows which of the two Kiali
+      # installs actually answers; the loser gets dropped.
+      location /kiali-mon/ {
+        proxy_pass http://kiali.monitoring.svc.cluster.local:20001/kiali/;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $connection_upgrade;
       }
 
       # ---- Chaos Mesh dashboard ----

@@ -585,6 +585,12 @@ jobs:
               | kubectl apply -n monitoring -f -
             kubectl apply -f kubernetes-manifests/monitoring/audit-log-ingester.yaml
           fi
+          # tools-proxy MUST be Ready before grafana.yaml: the monitoring/grafana
+          # Service (public NodeBalancer) selects app=tools-proxy. If the rollout
+          # fails, `bash -e` aborts here, before the Service is repointed.
+          kubectl apply -f kubernetes-manifests/monitoring/tools-proxy.yaml
+          kubectl -n monitoring rollout restart deployment/tools-proxy || true
+          kubectl -n monitoring rollout status deployment/tools-proxy --timeout=180s
           # admin-password is a placeholder in git (see grafana.yaml comment) —
           # substitute the real secret before apply so re-deploys don't reset
           # the admin password back to a hardcoded literal.

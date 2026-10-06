@@ -330,6 +330,15 @@ jobs:
           kubectl apply -f kubernetes-manifests/monitoring/loki.yaml
           kubectl apply -f kubernetes-manifests/monitoring/promtail.yaml
           kubectl apply -f kubernetes-manifests/monitoring/tempo.yaml
+          # tools-proxy MUST be applied and Ready before grafana.yaml: the
+          # monitoring/grafana Service (the public NodeBalancer behind
+          # grafana.tserof.net) selects app=tools-proxy, so if the proxy is not
+          # running the public IP has no endpoints. The proxy's readiness probe
+          # is its own /_proxy_healthz, so it comes up independently of Grafana.
+          kubectl apply -f kubernetes-manifests/monitoring/tools-proxy.yaml
+          # nginx reads the ConfigMap at start, so route changes need a restart.
+          kubectl -n monitoring rollout restart deployment/tools-proxy || true
+          kubectl -n monitoring rollout status deployment/tools-proxy --timeout=180s
           # admin-password is a placeholder in git (see grafana.yaml comment) —
           # substitute the real secret before apply so re-deploys don't reset
           # the admin password back to a hardcoded literal.
@@ -387,31 +396,6 @@ jobs:
             echo "AUDIT_S3_ACCESS_KEY not set — skipping audit-log-ingester."
           fi
           echo "SKIPPED (osa/istio-specific): aclp-collector-healer, kiali"
-
-      - name: Wire promviz-front UPDATE_URL to promviz public LB
-        continue-on-error: true
-        run: |
-          # promviz-front is a browser SPA that fetches UPDATE_URL directly from
-          # the user's browser (no server-side proxy), so it must point at
-          # promviz's PUBLIC LoadBalancer IP, not the in-cluster DNS name (which
-          # the browser can't resolve -> UI stuck on "Loading"). Discover the LB
-          # IP and inject it. promviz serves CORS * so the cross-origin fetch is
-          # allowed.
-          echo "waiting for promviz LoadBalancer IP..."
-          PIP=""
-          for i in $(seq 1 30); do
-            PIP=$(kubectl -n monitoring get svc promviz -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-            [ -n "$PIP" ] && break
-            sleep 5
-          done
-          if [ -z "$PIP" ]; then
-            echo "::warning::promviz LB IP not ready yet; promviz-front UPDATE_URL not wired this run."
-          else
-            echo "promviz LB IP = $PIP"
-            kubectl -n monitoring set env deployment/promviz-front \
-              UPDATE_URL="http://$PIP:9091/graph"
-            kubectl -n monitoring rollout restart deployment/promviz-front || true
-          fi
 
       - name: Deploy kube-state-metrics + node-exporter (pod/node metrics)
         continue-on-error: true

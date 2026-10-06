@@ -212,7 +212,9 @@ metadata:
   namespace: monitoring
   labels: { app: vizceral }
 spec:
-  type: LoadBalancer
+  # ClusterIP: published through tools-proxy at
+  # https://grafana.tserof.net/vizceral/ (see monitoring/tools-proxy.yaml).
+  type: ClusterIP
   selector: { app: vizceral }
   ports:
     - name: http
