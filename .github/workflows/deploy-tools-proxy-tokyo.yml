@@ -87,6 +87,13 @@ jobs:
         if: inputs.phase == 'shrink'
         run: |
           set -e
+          # The live promviz-front still carries the old `kubectl set env`
+          # UPDATE_URL pointing at promviz's own LB IP. Re-apply the manifests
+          # first so it switches to the same-origin /promviz-api/ route before
+          # that LB disappears (the env change rolls the Deployment by itself).
+          kubectl apply -f kubernetes-manifests/monitoring/vizceral.yaml
+          kubectl apply -f kubernetes-manifests/monitoring/promviz.yaml
+          kubectl -n monitoring rollout status deployment/promviz-front --timeout=180s
           kubectl -n istio-system patch svc kiali          -p '{"spec":{"type":"ClusterIP"}}'
           kubectl -n monitoring   patch svc kiali          -p '{"spec":{"type":"ClusterIP"}}'
           kubectl -n monitoring   patch svc vizceral       -p '{"spec":{"type":"ClusterIP"}}'
