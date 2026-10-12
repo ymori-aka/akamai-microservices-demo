@@ -778,6 +778,25 @@ func faiScreen(ctx context.Context, log logrus.FieldLogger, prompt string) (allo
 // chatBotHandler handles the shopping assistant chat.
 // It fetches the product catalog, builds an OpenAI-compatible prompt,
 // calls the Gemma 4 LLM directly, and returns the response.
+
+// faiBlockedMessage is what the chat shows when Firewall for AI stops a
+// prompt. The gateway's own text names the rule (LLM-INJECT-PROMPT,
+// LLM-TOXIC-IN, ...), but the rule picked for the same prompt varies between
+// requests, so naming it on stage invites questions the demo can't answer.
+// The full gateway message is still in the frontend log.
+func faiBlockedMessage(lang string) string {
+	switch lang {
+	case "ja":
+		return "このメッセージは Firewall for AI によってブロックされました。"
+	case "ko":
+		return "이 메시지는 Firewall for AI에 의해 차단되었습니다."
+	case "zh":
+		return "此消息已被 Firewall for AI 拦截。"
+	default:
+		return "This message was blocked by Firewall for AI."
+	}
+}
+
 // routingFromHeaders turns the AI Gateway's x-ai-* response headers into the
 // JSON the chat UI renders as a routing badge. Returns nil when Smart Router
 // did not run, so callers can omit the field entirely.
@@ -1321,12 +1340,14 @@ func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request)
 				msg = oai.Error.Message
 			}
 			// A Firewall for AI block lands here as a 400 with the rule in the
-			// message, so surface that rather than a bare debug dump.
+			// message. Show a fixed "blocked by Firewall for AI" line instead.
 			finishReason := ""
 			if len(oai.Choices) > 0 {
 				finishReason = oai.Choices[0].FinishReason
 			}
-			if msg != "" {
+			if strings.Contains(msg, "AI Firewall") {
+				reply = faiBlockedMessage(req.Lang)
+			} else if msg != "" {
 				reply = msg
 			} else if finishReason == "length" {
 				// A reasoning model spent the whole token budget thinking and
