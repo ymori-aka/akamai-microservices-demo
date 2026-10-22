@@ -5,12 +5,13 @@ name: Apply Grafana NB firewall ACL — TOKYO
 #
 # LKE's CCM cannot attach a firewall we created ourselves (firewall-id
 # annotation -> [403] Unauthorized, and the Service keeps failing to sync).
-# It can manage a firewall it creates from the firewall-acl annotation, so:
-#   1. detach the stop-gap firewall (attached by hand via the API)
-#   2. immediately set the firewall-acl annotation on monitoring/grafana
-#   3. wait until CCM has attached its own firewall
-# Order matters: with the stop-gap still attached, CCM tries to rewrite ITS
-# rules and gets 403 again.
+# It can manage a firewall it creates from the firewall-acl annotation, so
+# this workflow sets that annotation on monitoring/grafana.
+#
+# LINODE_PAT has no NodeBalancer/Firewall scope, so this workflow only does
+# the Kubernetes side. If a hand-attached stop-gap firewall is on the NB,
+# detach it right after this run (with a token that can) — CCM retries and
+# then attaches its own firewall. Until then the stop-gap keeps the NB closed.
 #
 # The allowlist comes from the NB_TOOLS_ALLOWLIST secret (comma-separated
 # CIDRs) so the IPs never land in this public repo. The annotation is added
@@ -23,14 +24,6 @@ on:
         description: "Tokyo LKE cluster id"
         required: true
         default: "610031"
-      nodebalancer_id:
-        description: "NodeBalancer behind monitoring/grafana"
-        required: true
-        default: "2238107"
-      stopgap_firewall_id:
-        description: "Hand-attached firewall to detach first (empty = none)"
-        required: false
-        default: "217609456"
 
 jobs:
   apply:
@@ -38,62 +31,23 @@ jobs:
     env:
       LINODE_PAT: ${{ secrets.LINODE_PAT }}
       ALLOWLIST: ${{ secrets.NB_TOOLS_ALLOWLIST }}
-      NB: ${{ inputs.nodebalancer_id }}
-      FW: ${{ inputs.stopgap_firewall_id }}
       ANN: service.beta.kubernetes.io/linode-loadbalancer-firewall-acl
     steps:
-      - name: Preflight (nothing is changed here)
+      - name: Annotate monitoring/grafana with firewall-acl
         run: |
           set -euo pipefail
           [ -n "$ALLOWLIST" ] || { echo "NB_TOOLS_ALLOWLIST is empty"; exit 1; }
-          KC="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          export KUBECONFIG="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
           curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
             "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
-            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KC"
-          kubectl --kubeconfig "$KC" -n monitoring get svc grafana -o wide
-          echo "firewalls on NB $NB:"
-          curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/nodebalancers/$NB/firewalls" \
-            | python3 -c 'import sys,json;[print(" ",f["id"],f["label"]) for f in json.load(sys.stdin)["data"]]'
-          if [ -n "$FW" ]; then
-            # LINODE_PAT must be able to manage the stop-gap firewall; stop
-            # here (before touching anything) if it cannot.
-            curl -fsS -o /dev/null -H "Authorization: Bearer $LINODE_PAT" \
-              "https://api.linode.com/v4/networking/firewalls/$FW/devices" \
-              || { echo "LINODE_PAT cannot read firewall $FW — aborting without changes"; exit 1; }
-          fi
-
-      - name: Swap stop-gap firewall for CCM-managed ACL
-        run: |
-          set -euo pipefail
-          export KUBECONFIG="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KUBECONFIG"
+          kubectl -n monitoring get svc grafana -o wide
           ACL=$(python3 -c 'import os,json;print(json.dumps({"allowList":{"ipv4":[x.strip() for x in os.environ["ALLOWLIST"].split(",") if x.strip()]}}))')
-          if [ -n "$FW" ]; then
-            DEV=$(curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/networking/firewalls/$FW/devices" \
-              | python3 -c 'import sys,json,os;print(next((str(d["id"]) for d in json.load(sys.stdin)["data"] if d["entity"]["type"]=="nodebalancer" and str(d["entity"]["id"])==os.environ["NB"]),""))')
-            if [ -n "$DEV" ]; then
-              curl -fsS -X DELETE -H "Authorization: Bearer $LINODE_PAT" \
-                "https://api.linode.com/v4/networking/firewalls/$FW/devices/$DEV" >/dev/null
-              echo "detached firewall $FW (device $DEV) from NB $NB"
-            fi
-          fi
           kubectl -n monitoring annotate svc grafana --overwrite "$ANN=$ACL" >/dev/null
           echo "annotated monitoring/grafana with $ANN ($(echo "$ACL" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["allowList"]["ipv4"]))') CIDRs)"
 
-      - name: Wait for CCM to attach its firewall
+      - name: Show CCM events for monitoring/grafana
         run: |
-          set -uo pipefail
           export KUBECONFIG="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
-          for i in $(seq 1 36); do
-            # Only a firewall other than the stop-gap counts as CCM's.
-            OUT=$(curl -fsS -H "Authorization: Bearer $LINODE_PAT" "https://api.linode.com/v4/nodebalancers/$NB/firewalls" \
-              | python3 -c '
-          import sys, json, os
-          for f in json.load(sys.stdin)["data"]:
-              if str(f["id"]) != os.environ["FW"]:
-                  print(f["id"], f["label"], "ports=" + ",".join(r["ports"] for r in f["rules"]["inbound"]))
-          ')
-            if [ -n "$OUT" ]; then echo "attached after ${i}x5s: $OUT"; break; fi
-            sleep 5
-          done
-          kubectl -n monitoring get events --field-selector involvedObject.name=grafana --sort-by=.lastTimestamp | tail -5
-          [ -n "$OUT" ] || { echo "CCM did not attach a firewall within 3 minutes"; exit 1; }
+          sleep 20
+          kubectl -n monitoring get events --field-selector involvedObject.name=grafana --sort-by=.lastTimestamp | tail -6
