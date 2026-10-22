@@ -61,7 +61,7 @@ jobs:
             --set chaosDaemon.socketPath=/run/containerd/containerd.sock \
             --set dashboard.create=true \
             --set dashboard.securityMode=false \
-            --set dashboard.service.type=LoadBalancer \
+            --set dashboard.service.type=ClusterIP \
             --wait --timeout 6m
 
       - name: Make Chaos Mesh webhooks non-blocking (failurePolicy=Ignore)

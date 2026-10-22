@@ -1,0 +1,54 @@
+name: Apply tools-proxy Basic auth — TOKYO
+
+# Puts Basic auth in front of grafana.tserof.net/chaos/ (Chaos Mesh dashboard,
+# securityMode=false) and /chaos-btn/ (chaos-button, no auth of its own).
+# User is "chaos"; the password comes from the TOOLS_PROXY_CHAOS_PASSWORD
+# secret and is stored in-cluster only as an apr1 hash (Secret
+# tools-proxy-htpasswd). Re-run after rotating the password.
+on:
+  workflow_dispatch:
+    inputs:
+      tokyo_cluster_id:
+        description: "Tokyo LKE cluster id"
+        required: true
+        default: "610031"
+
+jobs:
+  apply:
+    runs-on: self-hosted
+    env:
+      LINODE_PAT: ${{ secrets.LINODE_PAT }}
+      CHAOS_PW: ${{ secrets.TOOLS_PROXY_CHAOS_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create htpasswd Secret and roll tools-proxy
+        run: |
+          set -euo pipefail
+          [ -n "$CHAOS_PW" ] || { echo "TOOLS_PROXY_CHAOS_PASSWORD is empty"; exit 1; }
+          export KUBECONFIG="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          curl -fsS -H "Authorization: Bearer $LINODE_PAT" \
+            "https://api.linode.com/v4/lke/clusters/${{ inputs.tokyo_cluster_id }}/kubeconfig" \
+            | python3 -c 'import sys,json,base64;print(base64.b64decode(json.load(sys.stdin)["kubeconfig"]).decode())' > "$KUBECONFIG"
+          HASH=$(printf '%s' "$CHAOS_PW" | openssl passwd -apr1 -stdin)
+          printf 'chaos:%s\n' "$HASH" > "${RUNNER_TEMP:-/tmp}/htpasswd"
+          kubectl -n monitoring create secret generic tools-proxy-htpasswd \
+            --from-file=htpasswd="${RUNNER_TEMP:-/tmp}/htpasswd" --dry-run=client -o yaml | kubectl apply -f -
+          rm -f "${RUNNER_TEMP:-/tmp}/htpasswd"
+          kubectl apply -f kubernetes-manifests/monitoring/tools-proxy.yaml
+          # The ConfigMap changed but the pod template may not have; force a roll.
+          kubectl -n monitoring rollout restart deploy/tools-proxy
+          kubectl -n monitoring rollout status deploy/tools-proxy --timeout=180s
+
+      - name: Verify through the proxy (in-cluster)
+        run: |
+          set -uo pipefail
+          export KUBECONFIG="${RUNNER_TEMP:-/tmp}/kc-tyo.yaml"
+          kubectl -n monitoring delete pod tp-auth-check --ignore-not-found >/dev/null
+          kubectl -n monitoring run tp-auth-check --rm -i --restart=Never --image=curlimages/curl:8.10.1 \
+            --env="PW=$CHAOS_PW" --command -- sh -c '
+              U=http://tools-proxy.monitoring.svc.cluster.local:8080
+              for p in / /kiali/ /chaos/ /chaos-btn/; do
+                printf "%-12s no-auth=%s " "$p" "$(curl -s -o /dev/null -w %{http_code} $U$p)"
+                printf "auth=%s\n" "$(curl -s -o /dev/null -w %{http_code} -u "chaos:$PW" $U$p)"
+              done' 2>&1 | grep -v '^pod '

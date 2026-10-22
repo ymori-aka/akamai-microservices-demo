@@ -5,8 +5,8 @@
 # (PodChaos / NetworkChaos / StressChaos) in the `default` namespace. Press a
 # button -> fault injected; press "Recover all" -> every chaos object deleted.
 #
-# Exposed via LoadBalancer. NOTE: no auth — anyone with the IP can break the
-# store. Fine for a demo; lock down for anything public.
+# The app itself has no auth. It is reachable only through tools-proxy at
+# grafana.tserof.net/chaos-btn/, which puts Basic auth in front of it.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -229,7 +229,9 @@ metadata:
   namespace: default
   labels: { app: chaos-button }
 spec:
-  type: LoadBalancer
+  # ClusterIP: exposed only through tools-proxy (/chaos-btn/, Basic auth).
+  # LoadBalancer here would re-create an unauthenticated public NodeBalancer.
+  type: ClusterIP
   selector: { app: chaos-button }
   ports:
     - name: http
