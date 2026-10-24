@@ -8,7 +8,6 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@google-cloud/profiler": "6.0.2",
     "@google-cloud/trace-agent": "8.0.0",
     "@grpc/grpc-js": "1.13.1",
     "@grpc/proto-loader": "0.7.13",
@@ -23,5 +22,8 @@
     "@opentelemetry/sdk-node": "0.200.0",
     "pino": "9.6.0",
     "xml2js": "0.6.2"
+  },
+  "optionalDependencies": {
+    "@google-cloud/profiler": "6.0.2"
   }
 }
